@@ -1,5 +1,7 @@
 #include "replacements.hpp"
 
+#include "injection.hpp"
+
 #include <cctype>
 #include <exception>
 #include <filesystem>
@@ -135,8 +137,11 @@ long long undump_detour(
 	int mode
 )
 {
+	injection::notify_undump();
 	const auto original = reinterpret_cast<Undump>(undump_hook.original);
-	if (body != nullptr && body_size > 0 && body_size < static_cast<long long>(maximum_replacement_size))
+	if (!active_replacements.empty()
+		&& body != nullptr && body_size > 0
+		&& body_size < static_cast<long long>(maximum_replacement_size))
 	{
 		const auto key = body_key(std::string_view(
 			reinterpret_cast<const char*>(body),
@@ -162,14 +167,14 @@ long long undump_detour(
 }
 }
 
-InitialiseResult initialise(std::string_view exact_build)
+InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 {
 	std::unordered_map<std::uint64_t, std::vector<unsigned char>> snapshot;
 	if (!load_snapshot(std::filesystem::path("OpenWF") / "CustomScripts", snapshot))
 	{
 		return InitialiseResult::Failed;
 	}
-	if (snapshot.empty())
+	if (snapshot.empty() && !observe_undumps)
 	{
 		conout << "RENOVICE Lua replacements disabled: no .lua_B files found" << std::endl;
 		return InitialiseResult::Disabled;
@@ -218,7 +223,8 @@ InitialiseResult initialise(std::string_view exact_build)
 	undump_hook.enable();
 
 	conout << "RENOVICE Lua replacement hook enabled: replacements="
-		<< active_replacements.size() << " target=" << target << std::endl;
+		<< active_replacements.size() << " undump_observer=" << observe_undumps
+		<< " target=" << target << std::endl;
 	return InitialiseResult::Enabled;
 }
 }

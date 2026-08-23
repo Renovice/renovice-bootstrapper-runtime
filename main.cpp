@@ -1,5 +1,6 @@
 #include "main.hpp"
 
+#include "renovice/injection.hpp"
 #include "renovice/replacements.hpp"
 
 #define VERIFY_EXE_SIG false
@@ -1668,6 +1669,7 @@ static raise_script_error_t* raise_script_error_fp = nullptr;
 
 static int lua_LotusHudStatus_UpdateFlashMarkers_detour(luau_State* L)
 {
+	renovice::injection::drain(L);
 #if PROFILE_SCRIPT_TICKING
 	auto t = soup::time::nanos();
 #endif
@@ -1720,6 +1722,7 @@ static int lua_LotusHudStatus_UpdateFlashMarkers_detour(luau_State* L)
 		{
 			if (DWORD pid; GetWindowThreadProcessId(GetForegroundWindow(), &pid), pid == GetCurrentProcessId())
 			{
+				renovice::injection::poll_f9();
 				if (hotkeys_mtx.tryLock())
 				{
 					for (auto& hk : hotkeys)
@@ -2949,7 +2952,15 @@ static soup::Pattern hash_to_pattern(uint32_t hash1, uint32_t hash2)
 
 static SOUP_FORCEINLINE void create_all_hooks()
 {
-	const auto replacement_result = renovice::replacements::initialise(std::string_view(build_version, 16));
+	const auto injection_result = renovice::injection::initialise();
+	if (injection_result == renovice::injection::InitialiseResult::Failed)
+	{
+		conout << "RENOVICE additive injection failed closed; no Inject bytecode will execute." << std::endl;
+	}
+	const auto replacement_result = renovice::replacements::initialise(
+		std::string_view(build_version, 16),
+		injection_result == renovice::injection::InitialiseResult::Enabled
+	);
 	if (replacement_result == renovice::replacements::InitialiseResult::Failed)
 	{
 		conout << "RENOVICE Lua replacements were requested but could not be activated; the replacement subsystem remains disabled." << std::endl;

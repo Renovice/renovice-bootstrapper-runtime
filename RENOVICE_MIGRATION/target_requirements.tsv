@@ -1,8 +1,8 @@
 requirement_id	category	requirement	acceptance_test	status
 TG-001	packaging	Produce one source-built wtsapi32.dll with no wtsapi32_owf.dll dependency	Process module list contains no companion and login plus mission entry succeed	PENDING
 TG-002	parity	Preserve every manifest row marked parity_required yes	Manifest verifier reports no missing parity result and live checklist is complete	IN_PROGRESS
-TG-003	hot_reload	F9 rereads the complete current Hot directory only when pressed	Added changed and deleted files exactly define the staged generation	PENDING
-TG-004	hot_reload	Reload is transactional across the complete Hot directory	One deliberately invalid script leaves the prior generation active and reports rollback pass	PENDING
+TG-003	hot_reload	F9 rereads the complete current Hot directory only when pressed	Added changed and deleted files exactly define the staged generation	IN_PROGRESS
+TG-004	hot_reload	Reload is transactional across the complete Hot directory	One deliberately invalid script leaves the prior generation active and reports rollback pass	IN_PROGRESS
 TG-005	addons	Stable event dispatcher swaps addon behavior immediately	Damage callback changed to Overguard is observed on the next event without duplicate old behavior	PENDING
 TG-006	hot_modules	Stable export tables update complete custom modules in place	Existing table holders call new exports after F9 while staged failure preserves old exports	PENDING
 TG-007	replacements	F9 atomically refreshes the complete replacement byte map	Added changed and deleted hash files are reflected on the next matching DE module load	PENDING

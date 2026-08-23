@@ -11,5 +11,5 @@ enum class InitialiseResult
 	Failed,
 };
 
-InitialiseResult initialise(std::string_view exact_build);
+InitialiseResult initialise(std::string_view exact_build, bool observe_undumps);
 }

@@ -8,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+#include "../../renovice/injection_core.hpp"
+
 namespace
 {
 struct Pattern
@@ -124,7 +126,12 @@ bool expect_matches(
 {
 	const auto hits = scan(data, parse_pattern(pattern));
 	const bool pass = hits.size() >= minimum && hits.size() <= maximum;
-	std::cout << (pass ? "PASS" : "FAIL") << '\t' << name << "\tmatches=" << hits.size() << '\n';
+	std::cout << (pass ? "PASS" : "FAIL") << '\t' << name << "\tmatches=" << hits.size();
+	if (!hits.empty())
+	{
+		std::cout << " first_raw=0x" << std::hex << hits.front() << std::dec;
+	}
+	std::cout << '\n';
 	return pass;
 }
 
@@ -174,6 +181,13 @@ int main(int argc, char** argv)
 	exact("worldstate integrity", "48 89 5C 24 ? 48 89 74 24 ? 48 89 7C 24 ? 55 41 56 41 57 48 8B EC 48 83 EC ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 45 ? 48 8B F9 84 D2");
 	exact("Lua set-global-by-hash", "49 8B 4E 20 BA ? ? ? ? E8 ? ? ? ? 49 8B 4E 20 E8");
 	exact("Lua set-global", "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 F6 41 01 04 48 8B FA");
+	exact("inject module loader", renovice::injection::signature_module_loader);
+	exact("inject name-key builder", renovice::injection::signature_name_key_builder);
+	exact("inject getfield", renovice::injection::signature_getfield);
+	exact("inject setfield", renovice::injection::signature_setfield);
+	exact("inject checkstack", renovice::injection::signature_checkstack);
+	exact("inject game allocator", renovice::injection::signature_game_allocator);
+	exact("inject protected call", renovice::injection::signature_protected_call);
 	const auto undump_pattern = parse_pattern("40 53 55 56 57 41 55 41 56 41 57 48 81 EC F0 01 00 00 48 8B 05 ? ? ? ? 48 33");
 	const auto undump_hits = scan(data, undump_pattern);
 	const bool undump_pass = undump_hits.size() == 1 && undump_hits.front() == 0x197d430;

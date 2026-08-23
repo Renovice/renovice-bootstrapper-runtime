@@ -40,21 +40,31 @@ Updated: 2026-08-23
   signature, and exact-build June/July RVA fallbacks.
 - [x] Validated all four active replacement filenames and rebuilt with zero
   warning/error lines. Live replacement execution is still pending.
+- [x] Ported ordinary one-shot additive injection (`LI-001` through `LI-007`)
+  with unique U43 signatures, captured manager state, true global environment,
+  registry restoration, VM-top restoration, and native fault containment.
+- [x] Reused OpenWF's existing script-thread tick for F9 and injection draining;
+  no additional polling thread or `SetStringVariable` hook was introduced.
+- [x] Made Inject folder reload transactional and explicitly rejected the old
+  experimental `.persist`/`.spawn` routes until their lifecycle is redesigned.
 
 ## Current hard boundary
 
-U43 compatibility and the boot-time full-module replacement loader are ported
-and offline-verified. Additive injection, riven UI/SWF behavior, F9, and addon
-transactions have not been ported. The new DLL has not been deployed or
-live-tested, so the known-good two-DLL game installation remains the runtime
-recovery baseline.
+U43 compatibility, boot-time full-module replacement, ordinary additive
+injection, and transactional F9 folder staging are ported and offline-verified.
+Persistent coroutine modules, the proper managed addon/event layer, and riven
+UI/SWF behavior are not ported. The new DLL has not been deployed or live-tested,
+so the known-good two-DLL game installation remains the runtime recovery
+baseline.
 
 ## Next job
 
 - [ ] Run an isolated live load/login/mission smoke test before treating the
   new source-built baseline as runtime-compatible.
-- [ ] Then port additive injection (`LI-001` through `LI-012`) without changing
-  its existing runtime behavior.
+- [ ] Live-test one ordinary Inject fixture, F9 generation replacement, invalid
+  candidate rollback, deliberate fault containment, and subsequent VM health.
+- [ ] Design the managed addon/event dispatcher; do not revive the experimental
+  fabricated scheduler/coroutine path as the default hook architecture.
 
 The future Hot/addon transaction starts after the existing loader and additive
 injector pass source parity; it is not mixed into the first port.

@@ -76,6 +76,14 @@ powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\replacements\verify_
   -ReplacementDirectory 'C:\path\to\Warframe\OpenWF\CustomScripts'
 ```
 
+Verify additive Inject filename/mode/size rules, optionally against the active
+folder, with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\injection\verify_injection_core.ps1 `
+  -InjectionDirectory 'C:\path\to\Warframe\OpenWF\CustomScripts\Inject'
+```
+
 These checks establish the normal-source baseline. They do not claim that the
 custom migration or its live-game parity is complete.
 
