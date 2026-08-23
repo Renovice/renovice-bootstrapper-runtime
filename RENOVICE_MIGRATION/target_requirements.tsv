@@ -5,7 +5,7 @@ TG-003	hot_reload	F9 rereads the complete current Hot directory only when presse
 TG-004	hot_reload	Reload is transactional across the complete Hot directory	One deliberately invalid script leaves the prior generation active and reports rollback pass	PASS
 TG-005	addons	Stable event dispatcher swaps addon behavior immediately	Damage callback changed to Overguard is observed on the next event without duplicate old behavior	IN_PROGRESS
 TG-006	hot_modules	Stable export tables update complete custom modules in place	Existing table holders call new exports after F9 while staged failure preserves old exports	PENDING
-TG-007	replacements	F9 atomically refreshes the complete replacement byte map	Added changed and deleted hash files are reflected on the next matching DE module load	IN_PROGRESS
+TG-007	replacements	F9 atomically refreshes the replacement map and loaded module exports	A changed loaded ability applies on the next cast without restart and deleting its replacement restores captured stock behavior	IN_PROGRESS
 TG-008	lifecycle	Old generation subscriptions tasks and owned resources are deactivated	One hundred successful reloads do not multiply callback count or leave active old tasks	IN_PROGRESS
 TG-009	status	Every reload reports pass fail rollback and application timing	Log distinguishes immediate next-cast next-spawn next-region and next-module-load outcomes	IN_PROGRESS
 TG-010	performance	No filesystem or compilation work occurs while reload is idle	Idle instrumentation records zero Hot directory reads and zero generation rebuilds	IN_PROGRESS

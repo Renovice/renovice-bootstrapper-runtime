@@ -7,6 +7,30 @@
 
 namespace renovice::replacements
 {
+enum class HotReloadPayload
+{
+	None,
+	Replacement,
+	Original,
+};
+
+inline HotReloadPayload select_hot_reload_payload(
+	bool key_changed,
+	bool replacement_present,
+	bool original_present
+) noexcept
+{
+	if (!key_changed) return HotReloadPayload::None;
+	if (replacement_present) return HotReloadPayload::Replacement;
+	if (original_present) return HotReloadPayload::Original;
+	return HotReloadPayload::None;
+}
+
+inline bool compatible_hot_reload_vm(const void* current, const void* captured) noexcept
+{
+	return current != nullptr && current == captured;
+}
+
 inline constexpr std::uint64_t deployed_body_key_basis = 1469598103934665603ull;
 inline constexpr std::uint64_t body_key_prime = 1099511628211ull;
 

@@ -10,8 +10,11 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -21,6 +24,7 @@
 #include <Pattern.hpp>
 
 #include "../owf_console.hpp"
+#include "../owf_luau.hpp"
 #include "../owf_structs.hpp"
 #include "../owf_tunables.hpp"
 
@@ -45,6 +49,23 @@ using Snapshot = std::unordered_map<std::uint64_t, std::vector<unsigned char>>;
 std::atomic<std::shared_ptr<Snapshot>> active_replacements{std::make_shared<Snapshot>()};
 std::shared_ptr<Snapshot> prepared_replacements;
 std::atomic_bool subsystem_enabled = false;
+
+struct LoadedContext
+{
+	void* environment = nullptr;
+	luau_GlobalState* global_state = nullptr;
+};
+
+struct LoadedTarget
+{
+	std::vector<unsigned char> original;
+	std::vector<LoadedContext> contexts;
+};
+
+std::mutex loaded_targets_mutex;
+std::unordered_map<std::uint64_t, LoadedTarget> loaded_targets;
+std::vector<std::uint64_t> prepared_changed_keys;
+std::vector<std::uint64_t> committed_changed_keys;
 
 bool ascii_iequals(std::string_view lhs, std::string_view rhs) noexcept
 {
@@ -131,6 +152,24 @@ bool load_snapshot(
 		return false;
 	}
 	return true;
+}
+
+std::vector<std::uint64_t> changed_keys(const Snapshot& previous, const Snapshot& next)
+{
+	std::unordered_set<std::uint64_t> changed;
+	for (const auto& [key, bytes] : previous)
+	{
+		const auto found = next.find(key);
+		if (found == next.end() || found->second != bytes) changed.emplace(key);
+	}
+	for (const auto& [key, bytes] : next)
+	{
+		const auto found = previous.find(key);
+		if (found == previous.end() || found->second != bytes) changed.emplace(key);
+	}
+	std::vector<std::uint64_t> result(changed.begin(), changed.end());
+	std::sort(result.begin(), result.end());
+	return result;
 }
 
 long long undump_detour(
@@ -247,6 +286,8 @@ bool prepare_reload()
 {
 	auto candidate = std::make_shared<Snapshot>();
 	if (!load_snapshot(config::custom_scripts_directory(), *candidate)) return false;
+	const auto previous = active_replacements.load(std::memory_order_acquire);
+	prepared_changed_keys = changed_keys(*previous, *candidate);
 	if (!subsystem_enabled.load(std::memory_order_acquire))
 	{
 		if (candidate->empty())
@@ -265,10 +306,142 @@ void commit_prepared_reload()
 {
 	if (!prepared_replacements) return;
 	active_replacements.store(std::move(prepared_replacements), std::memory_order_release);
+	committed_changed_keys = std::move(prepared_changed_keys);
 }
 
 void discard_prepared_reload()
 {
 	prepared_replacements.reset();
+	prepared_changed_keys.clear();
+}
+
+void observe_module_load(void* manager, void* descriptor)
+{
+	if (!subsystem_enabled.load(std::memory_order_acquire)
+		|| manager == nullptr || descriptor == nullptr
+		|| IsBadReadPtr(manager, 0x28) || IsBadReadPtr(descriptor, 0x60))
+	{
+		return;
+	}
+	auto* state = *reinterpret_cast<luau_State**>(
+		reinterpret_cast<unsigned char*>(manager) + 0x20);
+	auto* body = *reinterpret_cast<unsigned char**>(
+		reinterpret_cast<unsigned char*>(descriptor) + 0x38);
+	const auto size = *reinterpret_cast<std::uint32_t*>(
+		reinterpret_cast<unsigned char*>(descriptor) + 0x40);
+	void* environment = *reinterpret_cast<void**>(
+		reinterpret_cast<unsigned char*>(descriptor) + 0x58);
+	if (state == nullptr || IsBadReadPtr(state, sizeof(luau_State))
+		|| state->global_state == nullptr || body == nullptr || size == 0
+		|| size >= maximum_replacement_size || IsBadReadPtr(body, size)
+		|| environment == nullptr || IsBadReadPtr(environment, 0x10))
+	{
+		return;
+	}
+	const auto key = body_key(std::string_view(
+		reinterpret_cast<const char*>(body), size));
+	const auto snapshot = active_replacements.load(std::memory_order_acquire);
+	if (snapshot->find(key) == snapshot->end()) return;
+
+	try
+	{
+		std::lock_guard lock(loaded_targets_mutex);
+		auto& target = loaded_targets[key];
+		if (target.original.empty()) target.original.assign(body, body + size);
+		else if (target.original.size() != size
+			|| !std::equal(target.original.begin(), target.original.end(), body))
+		{
+			conout << "RENOVICE hot target rejected: body-key collision key=" << key << std::endl;
+			return;
+		}
+		const auto duplicate = std::find_if(
+			target.contexts.begin(), target.contexts.end(),
+			[&](const LoadedContext& context)
+			{
+				return context.environment == environment
+					&& context.global_state == state->global_state;
+			});
+		if (duplicate == target.contexts.end())
+		{
+			target.contexts.push_back({environment, state->global_state});
+			conout << "RENOVICE hot target captured key=" << key
+				<< " environment=" << environment << std::endl;
+		}
+	}
+	catch (const std::exception& exception)
+	{
+		conout << "RENOVICE hot target capture failed: " << exception.what() << std::endl;
+	}
+}
+
+bool reexecute_changed_loaded(luau_State* state)
+{
+	if (state == nullptr || IsBadReadPtr(state, sizeof(luau_State))
+		|| state->global_state == nullptr)
+	{
+		return false;
+	}
+	struct Job
+	{
+		std::uint64_t key;
+		void* environment;
+		std::vector<unsigned char> bytes;
+		bool restoring_stock;
+	};
+	std::vector<Job> jobs;
+	std::size_t deferred = 0;
+	const auto snapshot = active_replacements.load(std::memory_order_acquire);
+	{
+		std::lock_guard lock(loaded_targets_mutex);
+		for (const auto key : committed_changed_keys)
+		{
+			const auto target = loaded_targets.find(key);
+			if (target == loaded_targets.end())
+			{
+				++deferred;
+				continue;
+			}
+			const auto replacement = snapshot->find(key);
+			const auto payload = select_hot_reload_payload(
+				true,
+				replacement != snapshot->end(),
+				!target->second.original.empty());
+			if (payload == HotReloadPayload::None)
+			{
+				++deferred;
+				continue;
+			}
+			const bool restoring = payload == HotReloadPayload::Original;
+			const auto& bytes = restoring ? target->second.original : replacement->second;
+			bool matched_vm = false;
+			for (const auto& context : target->second.contexts)
+			{
+				if (!compatible_hot_reload_vm(state->global_state, context.global_state)) continue;
+				matched_vm = true;
+				jobs.push_back({key, context.environment, bytes, restoring});
+			}
+			if (!matched_vm) ++deferred;
+		}
+		committed_changed_keys.clear();
+	}
+
+	bool pass = true;
+	for (const auto& job : jobs)
+	{
+		std::ostringstream name;
+		name << "hot-reload-" << std::hex << job.key
+			<< (job.restoring_stock ? "-stock" : "-replacement");
+		const bool current = injection::execute_module_refresh(
+			name.str(), job.bytes, job.environment, state);
+		conout << "RENOVICE F9 module refresh " << (current ? "PASS" : "FAIL")
+			<< " key=" << job.key
+			<< " mode=" << (job.restoring_stock ? "stock" : "replacement")
+			<< std::endl;
+		pass = current && pass;
+	}
+	conout << "RENOVICE F9 module refresh summary changed="
+		<< (jobs.size() + deferred) << " executed=" << jobs.size()
+		<< " deferred=" << deferred << std::endl;
+	return pass;
 }
 }

@@ -294,7 +294,8 @@ RunResult run_guarded(
 	luau_State* state,
 	void* manager,
 	void* descriptor,
-	const char* lifecycle_key
+	const char* lifecycle_key,
+	bool pass_global_argument
 )
 {
 	RunResult result;
@@ -338,15 +339,20 @@ RunResult run_guarded(
 		check_stack(state, 8);
 	}
 
-	// Fetch the real global table and seed the fabricated descriptor so
-	// GETGLOBAL/NAMECALL in the injected closure resolves native Warframe APIs.
-	getfield(state, -10002, "_G");
-	if (is_table(guard.base->type))
+	// Ordinary Inject/addon chunks use the current VM global environment. A hot
+	// replacement instead preserves the exact module environment captured when
+	// that stock module originally loaded, so its top-level assignments replace
+	// ActivateAbility and sibling exports in place.
+	if (pass_global_argument)
 	{
-		*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(descriptor) + 0x58)
-			= reinterpret_cast<void*>(guard.base->value.as_uintptr);
+		getfield(state, -10002, "_G");
+		if (is_table(guard.base->type))
+		{
+			*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(descriptor) + 0x58)
+				= reinterpret_cast<void*>(guard.base->value.as_uintptr);
+		}
+		state->outtop = guard.base;
 	}
-	state->outtop = guard.base;
 
 	guard.stage = 2;
 	getfield(state, -10000, guard.key);
@@ -372,10 +378,18 @@ RunResult run_guarded(
 		return result;
 	}
 
-	getfield(state, -10002, "_G");
 	guard.stage = 5;
-	result.protected_call_result = protected_call(state, 1, 1, 0);
-	result.result_tag = (guard.base + 1)->type;
+	if (pass_global_argument)
+	{
+		getfield(state, -10002, "_G");
+		result.protected_call_result = protected_call(state, 1, 1, 0);
+		result.result_tag = (guard.base + 1)->type;
+	}
+	else
+	{
+		result.protected_call_result = protected_call(state, 0, 0, 0);
+		result.result_tag = -1;
+	}
 	if (result.protected_call_result == 0 && lifecycle_key != nullptr)
 	{
 		if (!is_table(result.result_tag))
@@ -479,6 +493,7 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 
 void loader_detour(void* manager, void* descriptor)
 {
+	replacements::observe_module_load(manager, descriptor);
 	if (!context_ready.load(std::memory_order_acquire) && descriptor != nullptr
 		&& !IsBadReadPtr(descriptor, 0x60))
 	{
@@ -521,7 +536,9 @@ void loader_detour(void* manager, void* descriptor)
 bool run_chunk(
 	const Chunk& chunk,
 	luau_State* boundary_state,
-	const std::string* lifecycle_key = nullptr
+	const std::string* lifecycle_key = nullptr,
+	void* execution_environment = nullptr,
+	bool pass_global_argument = true
 )
 {
 	void* manager = captured_manager;
@@ -567,13 +584,15 @@ bool run_chunk(
 	*reinterpret_cast<void**>(fabricated_descriptor + 0x38) = game_buffer;
 	*reinterpret_cast<std::uint32_t*>(fabricated_descriptor + 0x40)
 		= static_cast<std::uint32_t>(chunk.bytes.size());
-	*reinterpret_cast<void**>(fabricated_descriptor + 0x58) = captured_environment;
+	*reinterpret_cast<void**>(fabricated_descriptor + 0x58)
+		= execution_environment != nullptr ? execution_environment : captured_environment;
 
 	const auto result = run_guarded(
 		boundary_state,
 		manager,
 		fabricated_descriptor,
-		lifecycle_key == nullptr ? nullptr : lifecycle_key->c_str());
+		lifecycle_key == nullptr ? nullptr : lifecycle_key->c_str(),
+		pass_global_argument);
 	if (result.completed && result.registry_restored)
 	{
 		conout << "RENOVICE Inject PASS " << chunk.name
@@ -747,6 +766,24 @@ bool install_loader_hook()
 }
 }
 
+bool execute_module_refresh(
+	const std::string& name,
+	const std::vector<unsigned char>& bytes,
+	void* environment,
+	luau_State* state
+)
+{
+	if (bytes.empty() || environment == nullptr)
+	{
+		return false;
+	}
+	Chunk chunk;
+	chunk.name = name;
+	chunk.bytes = bytes;
+	chunk.kind = ScriptKind::Ordinary;
+	return run_chunk(chunk, state, nullptr, environment, false);
+}
+
 InitialiseResult initialise()
 {
 	std::vector<Chunk> snapshot;
@@ -865,7 +902,14 @@ void drain(luau_State* state)
 		if (transaction_valid
 			&& apply_generation(candidate, state, reload ? "F9" : (generation_active ? "region" : "startup")))
 		{
-			if (reload) commit_prepared();
+			if (reload)
+			{
+				commit_prepared();
+				if (!replacements::reexecute_changed_loaded(state))
+				{
+					conout << "RENOVICE F9 module refresh incomplete; replacement map remains committed for the next natural load" << std::endl;
+				}
+			}
 		}
 		else
 		{

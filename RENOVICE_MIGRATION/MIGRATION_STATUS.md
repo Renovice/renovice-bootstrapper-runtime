@@ -62,9 +62,10 @@ Updated: 2026-08-23
 - [x] Made F9 stage configuration, SWF, full Lua replacements, Riven gating,
   and the complete Inject folder before publication; addon activation failure
   cleans the candidate and attempts to reactivate the previous generation.
-- [x] Added atomic F9 refresh of the full-module replacement snapshot. Existing
-  cached closures remain old until the next matching module load, which is a
-  DE cache/lifetime boundary rather than a partial reload.
+- [x] Added atomic F9 refresh of the full-module replacement snapshot plus
+  same-VM re-execution of changed loaded modules in their captured environment.
+  Future calls use the refreshed exports; already-running closures finish on
+  their old generation. Removal re-executes the captured stock body.
 
 ## Current hard boundary
 
@@ -103,7 +104,8 @@ remain open rather than being inferred from this pass.
   preserved generation, deletion/root release, ordinary one-shot execution,
   focus rearming, and final empty-generation commit are live passes.
 - [ ] Live-test SWF replacement, Riven gate off/on, config fallback, and a
-  changed full-module replacement applying on its next module load.
+  changed loaded full-module replacement applying on its next cast without a
+  process restart, including stock restoration when its hash file is removed.
 - [ ] After the generic lifecycle is live-proven, add only evidence-backed
   convenience event APIs and decide whether `TG-006` in-place export tables are
   still needed.

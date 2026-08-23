@@ -86,10 +86,14 @@ F9 edge (no idle folder watcher)
   -> report RELOAD PASS/ROLLBACK/FATAL and application timing
 ```
 
-Full DE-Luau replacements are re-read on F9, but an already cached stock module
-continues using its current closure. The new body applies on the next matching
-module load. Existing entities/closures likewise remain old until their
-owning addon cleanup or the next event/spawn, as reported in the reload line.
+Full DE-Luau replacements are re-read on F9. For a configured replacement that
+has already loaded, the loader captures its real module environment and stock
+body. A changed replacement is then executed under a fresh internal identity in
+that same environment, replacing exports such as `ActivateAbility` for the next
+cast without mutating a closure that is already running. Removing the hash file
+re-executes the captured stock body. A target in another VM, a replacement added
+only after its stock module was already missed, or an unavailable stock body
+fails closed and remains scheduled for its next natural module load.
 
 Ordinary one-shot chunks are intentionally outside reversible addon semantics.
 They run only after the managed generation commits; an ordinary chunk failure
@@ -112,18 +116,21 @@ remains rejected.
   release escalation, and rollback-failure escalation;
 - replacement generations use atomic snapshot swaps, so F9 cannot race the
   undump detour or invalidate replacement byte lifetime;
+- the loaded-module planner selects changed replacement bytes, captured stock
+  bytes on removal, and rejects null/cross-VM targets; its deterministic tests
+  pass, while real next-cast execution remains a live gate;
 - config/SWF/replacement/Riven state is prepared before addon staging and
   discarded if staging/activation fails;
 - private build: warnings 0, errors 0, x64, no companion import;
-- final offline-gate DLL: 3,998,208 bytes, x64, warnings 0, errors 0,
+- current module-refresh build: 4,019,712 bytes, x64, warnings 0, errors 0,
   companion import absent, SHA-256
-  `2bcb2b12d2daf8c307878196bb3f8f4037f265b2b3ce89c69dba5cf9ce8b1c03`.
+  `5491daa0216cfd5daf1ce9e89b9f75f07dfe38675b8f4f77657a797495cd840a`.
 
 ## Live boundary
 
 The final live phase needs one reversible managed addon fixture and one failing
 fixture. Required observations are: initial activation, F9 behavior change,
 no duplicate old callback, activation rollback, registry cleanup over repeated
-reloads, region behavior with AutoSpawn both ways, and a full replacement that
-changes on its next module load. Until then, source/offline parity is proven;
-live parity is not claimed.
+reloads, region behavior with AutoSpawn both ways, and a loaded full replacement
+that changes on its next cast without restart and restores stock on deletion.
+Until then, source/offline parity is proven; live parity is not claimed.

@@ -32,6 +32,20 @@ int main(int argc, char** argv)
 	check(fallback_tunable_name("2026.07.11.15.28")
 		== "renovice_undump_rva_2026_07_11_15_28", "exact-build fallback key");
 
+	check(select_hot_reload_payload(false, true, true) == HotReloadPayload::None,
+		"unchanged replacement is not reexecuted");
+	check(select_hot_reload_payload(true, true, true) == HotReloadPayload::Replacement,
+		"changed replacement selects new bytecode");
+	check(select_hot_reload_payload(true, false, true) == HotReloadPayload::Original,
+		"removed replacement restores captured stock bytecode");
+	check(select_hot_reload_payload(true, false, false) == HotReloadPayload::None,
+		"removed replacement without captured stock fails closed");
+	const int vm_a = 1;
+	const int vm_b = 2;
+	check(compatible_hot_reload_vm(&vm_a, &vm_a), "same DE VM accepts hot refresh");
+	check(!compatible_hot_reload_vm(&vm_a, &vm_b), "cross-VM hot refresh rejected");
+	check(!compatible_hot_reload_vm(nullptr, nullptr), "null VM identity rejected");
+
 	if (argc == 2)
 	{
 		std::error_code ec;

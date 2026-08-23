@@ -2,6 +2,8 @@
 
 #include "replacements_core.hpp"
 
+struct luau_State;
+
 namespace renovice::replacements
 {
 enum class InitialiseResult
@@ -16,4 +18,6 @@ bool reload();
 bool prepare_reload();
 void commit_prepared_reload();
 void discard_prepared_reload();
+void observe_module_load(void* manager, void* descriptor);
+bool reexecute_changed_loaded(luau_State* state);
 }
