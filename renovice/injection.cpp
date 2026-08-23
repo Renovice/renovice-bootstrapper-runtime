@@ -784,18 +784,17 @@ void notify_undump() noexcept
 	}
 }
 
-void poll_f9() noexcept
+void poll_f9(bool allow_reload) noexcept
 {
 	if (!subsystem_enabled.load(std::memory_order_acquire))
 	{
 		return;
 	}
 	const bool down = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
-	if (down && !f9_was_down)
+	if (consume_f9_edge(down, allow_reload, f9_was_down))
 	{
 		f9_pending.store(true, std::memory_order_release);
 	}
-	f9_was_down = down;
 }
 
 void drain(luau_State* state)

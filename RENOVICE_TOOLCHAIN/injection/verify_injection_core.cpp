@@ -43,6 +43,23 @@ int main(int argc, char** argv)
 		&& !valid_execution_boundary(false, true, true)
 		&& !valid_execution_boundary(true, true, false),
 		"missing or cross-VM execution boundary rejected");
+	{
+		bool was_down = false;
+		const bool first = consume_f9_edge(true, true, was_down);
+		const bool unfocused_release = consume_f9_edge(false, false, was_down);
+		const bool second = consume_f9_edge(true, true, was_down);
+		check(first && !unfocused_release && second,
+			"F9 release while unfocused rearms the next focused press");
+	}
+	{
+		bool was_down = false;
+		const bool unfocused_press = consume_f9_edge(true, false, was_down);
+		const bool focus_while_held = consume_f9_edge(true, true, was_down);
+		const bool release = consume_f9_edge(false, true, was_down);
+		const bool fresh_press = consume_f9_edge(true, true, was_down);
+		check(!unfocused_press && !focus_while_held && !release && fresh_press,
+			"F9 pressed outside Warframe cannot trigger on focus transfer");
+	}
 
 	struct Record { int id; };
 	{

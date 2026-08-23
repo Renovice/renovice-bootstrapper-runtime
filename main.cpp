@@ -1721,22 +1721,24 @@ static int lua_LotusHudStatus_UpdateFlashMarkers_detour(luau_State* L)
 
 	{
 		std::lock_guard mtx(running_scripts_mtx);
-		if (active_input_filter_allows_hotkeys && !prohibit_scripts)
+		DWORD foreground_pid = 0;
+		GetWindowThreadProcessId(GetForegroundWindow(), &foreground_pid);
+		const bool game_has_focus = foreground_pid == GetCurrentProcessId();
+		const bool allow_hotkeys = game_has_focus
+			&& active_input_filter_allows_hotkeys && !prohibit_scripts;
+		renovice::injection::poll_f9(allow_hotkeys);
+		if (allow_hotkeys)
 		{
-			if (DWORD pid; GetWindowThreadProcessId(GetForegroundWindow(), &pid), pid == GetCurrentProcessId())
+			if (hotkeys_mtx.tryLock())
 			{
-				renovice::injection::poll_f9();
-				if (hotkeys_mtx.tryLock())
+				for (auto& hk : hotkeys)
 				{
-					for (auto& hk : hotkeys)
+					if (hk.wasJustPressed())
 					{
-						if (hk.wasJustPressed())
-						{
-							start_script_from_string(hk.script);
-						}
+						start_script_from_string(hk.script);
 					}
-					hotkeys_mtx.unlock();
 				}
+				hotkeys_mtx.unlock();
 			}
 		}
 		if (bgscript != nullptr)

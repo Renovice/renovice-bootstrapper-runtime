@@ -33,3 +33,10 @@ Generation one used an error sentinel, but this protected-call path does not
 copy that string into EE.log. Later ordinary verifiers therefore write tokens
 that the following managed generation must consume. A missing commit, unexpected
 commit on the invalid generation, RENOVICE native fault, or crash fails the test.
+
+The 2026-08-23 corrected-boundary run passed steps 1 through 4. The first step-5
+press exposed the independent unfocused-release F9 latch defect; subsequent
+presses were not detected, and the game was later closed normally. Step 5 and
+the final empty-generation cleanup therefore remain unproven, not failed. The
+source now tracks key releases while unfocused and must repeat those remaining
+steps under the new DLL.

@@ -98,4 +98,14 @@ inline bool valid_execution_boundary(
 	// only when both states belong to the same global VM.
 	return manager_state_readable && boundary_state_readable && shared_global_state;
 }
+
+inline bool consume_f9_edge(bool down, bool allow_reload, bool& was_down) noexcept
+{
+	const bool pressed = allow_reload && down && !was_down;
+	// Always record both press and release, including while Warframe is not the
+	// foreground window. Otherwise an alt-tab after F9 can leave the latch stuck
+	// in the down state and silently suppress the next legitimate press.
+	was_down = down;
+	return pressed;
+}
 }

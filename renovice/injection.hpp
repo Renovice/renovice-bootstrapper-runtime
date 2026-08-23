@@ -12,6 +12,6 @@ enum class InitialiseResult
 
 InitialiseResult initialise();
 void notify_undump() noexcept;
-void poll_f9() noexcept;
+void poll_f9(bool allow_reload) noexcept;
 void drain(luau_State* state);
 }

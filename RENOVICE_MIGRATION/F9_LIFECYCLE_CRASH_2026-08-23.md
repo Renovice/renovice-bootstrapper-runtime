@@ -40,3 +40,30 @@ The quarantined generation-two payload remains under
 `RENOVICE_LIVE_TESTS/F9_TRANSACTION_2026-08-23/crash_live_payload`; it must not
 be restored to the game until the rebuilt DLL passes offline gates and a fresh
 generation-one live test.
+
+## Live retest and independent F9 edge defect
+
+With the corrected execution boundary, generation one started cleanly,
+generation two replaced it on the same F9 path that previously crashed, an
+invalid lifecycle table was rejected without advancing the configuration
+commit counter, and generation three then proved that generation two had
+survived rollback and cleaned correctly. The same Warframe PID remained
+responsive with no GPF or Lua VM error.
+
+The following deletion press was silently missed. Inspection found a separate
+input-state defect: `poll_f9` was called only while Warframe was foreground, so
+an F9 release after switching away could leave `f9_was_down` latched true. The
+source now polls only the key state on every existing script tick, including
+while unfocused, but latches reload work only on a fresh focused press. It still
+does no idle filesystem scan or compilation. Deterministic tests cover release
+while unfocused and pressing F9 in another application before returning to the
+game.
+
+The client was subsequently closed normally: EE.log contains no GPF, access
+violation, or crash dump, and the configuration counter remained unchanged.
+Consequently addon deletion/root release is **not live-certified by this run**;
+the process exit destroyed the test VM before that transaction occurred. The
+unfinished ordinary verifier was removed from the live Inject directory before
+the next launch. Generation replacement, invalid-generation rollback, and
+post-rollback replacement are live passes; deletion remains a later retest with
+the corrected key-edge build.
