@@ -1,0 +1,33 @@
+local function get_bootstrapper_title()
+    for line in io.lines("main.hpp") do
+        if line:startswith("#define BOOTSTRAPPER_TITLE") then
+            return line:sub(29, -2)
+        end
+    end
+end
+
+local code_version = get_bootstrapper_title():sub(1 + #"OpenWF Bootstrapper v")
+
+io.contents("version.rc", [[#include <winres.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION ]]..code_version:split("-")[1]:replace(".", ",").."\n"..[[
+ PRODUCTVERSION ]]..code_version:split("-")[1]:replace(".", ",").."\n"..[[
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "OpenWF Bootstrapper\0"
+            VALUE "FileVersion", "]]..code_version..[[\0"
+            VALUE "ProductName", "OpenWF Bootstrapper\0"
+            VALUE "ProductVersion", "]]..code_version..[[\0"
+        END
+    END
+
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
+]])

@@ -1,0 +1,22 @@
+-- Modifications to sample scripts will be lost the next time you start the game.
+local in_air_toggle = owf_script_add_toggle("In Air")
+repeat
+	local cc = gRegion:GetLocalPlayer():CameraControl()
+	cc:SetViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetAimViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetRunViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetDodgeOffset(Vector(0, -0.1, 0.5))
+	if in_air_toggle.value then
+		cc:SetInAirViewOffset(Vector(0, -0.1, 0.5))
+		cc:SetInAirAimViewOffset(Vector(0, -0.1, 0.5))
+	end
+	cc:SetMeleeOffset(Vector(0, -0.1, 0.5))
+	cc:SetCoverLeftViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetCoverRightViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetCrouchCoverAimLeftViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetCrouchCoverAimRightViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetWallRunLeftViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetWallRunRightViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetWallRunLeftAimViewOffset(Vector(0, -0.1, 0.5))
+	cc:SetWallRunRightAimViewOffset(Vector(0, -0.1, 0.5))
+until yield()

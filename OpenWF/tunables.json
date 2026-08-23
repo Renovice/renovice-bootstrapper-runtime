@@ -1,0 +1,49 @@
+{
+	"min_gv_for_tls": { "$gv": "25.0.0" },
+	"min_gv_for_overlay": { "$gv": "33.0.0" }, // Overlay is not working greatly in U15, U22.13.4.
+	"min_gv_for_scripting": { "$gv": "33.0.0" },
+	"toonew": { "$gv": "43.0.0" },
+	"nhkif": [
+		"/EE/Types/Input/MenuInputFilter", // Chat
+		"/Lotus/Types/Input/LoadoutReduxInputFilter",
+		"/Lotus/Types/Input/DojoSelectionMenuInputFilter", // Dojo Deco Placement Menu
+	],
+	"dns": [
+		"hub.warframe.com",
+		"arbiter.warframe.com",
+	],
+	"dns_nrs": [
+		"nrs.warframe.com",
+		"nrs.warframe.com:4950", // U15
+		"nrs2.warframe.com:4950", // U15
+		"nrs.warframe.com:3960", // 2013.11.12.14.03
+		"nrs2.warframe.com:3960", // 2013.11.12.14.03
+		"nrs.playwarframe.com:3960", // U8
+		"nrs2.playwarframe.com:3960", // U8
+		"dummy.openwf.io:3960", // U7
+	],
+	"dns_irc": [
+		"irc.warframe.com:6695", // U15
+		"irc.warframe.com:6696", // U15
+		"irc.warframe.com:6697", // U15
+		"irc.warframe.com:6698", // U15
+		"irc.warframe.com:6699", // U15
+		"irc.warframe.com:6665", // U10 (2013.10.11.17.01)
+		"irc.warframe.com:6666", // U10 (2013.10.11.17.01)
+		"irc.warframe.com:6667", // 2013.11.12.14.03
+		"irc.warframe.com:6668", // 2013.11.12.14.03
+		"irc.warframe.com:6669", // 2013.11.12.14.03
+		"irc.playwarframe.com:6665", // U8
+		"irc.playwarframe.com:6666", // U8
+		"irc.playwarframe.com:6667", // U8
+		"irc.playwarframe.com:6668", // U8
+		"irc.playwarframe.com:6669", // U8
+		"dummy.openwf.io:6665", // U7
+		"dummy.openwf.io:6666", // U7
+		"dummy.openwf.io:6667", // U7
+		"dummy.openwf.io:6668", // U7
+		"dummy.openwf.io:6669", // U7
+	],
+	"invipbl": 0, // If non-zero, disallows connections to public instances, such as these: https://www.shodan.io/search?query=http.title%3A%22OpenWF+WebUI%22
+	"remote_allowed_days": 42,
+}

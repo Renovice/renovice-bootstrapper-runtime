@@ -1,0 +1,4032 @@
+local { cat, http, json, scheduler, url, vector3 } = require "*"
+
+Vector = vector3
+Vector3 = vector3 -- compatibility
+
+function ivkr_push_vector(vec)
+	ivkr_push_float(vec.x)
+	ivkr_push_float(vec.y)
+	ivkr_push_float(vec.z)
+	ivkr_call(ivkr_find_ctor("Vector3"), 3)
+end
+
+function ivkr_pop_vector()
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Vector3", "x"), 1)
+	local x = ivkr_pop_number()
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Vector3", "y"), 1)
+	local y = ivkr_pop_number()
+	ivkr_call(ivkr_find_getter("Vector3", "z"), 1)
+	local z = ivkr_pop_number()
+	return new Vector(x, y, z)
+end
+
+class Rotation
+	function __construct(public heading = 0, public pitch = 0, public bank = 0)
+	end
+
+	function __tostring()
+		return $"Rotation({self.heading}, {self.pitch}, {self.bank})"
+	end
+end
+setmetatable(Rotation, { __call = |_, ...| -> new Rotation(...) })
+
+function ivkr_push_rotation(rot)
+	ivkr_push_float(rot.heading)
+	ivkr_push_float(rot.pitch)
+	ivkr_push_float(rot.bank)
+	ivkr_call(ivkr_find_ctor("Euler"), 3)
+end
+
+function ivkr_pop_rotation()
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Euler", "heading"), 1)
+	local heading = ivkr_pop_number()
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Euler", "pitch"), 1)
+	local pitch = ivkr_pop_number()
+	ivkr_call(ivkr_find_getter("Euler", "bank"), 1)
+	local bank = ivkr_pop_number()
+	return new Rotation(heading, pitch, bank)
+end
+
+class Symbol
+	__name = "Symbol"
+
+	function __construct(public name = "")
+	end
+
+	function __eq(b)
+		return self.name == b.name
+	end
+
+	function __tostring()
+		return self.name
+	end
+
+	function c_str()
+		return self.name
+	end
+
+	function pushToIvkr()
+		ivkr_push_string(self.name)
+		ivkr_call(ivkr_find_ctor("Symbol"), 1)
+	end
+end
+setmetatable(Symbol, { __call = |_, name| -> new Symbol(name) })
+
+function ivkr_pop_symbol()
+	ivkr_call(ivkr_find_method("Symbol", "__tostring"), 1)
+	return new Symbol(ivkr_pop_string())
+end
+
+class Color
+	__name = "Color"
+
+	function __construct(public red, public green, public blue, public alpha = 255)
+	end
+
+	function __tostring()
+		return $"Color({self.red}, {self.green}, {self.blue}, {self.alpha})"
+	end
+
+	function pushToIvkr()
+		ivkr_push_int(self.red)
+		ivkr_push_int(self.green)
+		ivkr_push_int(self.blue)
+		ivkr_push_int(self.alpha)
+		ivkr_call(ivkr_find_ctor("Color"), 4)
+	end
+
+	function GetUInt()
+		return (self.red << 16) | (self.green << 8) | self.blue
+	end
+end
+setmetatable(Color, { __call = |_, ...| -> new Color(...) })
+
+function ivkr_pop_color()
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Color", "red"), 1)
+	local red = math.tointeger(ivkr_pop_number())
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Color", "green"), 1)
+	local green = math.tointeger(ivkr_pop_number())
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Color", "blue"), 1)
+	local blue = math.tointeger(ivkr_pop_number())
+	ivkr_call(ivkr_find_getter("Color", "alpha"), 1)
+	local alpha = math.tointeger(ivkr_pop_number())
+	return new Color(red, green, blue, alpha)
+end
+
+class owfUserdata
+	function __construct()
+		if not ivkr_isuserdata(-1) then
+			ivkr_pop(1)
+			error($"attempt to construct {self.__name} from nil")
+		end
+		ivkr_push_string(tostring(self))
+		ivkr_push_value(-2)
+		ivkr_settable(-10002)
+		ivkr_pop(1)
+	end
+
+	function __gc()
+		ivkr_push_string(tostring(self))
+		ivkr_push_nil()
+		ivkr_settable(-10002)
+	end
+
+	function pushToIvkr()
+		ivkr_push_string(tostring(self))
+		ivkr_gettable(-10002)
+	end
+end
+
+class owfProxy extends owfUserdata
+	function __index(name)
+		if owfUserdata[name] then
+			return owfUserdata[name]
+		end
+		if getter := ivkr_find_getter(getmetatable(self).__name, name) then
+			self:pushToIvkr()
+			assert(ivkr_call(getter, 1) == 1)
+			return ivkr_pop_any()
+		end
+		error("Unknown field: "..name)
+	end
+
+	function __newindex(name, value)
+		if setter := ivkr_find_setter(getmetatable(self).__name, name) then
+			self:pushToIvkr()
+			ivkr_push_any(value)
+			assert(ivkr_call(setter, 2) == 0)
+		else
+			error("Unknown field: "..name)
+		end
+	end
+end
+
+function ivkr_pop_array(mt)
+	local t = {}
+	if ivkr_type(-1) == IVKR_TABLE then
+		--[[ivkr_push_nil()
+		while ivkr_next(-2) do
+			local v = new mt()
+			ivkr_push_value(-1)
+			if k := ivkr_pop_any() then
+				t[k] = v
+			end
+		end
+		ivkr_pop(1)]]
+
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			local top = ivkr_get_top() - 1
+			t:insert(new mt())
+			if top ~= ivkr_get_top() then
+				print("Misalignment in "..tostring(mt.__name)..".__construct")
+			end
+			ivkr_set_top(top)
+			++i
+		end
+		ivkr_pop(2)
+	else
+		ivkr_pop(1)
+	end
+	return t
+end
+
+function ivkr_pop_string_array()
+	local t = {}
+	if ivkr_type(-1) == IVKR_TABLE then
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(ivkr_pop_string())
+			++i
+		end
+		ivkr_pop(2)
+	else
+		ivkr_pop(1)
+	end
+	return t
+end
+
+class ObjectType extends owfUserdata
+	__name = "ObjectType"
+
+	function __eq(other)
+		return self:GetFullName() == other:GetFullName()
+	end
+
+	function GetName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("ObjectType", "GetName"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetFullName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("ObjectType", "GetFullName"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetParent()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("ObjectType", "GetParent"), 1)
+		if ivkr_type(-1) > 0 then
+			return new ObjectType()
+		else
+			ivkr_pop(1)
+		end
+	end
+
+	-- used to be documented, but trying to get rid of this as non-full names are not necessarily unique
+	function isNameInHierarchy(name)
+		local type = self
+		repeat
+			if type:GetName() == name then
+				return true
+			end
+			type = type:GetParent()
+		until not type
+		return false
+	end
+
+	function getHierarchy()
+		local hier = {}
+		local type = self
+		repeat
+			hier:insert(type:GetFullName())
+			type = type:GetParent()
+		until not type
+		return hier
+	end
+end
+
+class Object extends owfUserdata
+	__name = "Object"
+
+	function __eq(other)
+		self:pushToIvkr()
+		if addr := ivkr_pop_object() then
+			other:pushToIvkr()
+			return addr == ivkr_pop_object()
+		end
+		return false
+	end
+
+	function GetType()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Object", "GetType"), 1)
+		if ivkr_type(-1) > 0 then
+			return new ObjectType()
+		else
+			ivkr_pop(1)
+		end
+	end
+
+	function GetName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Object", "GetName"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetFullName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Object", "GetFullName"), 1)
+		return ivkr_pop_string()
+	end
+
+	function IsA(type)
+		local htype = self:GetType()
+		repeat
+			if htype:GetFullName() == type.name then
+				return true
+			end
+			htype = htype:GetParent()
+		until not htype
+		return false
+	end
+end
+
+class Player extends Object
+	__name = "Player"
+
+	function GetAvatar()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Player", "GetAvatar"), 1)
+		return new LotusAvatar()
+	end
+
+	function GetPlayerName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Player", "GetPlayerName"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetClanName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Player", "GetClanName"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetPlayerAccountIDString()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Player", "GetPlayerAccountIDString"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetPlayerMatchMakingString()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Player", "GetPlayerMatchMakingString"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetHudStatus()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Player", "GetHudStatus"), 1)
+		return new LotusHudStatus()
+	end
+
+	function CameraControl()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Player", "CameraControl"), 1)
+		return new CameraControllerBase()
+	end
+end
+
+class HumanPlayer extends Player
+	__name = "HumanPlayer"
+
+	function IsFreeCameraActive()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("HumanPlayer", "IsFreeCameraActive"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function ToggleFreeCamera()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("HumanPlayer", "ToggleFreeCamera"), 1)
+	end
+
+	function SetFreeCameraLocked(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("HumanPlayer", "SetFreeCameraLocked"), 2)
+	end
+
+	function IsFreeCameraLockedActive()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("HumanPlayer", "IsFreeCameraLockedActive"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function isControllingCamera()
+		warn("HumanPlayer:isControllingCamera is deprecated")
+		assert(compareversions(owf_get_build_version(), "2024.12.11.14.26") >= 0, "HumanPlayer:isControllingCamera does not work in this version")
+
+		self:pushToIvkr()
+		return player_get_controlling_camera(ivkr_pop_object())
+	end
+
+	function setControllingCamera(b)
+		warn("HumanPlayer:setControllingCamera is deprecated")
+		assert(compareversions(owf_get_build_version(), "2024.12.11.14.26") >= 0, "HumanPlayer:setControllingCamera does not work in this version")
+
+		self:pushToIvkr()
+		player_set_controlling_camera(ivkr_pop_object(), b)
+	end
+
+	function AssignAvatar(avatar, b1 = true, b2 = true)
+		self:pushToIvkr()
+		avatar:pushToIvkr()
+		ivkr_push_bool(b1)
+		ivkr_push_bool(b2)
+		ivkr_call(ivkr_find_method("HumanPlayer", "AssignAvatar"), 4)
+	end
+
+	function SendGiveItem(resource, amount)
+		self:pushToIvkr()
+		resource:pushToIvkr()
+		ivkr_push_int(amount)
+		ivkr_call(ivkr_find_method("HumanPlayer", "SendGiveItem"), 3)
+	end
+end
+
+class LotusHumanPlayer extends HumanPlayer
+	__name = "LotusHumanPlayer"
+
+	function GetLoadOut()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusHumanPlayer", "GetLoadOut"), 1)
+		return new LotusProfileTypes.LoadOut()
+	end
+end
+
+LotusProfileTypes = {}
+
+class LotusProfileTypes.LoadOut extends owfUserdata
+	__name = "LoadOut"
+
+	function GetStoredItemStruct(i1, i2)
+		self:pushToIvkr()
+		ivkr_push_int(i1)
+		ivkr_push_int(i2)
+		ivkr_call(ivkr_find_method("LotusProfileTypes::LoadOut", "GetStoredItemStruct"), 3)
+		return new LotusProfileTypes.StoredItem()
+	end
+end
+
+class MongoId extends owfUserdata
+	__name = "MongoId"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("MongoId", "mId"), 1)
+		self.mId = ivkr_pop_string()
+	end
+end
+
+class LotusProfileTypes.StoredItem extends owfUserdata
+	__name = "LotusProfileTypes.StoredItem"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::StoredItem", "mItem"), 1)
+		self.mItem = new LotusProfileTypes.WeaponInfo()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::StoredItem", "mModSlot"), 1)
+		self.mModSlot = math.tointeger(ivkr_pop_number())
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::StoredItem", "mCustSlot"), 1)
+		self.mCustSlot = math.tointeger(ivkr_pop_number())
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::StoredItem", "mAttachedUpgrades"), 1)
+		self.mAttachedUpgrades = ivkr_pop_array(LotusProfileTypes.UpgradeInfo)
+	end
+end
+
+class LotusProfileTypes.WeaponInfo extends owfUserdata
+	__name = "LotusProfileTypes.WeaponInfo"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::WeaponInfo", "mItemId"), 1)
+		self.mItemId = new MongoId()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::WeaponInfo", "mItemType"), 1)
+		if ivkr_type(-1) > 0 then
+			self.mItemType = new ObjectType()
+		else
+			ivkr_pop(1)
+		end
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::WeaponInfo", "mModularParts"), 1)
+		self.mModularParts = ivkr_pop_array(ObjectType)
+	end
+
+	function GetCustomization()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusProfileTypes::WeaponInfo", "GetCustomization"), 1)
+		return new WeaponCustomization()
+	end
+end
+
+class LotusProfileTypes.UpgradeInfo extends owfUserdata
+	__name = "LotusProfileTypes.UpgradeInfo"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::UpgradeInfo", "mItemType"), 1)
+		if ivkr_type(-1) > 0 then
+			self.mItemType = new ObjectType()
+		else
+			ivkr_pop(1)
+		end
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("LotusProfileTypes::UpgradeInfo", "mUpgradeFingerprint"), 1)
+		self.mUpgradeFingerprint = ivkr_pop_string()
+	end
+end
+
+class BaseEntity extends Object
+	__name = "BaseEntity"
+end
+
+function ivkr_pop_entity()
+	if ivkr_type(-1) > 0 then
+		ivkr_push_value(-1)
+		ivkr_call(ivkr_find_method("Object", "GetType"), 1)
+		local type = new ObjectType()
+		repeat
+			switch type:GetFullName() do
+				case "/EE/Types/Engine/BaseMarkerInfo": return new BaseMarkerInfo()
+				case "/EE/Types/Engine/Effect": return new Effect()
+				case "/EE/Types/Effects/LensFlare": return new LensFlare()
+				case "/EE/Types/Engine/Decoration": return new Decoration()
+				case "/Lotus/Types/Game/LotusAvatar": return new LotusAvatar()
+				case "/Lotus/Types/Game/LotusNpcAvatar": return new LotusNpcAvatar()
+				case "/Lotus/Types/Game/LotusVehicleAvatar": return new LotusVehicleAvatar()
+				case "/EE/Types/Effects/DynamicSky": return new DynamicSky()
+			end
+			type = type:GetParent()
+		until not type
+		return new Entity()
+	else
+		ivkr_pop(1)
+	end
+end
+
+function ivkr_pop_entity_array()
+	local t = {}
+	if ivkr_type(-1) == IVKR_TABLE then
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(ivkr_pop_entity())
+			++i
+		end
+		ivkr_pop(2)
+	else
+		ivkr_pop(1)
+	end
+	return t
+end
+
+class Entity extends BaseEntity
+	__name = "Entity"
+
+	function GetPosition()
+		self:pushToIvkr()
+		return new Vector(entity_get_pos(ivkr_pop_object()))
+	end
+
+	function SetPosition(pos)
+		self:pushToIvkr()
+		ivkr_push_vector(pos)
+		ivkr_call(ivkr_find_method("Entity", "SetPosition"), 2)
+	end
+
+	function DistanceToEntity(b)
+		return GetPosition():distance(b:GetPosition())
+	end
+
+	function GetRotation()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetRotation"), 1)
+		return ivkr_pop_rotation()
+	end
+
+	function GetSimRotation()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetSimRotation"), 1)
+		return ivkr_pop_rotation()
+	end
+
+	function SetRotation(rot)
+		self:pushToIvkr()
+		ivkr_push_rotation(rot)
+		ivkr_call(ivkr_find_method("Entity", "SetRotation"), 2)
+	end
+
+	function GetHealth()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetHealth"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function SetHealth(health)
+		self:pushToIvkr()
+		ivkr_push_int(health)
+		ivkr_call(ivkr_find_method("Entity", "SetHealth"), 2)
+	end
+
+	function GetDrawOnTop()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetDrawOnTop"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function SetDrawOnTop(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("Entity", "SetDrawOnTop"), 2)
+	end
+
+	function GetMeshScale()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetMeshScale"), 1)
+		return ivkr_pop_number()
+	end
+
+	function SetMeshScale(f)
+		self:pushToIvkr()
+		ivkr_push_float(f)
+		ivkr_call(ivkr_find_method("Entity", "SetMeshScale"), 2)
+	end
+
+	function GetMesh()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetMesh"), 1)
+		if ivkr_type(-1) > 0 do
+			return new Mesh()
+		end
+		ivkr_pop(1)
+	end
+
+	function SetMesh(object, b1, b2)
+		self:pushToIvkr()
+		object:pushToIvkr()
+		ivkr_push_bool(b1)
+		ivkr_push_bool(b2)
+		ivkr_call(ivkr_find_method("Entity", "SetMesh"), 4)
+	end
+
+	function Attach(type, optionalBoneSymbol, optionalPosOffset)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		;(optionalBoneSymbol or EMPTY_SYMBOL):pushToIvkr()
+		if optionalPosOffset then
+			ivkr_push_vector(optionalPosOffset)
+		end
+		ivkr_call(ivkr_find_method("Entity", "Attach"), optionalPosOffset ? 4 : 3)
+		return ivkr_pop_entity()
+	end
+
+	function GetAttachment(type)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetAttachment"), 2)
+		return ivkr_pop_entity()
+	end
+
+	function GetAllAttachments(type)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetAllAttachments"), 2)
+		return ivkr_pop_entity_array()
+	end
+
+	function GetTag()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetTag"), 1)
+		return ivkr_pop_symbol()
+	end
+
+	function SetTag(symbol)
+		self:pushToIvkr()
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "SetTag"), 2)
+	end
+
+	function FirePort(port)
+		self:pushToIvkr()
+		ivkr_push_string(port)
+		ivkr_call(ivkr_find_method("Entity", "FirePort"), 2)
+	end
+
+	function SetVisibility(visible, delegateToAttachments = false)
+		self:pushToIvkr()
+		ivkr_push_bool(visible)
+		ivkr_push_bool(delegateToAttachments)
+		ivkr_call(ivkr_find_method("Entity", "SetVisibility"), 3)
+	end
+
+	function GetSpeed()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "GetSpeed"), 1)
+		return ivkr_pop_number()
+	end
+
+	function Destroy()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Entity", "Destroy"), 1)
+	end
+
+	function SetMaterialParam(symbol, f1, f2 = 3.4028235e38, f3 = 3.4028235e38, f4 = 3.4028235e38, b = false)
+		self:pushToIvkr()
+		symbol:pushToIvkr()
+		ivkr_push_float(f1)
+		ivkr_push_float(f2)
+		ivkr_push_float(f3)
+		ivkr_push_float(f4)
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("Entity", "SetMaterialParam"), 7)
+	end
+
+	function RunScript(resource, funcSymbol, b)
+		self:pushToIvkr()
+		resource:pushToIvkr()
+		funcSymbol:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("Entity", "RunScript"), 4)
+	end
+end
+
+class BaseAvatar extends Entity
+	__name = "BaseAvatar"
+
+	function GetMaxHealth(scaled = true)
+		self:pushToIvkr()
+		ivkr_push_bool(scaled)
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetMaxHealth"), 2)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function SetMaxHealth(health, setBase = false)
+		self:pushToIvkr()
+		ivkr_push_int(health)
+		ivkr_push_bool(setBase)
+		ivkr_call(ivkr_find_method("BaseAvatar", "SetMaxHealth"), 3)
+	end
+
+	function Suicide()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "Suicide"), 1)
+	end
+
+	function DamageControl()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "DamageControl"), 1)
+		return new LotusDamageController()
+	end
+
+	function InventoryControl()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "InventoryControl"), 1)
+		local inventory = new LotusInventoryController()
+		if not "NullInventoryController" in inventory:GetFullName() then
+			return inventory
+		end
+	end
+
+	function InputControl()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "InputControl"), 1)
+		if ivkr_type(-1) > 0 do
+			return new InputController()
+		end
+		ivkr_pop(1)
+	end
+
+	function GiveItem(type, b)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("BaseAvatar", "GiveItem"), 3)
+		if ivkr_typename(-1) == "PowerSuit *" then
+			return new PowerSuit()
+		end
+		ivkr_pop(1)
+	end
+
+	function MotionControl()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "MotionControl"), 1)
+		if ivkr_type(-1) > 0 do
+			local motion = new MotionControllerBase()
+			if motion:GetType():isNameInHierarchy("LotusSpaceFlightMotionController") then
+				motion:pushToIvkr()
+				return new LotusSpaceFlightMotionController()
+			end
+			return motion
+		end
+		ivkr_pop(1)
+	end
+
+	function GetView()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetView"), 1)
+		return ivkr_pop_rotation()
+	end
+
+	function SetView(rot)
+		self:pushToIvkr()
+		ivkr_push_rotation(rot)
+		ivkr_call(ivkr_find_method("BaseAvatar", "SetView"), 2)
+	end
+
+	function GetCameraView()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetCameraView"), 1)
+		return ivkr_pop_rotation()
+	end
+
+	function SetCameraView(rot)
+		self:pushToIvkr()
+		ivkr_push_rotation(rot)
+		ivkr_call(ivkr_find_method("BaseAvatar", "SetCameraView"), 2)
+	end
+
+	function SetEyePosition(pos)
+		self:pushToIvkr()
+		ivkr_push_vector(pos)
+		ivkr_call(ivkr_find_method("BaseAvatar", "SetEyePosition"), 2)
+	end
+
+	function GetFaction()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetFaction"), 1)
+		return ivkr_pop_symbol()
+	end
+
+	function GetOriginalFaction()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetOriginalFaction"), 1)
+		return ivkr_pop_symbol()
+	end
+
+	function SetFaction(symbol)
+		self:pushToIvkr()
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "SetFaction"), 2)
+	end
+
+	function GetLocTag()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetLocTag"), 1)
+		return ivkr_pop_symbol()
+	end
+
+	function ClearAgent()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "ClearAgent"), 1)
+	end
+
+	function PushInputFilter(resource)
+		self:pushToIvkr()
+		resource:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "PushInputFilter"), 2)
+	end
+
+	function SetCustomAnimController(type)
+		self:pushToIvkr()
+		if type == nil then
+			ivkr_push_nil()
+		else
+			type:pushToIvkr()
+		end
+		ivkr_pop(ivkr_call(ivkr_find_method("BaseAvatar", "SetCustomAnimController"), 2))
+	end
+
+	function GetAnimControllerType()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetAnimControllerType"), 1)
+		return new ObjectType()
+	end
+
+	function SetCustomMotionController(type)
+		self:pushToIvkr()
+		if type == nil then
+			ivkr_push_nil()
+		else
+			type:pushToIvkr()
+		end
+		ivkr_pop(ivkr_call(ivkr_find_method("BaseAvatar", "SetCustomMotionController"), 2))
+	end
+
+	function SetCustomCameraController(type)
+		self:pushToIvkr()
+		if type == nil then
+			ivkr_push_nil()
+		else
+			type:pushToIvkr()
+		end
+		ivkr_pop(ivkr_call(ivkr_find_method("BaseAvatar", "SetCustomCameraController"), 2))
+	end
+
+	function EnableRagdollRecovery(b1, b2)
+		self:pushToIvkr()
+		ivkr_push_bool(b1)
+		ivkr_push_bool(b2)
+		ivkr_call(ivkr_find_method("BaseAvatar", "EnableRagdollRecovery"), 3)
+	end
+
+	function DamageDD(damageData)
+		self:pushToIvkr()
+		damageData:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "DamageDD"), 2)
+	end
+
+	function GetRagdoll()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("BaseAvatar", "GetRagdoll"), 1)
+		if ivkr_type(-1) > 0 do
+			return new Ragdoll()
+		end
+		ivkr_pop(1)
+	end
+
+	function SetPostureModifier(i, b)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("BaseAvatar", "SetPostureModifier"), 3)
+	end
+
+	function PlayAnimation(resource)
+		self:pushToIvkr()
+		resource:pushToIvkr()
+		ivkr_push_bool(false)
+		ivkr_pop(ivkr_call(ivkr_find_method("BaseAvatar", "PlayAnimation"), 3))
+	end
+end
+
+class Avatar extends BaseAvatar
+	__name = "Avatar"
+
+	function ControlCamera(b)
+		-- Original function would write to EE.log but otherwise this is identical
+		self:pushToIvkr()
+		avatar_set_followed_by_camera(ivkr_pop_object(), b)
+	end
+
+	function isFollowedByCamera()
+		self:pushToIvkr()
+		return avatar_get_followed_by_camera(ivkr_pop_object())
+	end
+end
+
+class LotusAvatar extends Avatar
+	__name = "LotusAvatar"
+
+	function IsAvatarFriendly(other)
+		self:pushToIvkr()
+		other:pushToIvkr()
+		ivkr_call(ivkr_find_method(compareversions(owf_get_build_version(), "2025.12.09.14.18") >= 0 ? "BaseAvatar" : "LotusAvatar", "IsAvatarFriendly"), 2)
+		return ivkr_pop_bool()
+	end
+
+	function PlayEmote(resource)
+		self:pushToIvkr()
+		resource:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusAvatar", "PlayEmote"), 2)
+	end
+
+	function GetUIName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusAvatar", "GetUIName"), 1)
+		return ivkr_pop_string()
+	end
+
+	function SetUIName(str)
+		self:pushToIvkr()
+		ivkr_push_string(str)
+		ivkr_call(ivkr_find_method("LotusAvatar", "SetUIName"), 2)
+	end
+
+	function HasDynamicUIName()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusAvatar", "HasDynamicUIName"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function SetDynamicUIName(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("LotusAvatar", "SetDynamicUIName"), 2)
+	end
+
+	function SetCollisionEnabled(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("LotusAvatar", "SetCollisionEnabled"), 2)
+	end
+
+	function SetCinematicID(symbol)
+		self:pushToIvkr()
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusAvatar", "SetCinematicID"), 2)
+	end
+end
+
+class DamageControllerBase extends Object
+	__name = "DamageControllerBase"
+
+	function GiveTemporaryImmunity(a, b)
+		self:pushToIvkr()
+		ivkr_push_float(a)
+		ivkr_push_float(b)
+		ivkr_call(ivkr_find_method("DamageControllerBase", "GiveTemporaryImmunity"), 3)
+	end
+
+	function HasTemporaryImmunity()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DamageControllerBase", "HasTemporaryImmunity"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function RemoveTemporaryImmunity()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DamageControllerBase", "RemoveTemporaryImmunity"), 1)
+	end
+
+	function GetShield()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DamageControllerBase", "GetShield"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function SetShield(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("DamageControllerBase", "SetShield"), 2)
+	end
+
+	function GetMaxShield()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DamageControllerBase", "GetMaxShield"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function SetMaxShield(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("DamageControllerBase", "SetMaxShield"), 2)
+	end
+
+	function GetOverguardAmount()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DamageControllerBase", "GetOverguardAmount"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function SetOverguardAmount(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("DamageControllerBase", "SetOverguardAmount"), 2)
+	end
+
+	function GetOverguardMax()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DamageControllerBase", "GetOverguardMax"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function SetOverguardMax(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("DamageControllerBase", "SetOverguardMax"), 2)
+	end
+end
+
+class DamageController extends DamageControllerBase
+	__name = "DamageController"
+end
+
+class LotusDamageController extends DamageController
+	__name = "LotusDamageController"
+
+	function GetArmourRating()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusDamageController", "GetArmourRating"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function SetArmourRating(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("LotusDamageController", "SetArmourRating"), 2)
+	end
+end
+
+class InventoryControllerBase extends Object
+	__name = "InventoryControllerBase"
+
+	function RemoveItem(slot, b)
+		self:pushToIvkr()
+		ivkr_push_int(slot)
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("InventoryControllerBase", "RemoveItem"), 3)
+	end
+
+	function GetWeaponInHand(hand)
+		self:pushToIvkr()
+		ivkr_push_int(hand)
+		ivkr_call(ivkr_find_method("InventoryControllerBase", "GetWeaponInHand"), 2)
+		return new LotusWeapon()
+	end
+
+	function AddUpgrade(upgradeType, operationType, value, _, _, damageType = DamageType.DT_ANY)
+		self:pushToIvkr()
+		ivkr_push_int(upgradeType)
+		ivkr_push_int(operationType)
+		ivkr_push_float(value)
+		ivkr_push_nil()
+		ivkr_push_nil()
+		ivkr_push_int(damageType)
+		ivkr_call(ivkr_find_method("NullInventoryController", "AddUpgrade"), 7)
+	end
+end
+
+class LotusInventoryController extends InventoryControllerBase
+	__name = "LotusInventoryController"
+
+	function GetActivePowerSuit()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusInventoryController", "GetActivePowerSuit"), 1)
+		if ivkr_type(-1) > 0 then
+			return new PowerSuit()
+		end
+		ivkr_pop(1)
+	end
+
+	function DoItemDrop()
+		self:pushToIvkr()
+		ivkr_pop(ivkr_call(ivkr_find_method("LotusInventoryController", "DoItemDrop"), 1))
+	end
+
+	function GetConsumableItem(idx)
+		self:pushToIvkr()
+		ivkr_push_int(idx)
+		ivkr_call(ivkr_find_method("LotusInventoryController", "GetConsumableItem"), 2)
+		if ivkr_type(-1) > 0 then
+			return new Object()
+		end
+		ivkr_pop(1)
+	end
+
+	function UseConsumableItem(idx)
+		self:pushToIvkr()
+		ivkr_push_int(idx)
+		ivkr_call(ivkr_find_method("LotusInventoryController", "UseConsumableItem"), 2)
+	end
+end
+
+class ResourceBase extends Object
+	__name = "ResourceBase"
+end
+
+class Mesh extends ResourceBase
+	__name = "Mesh"
+end
+
+class Item extends Object
+	__name = "Item"
+
+	function GetAttachmentEntity(category, hand = 4)
+		-- restricting category to avoid access violations
+		if category == 0 or category == 1 then
+			self:pushToIvkr()
+			ivkr_push_int(category)
+			ivkr_push_int(hand)
+			ivkr_call(ivkr_find_method("Item", "GetAttachmentEntity"), 3)
+			if ivkr_type(-1) > 0 do
+				return new Entity()
+			end
+			ivkr_pop(1)
+		end
+	end
+
+	function GetEnergyColor(outColor, secondary = false)
+		ivkr_call(ivkr_find_ctor("Color"), 0)
+
+		self:pushToIvkr()
+		ivkr_push_value(-2)
+		ivkr_push_bool(secondary)
+		ivkr_call(ivkr_find_method("Item", "GetEnergyColor"), 3)
+		local b = ivkr_pop_bool()
+
+		local c = ivkr_pop_color()
+		outColor.red = c.red
+		outColor.green = c.green
+		outColor.blue = c.blue
+		outColor.alpha = c.alpha
+
+		return b
+	end
+end
+
+class WeaponBase extends Item
+	__name = "WeaponBase"
+end
+
+class WeaponEx extends WeaponBase
+	__name = "WeaponEx"
+
+	function GetDamageData()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("WeaponEx", "GetDamageData"), 1)
+		return new Engine.DamageData(true)
+	end
+
+	function GetActiveImpactBehavior()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("WeaponEx", "GetActiveImpactBehavior"), 1)
+		return new WeaponImpactBehavior()
+	end
+
+	function AddUpgrade(obj)
+		self:pushToIvkr()
+		obj:pushToIvkr()
+		ivkr_call(ivkr_find_method("WeaponEx", "AddUpgrade"), 2)
+	end
+end
+
+class LotusWeapon extends WeaponEx
+	__name = "LotusWeapon"
+
+	function GetXP()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusWeapon", "GetXP"), 1)
+		return ivkr_pop_number()
+	end
+
+	function SetXP(xp)
+		self:pushToIvkr()
+		ivkr_push_int(xp)
+		ivkr_call(ivkr_find_method("LotusWeapon", "SetXP"), 2)
+	end
+
+	function GetCustomization()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusWeapon", "GetCustomization"), 1)
+		return new WeaponCustomization()
+	end
+
+	function SetCustomization(cust)
+		self:pushToIvkr()
+		cust:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusWeapon", "SetCustomization"), 2)
+	end
+
+	function SetModularParts(parts, gilded)
+		self:pushToIvkr()
+		ivkr_newtable()
+		for i, part in ipairs(parts) do
+			ivkr_push_int(i)
+			part:pushToIvkr()
+			ivkr_settable(-3)
+		end
+		ivkr_push_bool(gilded)
+		ivkr_call(ivkr_find_method("LotusWeapon", "SetModularParts"), 3)
+	end
+end
+
+class WeaponUpgrade extends Item
+	__name = "WeaponUpgrade"
+end
+
+class LotusWeaponUpgradeBase extends WeaponUpgrade
+	__name = "LotusWeaponUpgradeBase"
+
+	function InitializeFromFingerprint(str)
+		self:pushToIvkr()
+		ivkr_push_string(str)
+		ivkr_call(ivkr_find_method("LotusWeaponUpgradeBase", "InitializeFromFingerprint"), 2)
+	end
+end
+
+class LotusArtifactUpgrade extends LotusWeaponUpgradeBase
+	__name = "LotusWeaponUpgradeBase"
+end
+
+class WeaponImpactBehavior extends Object
+	__name = "WeaponImpactBehavior"
+
+	function __index(name)
+		if Object[name] then
+			return Object[name]
+		end
+		switch name do
+			case "criticalHitChance":
+			case "criticalHitDamageMultiplier":
+			case "instantImpulse":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("WeaponImpactBehavior", name), 1)
+				return ivkr_pop_number()
+		end
+	end
+
+	function __newindex(name, value)
+		switch name do
+			case "criticalHitChance":
+			case "criticalHitDamageMultiplier":
+			case "instantImpulse":
+				self:pushToIvkr()
+				ivkr_push_float(value)
+				ivkr_call(ivkr_find_setter("WeaponImpactBehavior", name), 2)
+		end
+	end
+end
+
+class PowerSuit extends LotusWeapon
+	__name = "PowerSuit"
+
+	function SetEnergy(value)
+		self:pushToIvkr()
+		ivkr_push_float(value)
+		ivkr_call(ivkr_find_method("PowerSuit", "SetEnergy"), 2)
+	end
+
+	function SetMaxEnergy(value)
+		self:pushToIvkr()
+		ivkr_push_float(value)
+		ivkr_call(ivkr_find_method("PowerSuit", "SetMaxEnergy"), 2)
+	end
+
+	function GetUnmodifiedMaxEnergy()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("PowerSuit", "GetUnmodifiedMaxEnergy"), 1)
+		return ivkr_pop_number()
+	end
+
+	function GetCurEnergy()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("PowerSuit", "GetCurEnergy"), 1)
+		return ivkr_pop_number()
+	end
+
+	function GetMaxEnergy()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("PowerSuit", "GetMaxEnergy"), 1)
+		return ivkr_pop_number()
+	end
+
+	function GetAbilityByIndex(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("PowerSuit", "GetAbilityByIndex"), 2)
+		if ivkr_type(-1) > 0 then
+			return new PowerSuitAbility()
+		end
+		ivkr_pop(1)
+		return nil
+	end
+
+	function AddAbilityByType(type, idx)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_push_int(idx)
+		ivkr_call(ivkr_find_method("PowerSuit", "AddAbilityByType"), 3)
+	end
+end
+
+class PowerSuitAbility extends Item
+	function GetCooldownDuration()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("PowerSuitAbility", "GetCooldownDuration"), 1)
+		return ivkr_pop_number()
+	end
+
+	function SetCooldownDuration(val)
+		self:pushToIvkr()
+		ivkr_push_float(val)
+		ivkr_call(ivkr_find_method("PowerSuitAbility", "SetCooldownDuration"), 2)
+	end
+
+	function GetCooldownTime()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("PowerSuitAbility", "GetCooldownTime"), 1)
+		return ivkr_pop_number()
+	end
+
+	function SetCooldownTime(val)
+		self:pushToIvkr()
+		ivkr_push_float(val)
+		ivkr_call(ivkr_find_method("PowerSuitAbility", "SetCooldownTime"), 2)
+	end
+
+	function AllowReactivate(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("PowerSuitAbility", "AllowReactivate"), 2)
+	end
+end
+
+class InputControllerBase extends Object
+	__name = "InputControllerBase"
+end
+
+class InputController extends InputControllerBase
+	__name = "InputController"
+
+	function SetStopMovement(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("InputController", "SetStopMovement"), 2)
+	end
+end
+
+class GameRules extends Object
+	__name = "GameRules"
+
+	function IsPauseMenuShowing()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("GameRules", "IsPauseMenuShowing"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function RequestPause()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("GameRules", "RequestPause"), 1)
+	end
+
+	function RequestUnpause()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("GameRules", "RequestUnpause"), 1)
+	end
+
+	function RequestResource(name, callback)
+		self:pushToIvkr()
+		ivkr_push_string(name)
+		ivkr_push_callback(callback)
+		ivkr_call(ivkr_find_method("GameRules", "RequestResource"), 3)
+	end
+
+	function RequestSlomo(f)
+		self:pushToIvkr()
+		if f then
+			ivkr_push_float(f)
+		end
+		ivkr_call(ivkr_find_method("GameRules", "RequestSlomo"), f ? 2 : 1)
+	end
+
+	function CancelSlomo()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("GameRules", "CancelSlomo"), 1)
+	end
+
+	function IsSlomo()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("GameRules", "IsSlomo"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function getSlomoltiplier()
+		self:pushToIvkr()
+		--return mem_read_f32(ivkr_pop_object() + 0x54)
+		ivkr_call(ivkr_find_method("GameRules", "GetCurrentSlomoMultiplier"), 1)
+		return ivkr_pop_number()
+	end
+
+	function setSlomoltiplier(f)
+		self:pushToIvkr()
+		mem_write_f32(ivkr_pop_object() + 0x54, f)
+	end
+end
+
+class GameRulesImpl extends GameRules
+	__name = "GameRulesImpl"
+
+	function SetPauseDisabled(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("GameRulesImpl", "SetPauseDisabled"), 2)
+	end
+
+	function CanUnstick()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("GameRulesImpl", "CanUnstick"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function UnstickLocalPlayer()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("GameRulesImpl", "UnstickLocalPlayer"), 1)
+	end
+end
+
+class LotusBaseGameRules extends GameRulesImpl
+	__name = "LotusBaseGameRules"
+
+	function GetCurrentStarChart()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusBaseGameRules", "GetCurrentStarChart"), 1)
+		return new RadialSolarMap()
+	end
+
+	function GetStoreManifest()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusBaseGameRules", "GetStoreManifest"), 1)
+		return new StoreManifest()
+	end
+
+	function AddActiveLevelAuraUpgrade(type)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusBaseGameRules", "AddActiveLevelAuraUpgrade"), 2)
+	end
+
+	function RemoveActiveLevelAuraUpgrade(type)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusBaseGameRules", "RemoveActiveLevelAuraUpgrade"), 2)
+	end
+
+	function GetMission()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusBaseGameRules", "GetMission"), 1)
+		return new LotusMissionInfo()
+	end
+
+	function IsPlayingHardGameModeMission()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusBaseGameRules", "IsPlayingHardGameModeMission"), 1)
+		return ivkr_pop_bool()
+	end
+end
+
+class LotusGameRules extends LotusBaseGameRules
+	__name = "LotusGameRules"
+
+	function OpenMissionContinueDialog()
+		self:pushToIvkr()
+		ivkr_push_nil()
+		ivkr_call(ivkr_find_method("LotusGameRules", "OpenMissionContinueDialog"), 2)
+	end
+end
+
+-- undocumented
+class LotusHubGameRules extends LotusBaseGameRules
+	function GetAccountFromAvatar(avatar)
+		self:pushToIvkr()
+		avatar:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusHubGameRules", "GetAccountFromAvatar"), 2)
+		return ivkr_pop_string()
+	end
+
+	function ReconnectToHub()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusHubGameRules", "ReconnectToHub"), 1)
+	end
+end
+
+class LotusAttractModeGameRules extends GameRulesImpl
+	__name = "LotusAttractModeGameRules"
+
+	function GetStarChart()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusAttractModeGameRules", "GetStarChart"), 1)
+		return new RadialSolarMap()
+	end
+
+	function GetStoreManifest()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusAttractModeGameRules", "GetStoreManifest"), 1)
+		return new StoreManifest()
+	end
+end
+
+class RadialSolarMap extends Object
+	__name = "RadialSolarMap"
+
+	function GetRegions()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("RadialSolarMap", "GetRegions"), 1)
+		return ivkr_pop_array(RadialRegion)
+	end
+
+	function BuildMissionForLocation(symbol)
+		self:pushToIvkr()
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("RadialSolarMap", "BuildMissionForLocation"), 2)
+		return new LotusMissionInfo()
+	end
+
+	function SetLevelStreamingArgs(locationSymbol, openLevelArgs)
+		self:pushToIvkr()
+		locationSymbol:pushToIvkr()
+		openLevelArgs:pushToIvkr()
+		ivkr_call(ivkr_find_method("RadialSolarMap", "SetLevelStreamingArgs"), 3)
+	end
+end
+
+class RadialRegion extends owfUserdata
+	__name = "RadialRegion"
+
+	function __index(name)
+		if RadialRegion[name] then
+			return RadialRegion[name]
+		end
+		switch name do
+			case "name":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialRegion", name), 1)
+				return ivkr_pop_string()
+
+			case "sectors":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialRegion", name), 1)
+				return ivkr_pop_array(RadialSector)
+
+			case "droneDamage":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialRegion", name), 1)
+				return ivkr_pop_range()
+
+			case "damageChance":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialRegion", name), 1)
+				return ivkr_pop_number()
+
+			case "resources":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialRegion", name), 1)
+				return ivkr_pop_array(PickUpTypeRarity)
+		end
+		error("Unknown field: "..name)
+	end
+end
+
+class RadialSector extends owfUserdata
+	__name = "RadialSector"
+
+	function __newindex(name, value)
+		switch name do
+			case "unlocked":
+				self:pushToIvkr()
+				ivkr_push_bool(value)
+				ivkr_call(ivkr_find_setter("RadialSector", "unlocked"), 2)
+				return
+		end
+		error("Unknown field: "..name)
+	end
+
+	function __index(name)
+		if name == "pushToIvkr" then
+			return owfUserdata.pushToIvkr
+		end
+		switch name do
+			case "name":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "name"), 1)
+				return ivkr_pop_symbol()
+
+			case "unlocked":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "unlocked"), 1)
+				return ivkr_pop_bool()
+
+			case "nodeType":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "nodeType"), 1)
+				return math.tointeger(ivkr_pop_number())
+
+			case "missionTag":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "missionTag"), 1)
+				return ivkr_pop_symbol()
+
+			case "mission":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "mission"), 1)
+				return new LotusMissionInfo()
+
+			case "founders":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "founders"), 1)
+				return ivkr_pop_string()
+
+			case "challenges":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "challenges"), 1)
+				return ivkr_pop_array(LotusChallenge)
+
+			case "tileset":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("RadialSector", "tileset"), 1)
+				if ivkr_type(-1) > 0 then 
+					return new ObjectType()
+				end
+				ivkr_pop(1)
+				return nil
+		end
+		error("Unknown field: "..name)
+	end
+end
+
+class LotusMissionInfo extends owfUserdata
+	__name = "LotusMissionInfo"
+
+	function __index(name)
+		if LotusMissionInfo[name] then
+			return LotusMissionInfo[name]
+		end
+		switch name do
+			case "missionType":
+			case "minEnemyLevel":
+			case "maxEnemyLevel":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusMissionInfo", name), 1)
+				return math.tointeger(ivkr_pop_number())
+
+			case "goalTag":
+			case "activeMissionTag":
+			case "location":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusMissionInfo", name), 1)
+				return ivkr_pop_symbol()
+
+			case "levelOverride":
+			case "gameRules":
+			case "enemySpec":
+			case "extraEnemySpec":
+			case "vipAgent":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusMissionInfo", name), 1)
+				if ivkr_type(-1) > 0 then 
+					return new ObjectType()
+				end
+				ivkr_pop(1)
+				return nil
+
+			case "customAdvancedSpawners":
+			case "buddyAgents":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusMissionInfo", name), 1)
+				return ivkr_pop_array(ObjectType)
+
+			case "missionReward":
+			case "missionRewardExtra":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusMissionInfo", name), 1)
+				if ivkr_type(-1) > 0 then 
+					return new MissionReward()
+				end
+				ivkr_pop(1)
+				return nil
+
+			case "miscItemFee":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusMissionInfo", name), 1)
+				return new CountedItem()
+		end
+		error("Unknown field: "..name)
+	end
+
+	function EncodeAsString()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusMissionInfo", "EncodeAsString"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetEnemies()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusMissionInfo", "GetEnemies"), 1)
+		return ivkr_pop_array(MissionAI)
+	end
+
+	function GetExtraEnemies()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusMissionInfo", "GetExtraEnemies"), 1)
+		return ivkr_pop_array(MissionAI)
+	end
+
+	function GetMissionEventResources()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusMissionInfo", "GetMissionEventResources"), 1)
+		return ivkr_pop_array(ObjectType)
+	end
+
+	function GetExtraMissionEventResources()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusMissionInfo", "GetExtraMissionEventResources"), 1)
+		return ivkr_pop_array(ObjectType)
+	end
+
+	function GetAdvancedAiDirectorSpawns()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusMissionInfo", "GetAdvancedAiDirectorSpawns"), 1)
+		return ivkr_pop_array(ObjectType)
+	end
+
+	function GetCustomAdvancedAiDirectorSpawns()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusMissionInfo", "GetCustomAdvancedAiDirectorSpawns"), 1)
+		return ivkr_pop_array(ObjectType)
+	end
+end
+
+class MissionReward extends owfUserdata
+	__name = "MissionReward"
+
+	function __index(name)
+		if MissionReward[name] then
+			return MissionReward[name]
+		end
+		switch name do
+			case "credits":
+			case "xp":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("MissionReward", name), 1)
+				return math.tointeger(ivkr_pop_number())
+
+			case "items":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("MissionReward", name), 1)
+				return ivkr_pop_array(StoreItem)
+
+			case "countedItems":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("MissionReward", name), 1)
+				return ivkr_pop_array(CountedItem)
+
+			case "countedStoreItems":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("MissionReward", name), 1)
+				return ivkr_pop_array(CountedStoreItem)
+
+			case "randomizedItems":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("MissionReward", name), 1)
+				return new MissionRewardItemManifest()
+		end
+		error("Unknown field: "..name)
+	end
+end
+
+class MissionRewardItemManifest extends ResourceBase
+	__name = "MissionRewardItemManifest"
+
+	function GetMaxAvailableTier()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("MissionRewardItemManifest", "GetMaxAvailableTier"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function PickRandomItemIndex(tier, f)
+		self:pushToIvkr()
+		ivkr_push_int(tier)
+		ivkr_push_float(f)
+		ivkr_call(ivkr_find_method("MissionRewardItemManifest", "PickRandomItemIndex"), 3)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function GetTieredItem(tier, i)
+		self:pushToIvkr()
+		ivkr_push_int(tier)
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("MissionRewardItemManifest", "GetTieredItem"), 3)
+		return new MissionRewardItem()
+	end
+end
+
+class MissionRewardItem extends owfUserdata
+	__name = "MissionRewardItem"
+
+	function GetStoreItem()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("MissionRewardItem", "GetStoreItem"), 1)
+		return new StoreItem()
+	end
+end
+
+class MissionAI extends owfUserdata
+	__name = "MissionAI"
+
+	function __index(name)
+		if MissionAI[name] then
+			return MissionAI[name]
+		end
+		switch name do
+			case "agent":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("MissionAI", name), 1)
+				if ivkr_type(-1) > 0 then 
+					return new ObjectType()
+				end
+				ivkr_pop(1)
+				return nil
+		end
+		error("Unknown field: "..name)
+	end
+end
+
+class ChallengeBase extends Object
+	__name = "ChallengeBase"
+end
+
+class GenericChallenge extends ChallengeBase
+	__name = "GenericChallenge"
+end
+
+class LotusChallenge extends GenericChallenge
+	__name = "LotusChallenge"
+end
+
+class StoreManifest extends Object
+	__name = "StoreManifest"
+
+	function GetStoreItemsOfType(objectType)
+		self:pushToIvkr()
+		objectType:pushToIvkr()
+		ivkr_call(ivkr_find_method("StoreManifest", "GetStoreItemsOfType"), 2)
+		local t = {}
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(new StoreItem())
+			++i
+		end
+		ivkr_pop(2)
+		return t
+	end
+
+	function GetGiftBonusItems()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("StoreManifest", "GetGiftBonusItems"), 1)
+		local t = {}
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(new GiftBonusItem())
+			++i
+		end
+		ivkr_pop(2)
+		return t
+	end
+end
+
+class StoreItem extends Object
+	__name = "StoreItem"
+
+	function GetProductCategory()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("StoreItem", "GetProductCategory"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function ExcludeFromCodex()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("StoreItem", "ExcludeFromCodex"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function ShowInMarket()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("StoreItem", "ShowInMarket"), 1)
+		return ivkr_pop_bool()
+	end
+end
+
+class GiftBonusItem extends owfUserdata
+	__name = "GiftBonusItem"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("GiftBonusItem", "gift"), 1)
+		self.gift = new StoreItem()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("GiftBonusItem", "reward"), 1)
+		self.reward = new StoreItem()
+	end
+end
+
+class CountedItem extends owfUserdata
+	__name = "CountedItem"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CountedItem", "mItemType"), 1)
+		if ivkr_type(-1) > 0 then
+			self.mItemType = new ObjectType()
+		else
+			ivkr_pop(1)
+		end
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CountedItem", "mItemCount"), 1)
+		self.mItemCount = math.tointeger(ivkr_pop_number())
+	end
+end
+
+class CountedStoreItem extends owfUserdata
+	__name = "CountedStoreItem"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CountedStoreItem", "mStoreItem"), 1)
+		self.mStoreItem = new StoreItem()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CountedStoreItem", "mItemCount"), 1)
+		self.mItemCount = math.tointeger(ivkr_pop_number())
+	end
+end
+
+class PickUpTypeRarity extends owfUserdata
+	__name = "PickUpTypeRarity"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("PickUpTypeRarity", "mStoreItem"), 1)
+		self.mStoreItem = new StoreItem()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("PickUpTypeRarity", "mItemType"), 1)
+		self.mItemType = new ObjectType()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("PickUpTypeRarity", "mRarity"), 1)
+		self.mRarity = math.tointeger(ivkr_pop_number())
+	end
+end
+
+class CodexManifest extends owfUserdata
+	__name = "CodexManifest"
+
+	function GetAllEntries()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("CodexManifest", "GetAllEntries"), 1)
+		local t = {}
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(new CodexTypes.Entry())
+			++i
+		end
+		ivkr_pop(2)
+		return t
+	end
+
+	function GetEnvironmentEntries()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("CodexManifest", "GetEnvironmentEntries"), 1)
+		local t = {}
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(new CodexTypes.Entry())
+			++i
+		end
+		ivkr_pop(2)
+		return t
+	end
+end
+
+CodexTypes = {}
+
+class CodexTypes.Entry extends owfUserdata
+	__name = "CodexTypes::Entry"
+
+	function __construct()
+		parent:__construct()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CodexTypes::Entry", "locName"), 1)
+		self.locName = ivkr_pop_symbol()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CodexTypes::Entry", "icon"), 1)
+		if ivkr_type(-1) > 0 then
+			self.icon = new Texture()
+		else
+			ivkr_pop(1)
+		end
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CodexTypes::Entry", "reqScans"), 1)
+		self.reqScans = math.tointeger(ivkr_pop_number())
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CodexTypes::Entry", "secret"), 1)
+		self.secret = ivkr_pop_bool()
+
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_getter("CodexTypes::Entry", "type"), 1)
+		if ivkr_type(-1) > 0 then
+			self.type = new ObjectType()
+		else
+			ivkr_pop(1)
+		end
+	end
+end
+
+class Texture extends ResourceBase
+	__name = "Texture"
+end
+
+class MotionControllerBase extends Object
+	__name = "MotionControllerBase"
+
+	function GetSpeedMultiplier()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("MotionControllerBase", "GetSpeedMultiplier"), 1)
+		return ivkr_pop_number()
+	end
+
+	function SetSpeedMultiplier(f)
+		self:pushToIvkr()
+		ivkr_push_float(f)
+		ivkr_call(ivkr_find_method("MotionControllerBase", "SetSpeedMultiplier"), 2)
+	end
+end
+
+class LotusMotionController extends MotionControllerBase
+	__name = "LotusMotionController"
+end
+
+class LotusSpaceFlightMotionController extends LotusMotionController
+	__name = "LotusSpaceFlightMotionController"
+
+	function EnableFlight(b)
+		self:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("LotusSpaceFlightMotionController", "EnableFlight"), 2)
+	end
+end
+
+class CameraControllerBase extends Object
+	__name = "CameraControllerBase"
+
+	function AttenuateFOV(fMul)
+		self:pushToIvkr()
+		ivkr_push_float(fMul)
+		ivkr_call(ivkr_find_method("CameraControllerBase", "AttenuateFOV"), 2)
+	end
+
+	function setFovMultiplier(fMul)
+		self:pushToIvkr()
+		ivkr_push_float(fMul)
+		ivkr_call(ivkr_find_method("CameraControllerBase", "AttenuateFOV"), 2)
+	end
+
+	function getFovMultiplier()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("CameraControllerBase", "GetOverrideFOVMultiplier"), 1)
+		return ivkr_pop_number()
+	end
+
+	function SetBaseFovOverride(fov)
+		self:pushToIvkr()
+		ivkr_push_float(fov)
+		ivkr_call(ivkr_find_method("CameraControllerBase", "SetBaseFovOverride"), 2)
+	end
+
+	function GetBaseFovOverride()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("CameraControllerBase", "GetBaseFovOverride"), 1)
+		return ivkr_pop_number()
+	end
+
+	function implGetVector(funcName)
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("CameraControllerBase", funcName), 1)
+		return ivkr_pop_vector()
+	end
+
+	function implSetVector(funcName, vec)
+		self:pushToIvkr()
+		ivkr_push_vector(vec)
+		ivkr_call(ivkr_find_method("CameraControllerBase", funcName), 2)
+	end
+
+	function GetViewOffset()
+		return self:implGetVector("GetViewOffset")
+	end
+
+	function SetViewOffset(vec)
+		return self:implSetVector("SetViewOffset", vec)
+	end
+
+	function GetAimViewOffset()
+		return self:implGetVector("GetAimViewOffset")
+	end
+
+	function SetAimViewOffset(vec)
+		return self:implSetVector("SetAimViewOffset", vec)
+	end
+
+	function GetRunViewOffset()
+		return self:implGetVector("GetRunViewOffset")
+	end
+
+	function SetRunViewOffset(vec)
+		return self:implSetVector("SetRunViewOffset", vec)
+	end
+
+	function GetDodgeOffset()
+		return self:implGetVector("GetDodgeOffset")
+	end
+
+	function SetDodgeOffset(vec)
+		return self:implSetVector("SetDodgeOffset", vec)
+	end
+
+	function GetInAirViewOffset()
+		return self:implGetVector("GetInAirViewOffset")
+	end
+
+	function SetInAirViewOffset(vec)
+		return self:implSetVector("SetInAirViewOffset", vec)
+	end
+
+	function SetInAirAimViewOffset(vec)
+		return self:implSetVector("SetInAirAimViewOffset", vec)
+	end
+
+	function SetMeleeOffset(vec)
+		return self:implSetVector("SetMeleeOffset", vec)
+	end
+
+	function SetCoverLeftViewOffset(vec)
+		return self:implSetVector("SetCoverLeftViewOffset", vec)
+	end
+
+	function SetCoverRightViewOffset(vec)
+		return self:implSetVector("SetCoverRightViewOffset", vec)
+	end
+
+	function SetCrouchCoverAimLeftViewOffset(vec)
+		return self:implSetVector("SetCrouchCoverAimLeftViewOffset", vec)
+	end
+
+	function SetCrouchCoverAimRightViewOffset(vec)
+		return self:implSetVector("SetCrouchCoverAimRightViewOffset", vec)
+	end
+
+	function SetWallRunLeftViewOffset(vec)
+		return self:implSetVector("SetWallRunLeftViewOffset", vec)
+	end
+
+	function SetWallRunRightViewOffset(vec)
+		return self:implSetVector("SetWallRunRightViewOffset", vec)
+	end
+
+	function SetWallRunLeftAimViewOffset(vec)
+		return self:implSetVector("SetWallRunLeftAimViewOffset", vec)
+	end
+
+	function SetWallRunRightAimViewOffset(vec)
+		return self:implSetVector("SetWallRunRightAimViewOffset", vec)
+	end
+end
+
+class EngineNpcMgr extends Object
+	__name = "EngineNpcMgr"
+
+	function GetAiDirector()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("EngineNpcMgr", "GetAiDirector"), 1)
+		return new EngineAiDirector()
+	end
+end
+
+class EngineAiDirector extends Object
+	__name = "EngineAiDirector"
+
+	function SetMaxPopulationSpawnCount(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("EngineAiDirector", "SetMaxPopulationSpawnCount"), 2)
+	end
+
+	function SetMaxAI(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("EngineAiDirector", "SetMaxAI"), 2)
+	end
+
+	function SetDifficulty(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("EngineAiDirector", "SetDifficulty"), 2)
+	end
+
+	function ClearEncounters()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("EngineAiDirector", "ClearEncounters"), 1)
+	end
+
+	function AddEncounter(type)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_call(ivkr_find_method("EngineAiDirector", "AddEncounter"), 2)
+	end
+
+	function SelectEncounterHintsWithType(type, minDist, maxDist)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_push_float(minDist)
+		ivkr_push_float(maxDist)
+		ivkr_call(ivkr_find_method("EngineAiDirector", "SelectEncounterHintsWithType"), 4)
+		return ivkr_pop_array(Entity)
+	end
+
+	function ActivateSpecificEncounterAtSpecificHint(hint, type)
+		self:pushToIvkr()
+		hint:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_pop(ivkr_call(ivkr_find_method("EngineAiDirector", "ActivateSpecificEncounterAtSpecificHint"), 3))
+	end
+
+	function AddGlobalEncounterTag(symbol)
+		self:pushToIvkr()
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("EngineAiDirector", "AddGlobalEncounterTag"), 2)
+	end
+
+	function RemoveGlobalEncounterTag(symbol)
+		self:pushToIvkr()
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("EngineAiDirector", "RemoveGlobalEncounterTag"), 2)
+	end
+end
+
+class NpcManager extends EngineNpcMgr
+	__name = "NpcManager"
+
+	function PauseAllAgents()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("NpcManager", "PauseAllAgents"), 1)
+	end
+
+	function CreateAgentAtPosition(type, pos, rot, optionalSymbol, optionalLevel)
+		self:pushToIvkr()
+		type:pushToIvkr()
+		ivkr_push_vector(pos)
+		ivkr_push_rotation(rot)
+		;(optionalSymbol or EMPTY_SYMBOL):pushToIvkr()
+		ivkr_push_int(optionalLevel or 0)
+		ivkr_call(ivkr_find_method("NpcManager", "CreateAgentAtPosition"), 6)
+		return new EngineNpcAgent()
+	end
+end
+
+class EngineNpcAgent extends Object
+	__name = "EngineNpcAgent"
+
+	function GetAvatar()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("EngineNpcAgent", "GetAvatar"), 1)
+		return new LotusNpcAvatar()
+	end
+end
+
+class LotusNpcAvatar extends LotusAvatar
+	__name = "LotusNpcAvatar"
+
+	function GetEnhancementCount()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusNpcAvatar", "GetEnhancementCount"), 1)
+		return math.tointeger(ivkr_pop_number())
+	end
+
+	function GetEnhancementLocTag()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusNpcAvatar", "GetEnhancementLocTag"), 1)
+		return ivkr_pop_symbol()
+	end
+end
+
+class LotusVehicleAvatar extends LotusNpcAvatar
+	__name = "LotusVehicleAvatar"
+
+	function GetRider()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusVehicleAvatar", "GetRider"), 1)
+		return ivkr_pop_entity()
+	end
+
+	function GetTrickController()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusVehicleAvatar", "GetTrickController"), 1)
+		if ivkr_type(-1) > 0 then
+			return new TrickController()
+		end
+		ivkr_pop(1)
+	end
+end
+
+class TrickController extends Object
+	function SetMaxPointsPerCombo(pts)
+		self:pushToIvkr()
+		ivkr_push_int(pts)
+		ivkr_call(ivkr_find_method("TrickController", "SetMaxPointsPerCombo"), 2)
+	end
+end
+
+class HudStatus extends Object
+	__name = "HudStatus"
+
+end
+class LotusHudStatus extends HudStatus
+	__name = "LotusHudStatus"
+
+	function GetFlashMarkers()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusHudStatus", "GetFlashMarkers"), 1)
+		local t = {}
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(new LotusHudStatusTypes.FlashMarker())
+			++i
+		end
+		ivkr_pop(2)
+		return t
+	end
+end
+
+LotusHudStatusTypes = {}
+
+class LotusHudStatusTypes.FlashMarker extends owfUserdata
+	__name = "LotusHudStatusTypes.FlashMarker"
+
+	function ScreenX()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusHudStatusTypes::FlashMarker", "ScreenX"), 1)
+		return ivkr_pop_number()
+	end
+
+	function ScreenY()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusHudStatusTypes::FlashMarker", "ScreenY"), 1)
+		return ivkr_pop_number()
+	end
+
+	function ScreenZ()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("LotusHudStatusTypes::FlashMarker", "ScreenZ"), 1)
+		return ivkr_pop_number()
+	end
+
+	function __index(name)
+		if LotusHudStatusTypes.FlashMarker[name] then
+			return LotusHudStatusTypes.FlashMarker[name]
+		end
+		switch name do
+			case "garbage":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusHudStatusTypes::FlashMarker", name), 1)
+				return ivkr_pop_bool()
+
+			case "markerType":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusHudStatusTypes::FlashMarker", name), 1)
+				return math.tointeger(ivkr_pop_number())
+
+			case "distanceToEye":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusHudStatusTypes::FlashMarker", name), 1)
+				return ivkr_pop_number()
+
+			case "pos":
+				do
+					self:pushToIvkr()
+					ivkr_call(ivkr_find_getter("LotusHudStatusTypes::FlashMarker", name), 1)
+					return ivkr_pop_vector()
+				end
+				break
+
+			case "baseMarkerInfo":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LotusHudStatusTypes::FlashMarker", "baseMarkerInfo"), 1)
+				return new BaseMarkerInfo()
+		end
+		error("Unknown field: "..name)
+	end
+end
+
+class BaseMarkerInfo extends Entity
+	__name = "BaseMarkerInfo"
+
+	function SetMarkerType(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("BaseMarkerInfo", "SetMarkerType"), 2)
+	end
+
+	function SetDisplayRange(range)
+		self:pushToIvkr()
+		do
+			ivkr_push_float(range.minValue)
+			ivkr_push_float(range.maxValue)
+			ivkr_call(ivkr_find_ctor("Range"), 2)
+		end
+		ivkr_call(ivkr_find_method("BaseMarkerInfo", "SetDisplayRange"), 2)
+	end
+
+	function SetRadius(f)
+		self:pushToIvkr()
+		ivkr_push_float(f)
+		ivkr_call(ivkr_find_method("BaseMarkerInfo", "SetRadius"), 2)
+	end
+end
+
+class Effect extends Entity
+	__name = "Effect"
+
+	function SetTint(color)
+		self:pushToIvkr()
+		color:pushToIvkr()
+		ivkr_call(ivkr_find_method("Effect", "SetTint"), 2)
+	end
+end
+
+class LensFlare extends Entity
+	__name = "LensFlare"
+
+	function SetTint(color)
+		self:pushToIvkr()
+		color:pushToIvkr()
+		ivkr_call(ivkr_find_method("LensFlare", "SetTint"), 2)
+	end
+end
+
+class Decoration extends Entity
+	__name = "Decoration"
+
+	function TriggerAnimation()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Decoration", "TriggerAnimation"), 1)
+	end
+
+	function IsTriggeredAnimationDone()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("Decoration", "IsTriggeredAnimationDone"), 1)
+		return ivkr_pop_bool()
+	end
+end
+
+class Ragdoll extends Entity
+	__name = "Ragdoll"
+
+	function ApplyGlobalForce(vec, forceType)
+		self:pushToIvkr()
+		ivkr_push_vector(vec)
+		ivkr_push_int(forceType)
+		ivkr_call(ivkr_find_method("Ragdoll", "ApplyGlobalForce"), 3)
+	end
+end
+
+class WeaponCustomization extends owfUserdata
+	__name = "WeaponCustomization"
+
+	function GetSkin(iSlot)
+		self:pushToIvkr()
+		ivkr_push_int(iSlot)
+		ivkr_call(ivkr_find_method("WeaponCustomization", "GetSkin"), 2)
+		if ivkr_type(-1) > 0 then
+			return new ObjectType()
+		else
+			ivkr_pop(1)
+		end
+	end
+
+	function SetSkin(objectType, iSlot)
+		self:pushToIvkr()
+		objectType:pushToIvkr()
+		ivkr_push_int(iSlot)
+		ivkr_call(ivkr_find_method("WeaponCustomization", "SetSkin"), 3)
+	end
+
+	function GetColors(i)
+		assert(i <= 6)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("WeaponCustomization", "GetColors"), 2)
+		return new CustomizationColorPalette()
+	end
+
+	function SetColors(i, v)
+		assert(i <= 6)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		v:pushToIvkr()
+		ivkr_call(ivkr_find_method("WeaponCustomization", "SetColors"), 3)
+	end
+
+	function ApplyCustomization(avatar, b)
+		self:pushToIvkr()
+		avatar:pushToIvkr()
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("WeaponCustomization", "ApplyCustomization"), 3)
+	end
+end
+
+class CustomizationColorPalette extends owfUserdata
+	__name = "CustomizationColorPalette"
+
+	function __index(name)
+		if CustomizationColorPalette[name] then
+			return CustomizationColorPalette[name]
+		end
+		switch name do
+			case "mTintColor0":
+			case "mTintColor1":
+			case "mTintColor2":
+			case "mTintColor3":
+			case "mEmissiveColor0":
+			case "mEmissiveColor1":
+			case "mEnergyColor":
+			case "mEnergyColor1":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("CustomizationColorPalette", name), 1)
+				return ivkr_pop_color()
+		end
+		error("Unknown field: "..name)
+	end
+
+	function __newindex(name, value)
+		if owfUserdata[name] then
+			return owfUserdata[name]
+		end
+		switch name do
+			case "mTintColor0":
+			case "mTintColor1":
+			case "mTintColor2":
+			case "mTintColor3":
+			case "mEmissiveColor0":
+			case "mEmissiveColor1":
+			case "mEnergyColor":
+			case "mEnergyColor1":
+				self:pushToIvkr()
+				value:pushToIvkr()
+				ivkr_call(ivkr_find_setter("CustomizationColorPalette", name), 2)
+				return
+		end
+		error("Unknown field: "..name)
+	end
+
+	function GetColor(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("CustomizationColorPalette", "GetColor"), 2)
+		return ivkr_pop_color()
+	end
+
+	function SetColor(i, c)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		c:pushToIvkr()
+		ivkr_call(ivkr_find_method("CustomizationColorPalette", "SetColor"), 3)
+	end
+
+	function Initialized(i)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("CustomizationColorPalette", "Initialized"), 2)
+		return ivkr_pop_bool()
+	end
+
+	function SetInitialized(i, b)
+		self:pushToIvkr()
+		ivkr_push_int(i)
+		ivkr_push_bool(b)
+		ivkr_call(ivkr_find_method("CustomizationColorPalette", "SetInitialized"), 3)
+	end
+end
+
+class OverlayBase extends Object end
+class FlashInstance extends OverlayBase
+	__name = "FlashInstance"
+
+	function AttachToEntity(ent, off, rot, vecScale)
+		self:pushToIvkr()
+		ent:pushToIvkr()
+		ivkr_push_vector(off)
+		ivkr_push_rotation(rot)
+		ivkr_push_vector(vecScale)
+		ivkr_call(ivkr_find_method("FlashInstance", "AttachToEntity"), 5)
+	end
+
+	function Execute(func, str)
+		self:pushToIvkr()
+		ivkr_push_string(func)
+		ivkr_push_string(str)
+		ivkr_pop(ivkr_call(ivkr_find_method("FlashInstance", "Execute"), 3))
+	end
+
+	function Close()
+		self:pushToIvkr()
+		ivkr_pop(ivkr_call(ivkr_find_method("FlashInstance", "Close"), 1))
+	end
+end
+
+class OverlayMgr extends owfUserdata
+	__name = "OverlayMgr"
+
+	function SetSelectedStyle(resource)
+		self:pushToIvkr()
+		resource:pushToIvkr()
+		ivkr_pop(ivkr_call(ivkr_find_method("OverlayMgr", "SetSelectedStyle"), 2))
+	end
+end
+
+-- undocumented
+class RelayHub extends Object end
+class LotusHub extends RelayHub
+	function GetNameForAccount(oid)
+		self:pushToIvkr()
+		ivkr_push_string(oid)
+		ivkr_call(ivkr_find_method("LotusHub", "GetNameForAccount"), 2)
+		return ivkr_pop_string()
+	end
+end
+
+class PlayerProfile extends owfUserdata
+	__name = "PlayerProfile"
+
+	function GetAccountIDString()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("PlayerProfile", "GetAccountIDString"), 1)
+		return ivkr_pop_string()
+	end
+
+	function GetGameSpecificData()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("PlayerProfile", "GetGameSpecificData"), 1)
+		return new LotusProfileData()
+	end
+end
+
+-- documented as gGameData
+class LotusProfileData extends owfUserdata
+	--__name = "LotusProfileData"
+
+	function SyncInventoryFromDB(callback)
+		ivkr_push_object(get_gamedata())
+		if callback then
+			ivkr_push_callback(callback)
+		else
+			ivkr_push_string("WantsEndOfMatchPreview") -- Basically a no-op
+		end
+		ivkr_call(ivkr_find_method("LotusProfileData", "SyncInventoryFromDB"), 2)
+	end
+
+	function SyncWorldStateFromDB(callback)
+		ivkr_push_object(get_gamedata())
+		if callback then
+			ivkr_push_callback(callback)
+		else
+			ivkr_push_string("WantsEndOfMatchPreview") -- Basically a no-op
+		end
+		ivkr_call(ivkr_find_method("LotusProfileData", "SyncWorldStateFromDB"), 2)
+	end
+end
+
+class LevelInfo extends owfUserdata
+	__name = "LevelInfo"
+
+	function __index(name)
+		if owfUserdata[name] then
+			return owfUserdata[name]
+		end
+		switch name do
+			case "postProcess":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("LevelInfo", name), 1)
+				return new PostProcess()
+		end
+	end
+end
+
+class PostProcess extends owfProxy
+	__name = "PostProcess"
+end
+
+class DynamicSky extends owfUserdata
+	function GetTimeOfDay()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DynamicSky", "GetTimeOfDay"), 1)
+		return ivkr_pop_number()
+	end
+
+	function GetTimeOfDayRate()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("DynamicSky", "GetTimeOfDayRate"), 1)
+		return ivkr_pop_number()
+	end
+end
+
+Engine = {}
+
+class Engine.OpenLevelArgs extends owfUserdata
+	__name = "Engine.OpenLevelArgs"
+
+	function __construct()
+		ivkr_push_string(tostring(self))
+		ivkr_call(ivkr_find_ctor("OpenLevelArgs"), 0)
+		ivkr_settable(-10002)
+	end
+
+	function SetLevel(level)
+		self:pushToIvkr()
+		ivkr_push_string(level)
+		ivkr_call(ivkr_find_method("OpenLevelArgs", "SetLevel"), 2)
+	end
+
+	function SetGameRules(gamerules)
+		self:pushToIvkr()
+		ivkr_push_string(gamerules)
+		ivkr_call(ivkr_find_method("OpenLevelArgs", "SetGameRules"), 2)
+	end
+
+	function AddContextTag(tag)
+		self:pushToIvkr()
+		ivkr_push_string(tag)
+		ivkr_call(ivkr_find_method("OpenLevelArgs", "AddContextTag"), 2)
+	end
+
+	function AddContextObject(objectType)
+		self:pushToIvkr()
+		objectType:pushToIvkr()
+		ivkr_call(ivkr_find_method("OpenLevelArgs", "AddContextObject"), 2)
+	end
+end
+getmetatable(Engine.OpenLevelArgs).__call = || -> new Engine.OpenLevelArgs()
+
+class Engine.DamageData extends owfUserdata
+	__name = "Engine.DamageData"
+
+	function __construct(use_parent_constructor)
+		if use_parent_constructor then
+			parent:__construct()
+		else
+			ivkr_push_string(tostring(self))
+			ivkr_call(ivkr_find_ctor("DamageData"), 0)
+			ivkr_settable(-10002)
+		end
+	end
+
+	function __index(name)
+		if owfUserdata[name] then
+			return owfUserdata[name]
+		end
+		switch name do
+			case "baseAmount":
+			case "criticalChance":
+			case "criticalMultiplier":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("DamageData", name), 1)
+				return ivkr_pop_number()
+
+			case "injuryType":
+				self:pushToIvkr()
+				ivkr_call(ivkr_find_getter("DamageData", name), 1)
+				return math.tointeger(ivkr_pop_number())
+		end
+	end
+
+	function __newindex(name, value)
+		switch name do
+			case "baseAmount":
+			case "criticalChance":
+			case "criticalMultiplier":
+				self:pushToIvkr()
+				ivkr_push_float(value)
+				ivkr_call(ivkr_find_setter("DamageData", name), 2)
+				break
+
+			case "injuryType":
+				self:pushToIvkr()
+				ivkr_push_int(value)
+				ivkr_call(ivkr_find_setter("DamageData", name), 2)
+				break
+		end
+	end
+end
+getmetatable(Engine.DamageData).__call = || -> new Engine.DamageData()
+
+UISys = {}
+
+class UISys.ScriptResLoader extends owfUserdata
+	__name = "UISys.ScriptResLoader"
+
+	function IsDone()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("ScriptResLoader", "IsDone"), 1)
+		return ivkr_pop_bool()
+	end
+
+	function SpotLoad()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("ScriptResLoader", "SpotLoad"), 1)
+	end
+
+	function Abort()
+		self:pushToIvkr()
+		ivkr_call(ivkr_find_method("ScriptResLoader", "Abort"), 1)
+	end
+end
+
+local ivkr_find_global_cache = {}
+function ivkr_find_global(name)
+	local res = ivkr_find_global_cache[name]
+	if not res then
+		local hash = ivkr_hash(name)
+		res = mem_read_i64(mem_scan_exe(string.format("%02X %02X %02X %02X 00 00 00 00", hash & 0xff, (hash >> 8) & 0xff, (hash >> 16) & 0xff, hash >> 24)) + 8)
+		ivkr_find_global_cache[name] = res
+	end
+	return res
+end
+
+function IsNull(val)
+	if val instanceof owfUserdata then
+		val:pushToIvkr()
+		ivkr_call(ivkr_find_global("IsNull"), 1)
+		return ivkr_pop_bool()
+	end
+	return not val
+end
+
+class Type
+	function __construct(public name)
+	end
+
+	function pushToIvkr()
+		ivkr_push_string(self.name)
+		ivkr_call(ivkr_find_global("Type"), 1)
+	end
+end
+setmetatable(Type, { __call = |_, name| -> new Type(name) })
+
+function Resource(name)
+	ivkr_push_string(name)
+	ivkr_call(ivkr_find_global("Resource"), 1)
+	if name == "/Lotus/Types/Lore/PrimaryCodexManifest" then
+		return new CodexManifest()
+	end
+	return new Object()
+end
+
+function WeakResource(name)
+	ivkr_push_string(name)
+	ivkr_call(ivkr_find_global("WeakResource"), 1)
+	return new ObjectType()
+end
+
+function Range(minValue, maxValue)
+	return { minValue = minValue, maxValue = maxValue }
+end
+
+function ivkr_pop_range()
+	ivkr_push_value(-1)
+	ivkr_call(ivkr_find_getter("Range", "minValue"), 1)
+	local minValue = ivkr_pop_number()
+	ivkr_call(ivkr_find_getter("Range", "maxValue"), 1)
+	local maxValue = ivkr_pop_number()
+	return Range(minValue, maxValue)
+end
+
+function Localize(loctag, subs = {})
+	ivkr_push_string(loctag)
+	ivkr_newtable()
+	for k, v in subs do
+		ivkr_push_string(k)
+		ivkr_push_string(v)
+		ivkr_settable(-3)
+	end
+	ivkr_call(ivkr_find_global("Localize"), 2)
+	return ivkr_pop_string()
+end
+
+function Engine.OpenLevel(args)
+	args:pushToIvkr()
+	ivkr_call(ivkr_find_global("OpenLevel"), 1)
+end
+
+function UISys.ScriptResLoader_Create(names)
+	ivkr_newtable()
+	for k, v in ipairs(names) do
+		ivkr_push_int(k)
+		ivkr_push_string(v)
+		ivkr_settable(-3)
+	end
+	ivkr_call(ivkr_find_global("ScriptResLoader_Create"), 1)
+	return new UISys.ScriptResLoader()
+end
+
+function AngleToDirection(rot)
+	ivkr_push_rotation(rot)
+	ivkr_call(ivkr_find_global("AngleToDirection"), 1)
+	return ivkr_pop_vector()
+end
+
+gRegion = {
+	function GetLocalPlayer()
+		ivkr_push_object(get_regionmgr())
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetLocalPlayer"), 1)
+		if ivkr_type(-1) > 0 then
+			return new LotusHumanPlayer()
+		end
+	end,
+	function GetLocalPlayerAvatar()
+		ivkr_push_object(get_regionmgr())
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetLocalPlayerAvatar"), 1)
+		if ivkr_type(-1) > 0 then
+			return ivkr_pop_entity()
+		end
+	end,
+	function GetGameCamera()
+		ivkr_push_object(get_regionmgr())
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetGameCamera"), 1)
+		if ivkr_type(-1) > 0 then
+			return new Entity()
+		end
+	end,
+	function GetGameRules()
+		ivkr_push_object(get_regionmgr())
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetGameRules"), 1)
+		ivkr_push_value(-1)
+		ivkr_call(ivkr_find_method("Object", "GetType"), 1)
+		local type = new ObjectType()
+		if type:isNameInHierarchy("LotusAttractModeGameRules") then
+			return new LotusAttractModeGameRules()
+		end
+		if type:isNameInHierarchy("LotusHubGameRules") then
+			return new LotusHubGameRules()
+		end
+		if type:isNameInHierarchy("LotusGameRules") then
+			return new LotusGameRules()
+		end
+		if type:isNameInHierarchy("GameRulesImpl") then
+			return new GameRulesImpl()
+		end
+		return new Object()
+	end,
+	function GetAvatars()
+		ivkr_push_object(get_regionmgr())
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetAvatars"), 1)
+		local t = {}
+		local i = 1
+		while (ivkr_push_int(i) and nil) or (ivkr_gettable(-2) > 0) do
+			t:insert(new LotusAvatar())
+			++i
+		end
+		ivkr_pop(2)
+		return t
+	end,
+	function FindFirstTagged(symbol)
+		ivkr_push_object(get_regionmgr())
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "FindFirstTagged"), 2)
+		if ivkr_type(-1) > 0 do
+			return ivkr_pop_entity()
+		else
+			ivkr_pop(1)
+		end
+	end,
+	function FindTagged(symbol)
+		ivkr_push_object(get_regionmgr())
+		symbol:pushToIvkr()
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "FindTagged"), 2)
+		return ivkr_pop_entity_array()
+	end,
+	function FindAll(type)
+		ivkr_push_object(get_regionmgr())
+		type:pushToIvkr()
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "FindAll"), 2)
+		return ivkr_pop_entity_array()
+	end,
+	function CreateObject(type)
+		ivkr_push_object(get_regionmgr())
+		type:pushToIvkr()
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "CreateObject"), 2)
+		if ivkr_typename(-1) == "LotusArtifactUpgrade *" then
+			return new LotusArtifactUpgrade()
+		end
+		return new Object()
+	end,
+	function CreateEntity(type, pos, rot)
+		ivkr_push_object(get_regionmgr())
+		type:pushToIvkr()
+		ivkr_push_vector(pos or gRegion:GetLocalPlayerAvatar():GetPosition()) -- Optional for compatibility with older OpenWF versions
+		ivkr_push_rotation(rot or gRegion:GetLocalPlayerAvatar():GetRotation()) -- Optional for compatibility with older OpenWF versions
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "CreateEntity"), 4)
+		return ivkr_pop_entity()
+	end,
+	function GetNpcMgr()
+		ivkr_push_object(get_regionmgr())
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetNpcMgr"), 1)
+		return new NpcManager()
+	end,
+	function Raycast(fromPos, toPos, avatar, _, outPos)
+		ivkr_call(ivkr_find_ctor("Vector3"), 0)
+
+		ivkr_push_object(get_regionmgr())
+		ivkr_push_vector(fromPos)
+		ivkr_push_vector(toPos)
+		avatar:pushToIvkr()
+		ivkr_push_nil()
+		ivkr_push_value(-6)
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "Raycast"), 6)
+
+		local ok = ivkr_type(-1) > 0
+		ivkr_pop(1)
+
+		local vec = ivkr_pop_vector()
+		outPos.x = vec.x
+		outPos.y = vec.y
+		outPos.z = vec.z
+
+		return ok
+	end,
+	function GetLevelInfo()
+		ivkr_push_object(get_regionmgr())
+		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetLevelInfo"), 1)
+		return new LevelInfo()
+	end,
+}
+
+setmetatable(_G, {
+	function __index(name)
+		if name == "gGameRules" then
+			return gRegion:GetGameRules()
+		elseif name == "gGameData" then
+			if addr := get_gamedata() then
+				ivkr_push_object(addr)
+				return new LotusProfileData()
+			end
+		elseif name == "gStarChart" then
+			local gr = gRegion:GetGameRules()
+			if gr instanceof LotusAttractModeGameRules then
+				return gr:GetStarChart()
+			end
+			return gr:GetCurrentStarChart()
+		else
+			return rawget(self, name)
+		end
+	end
+})
+
+gFlashMgr = {
+	function ExecuteToolMenuCommand(resource)
+		ivkr_push_object(get_flashmgr())
+		resource:pushToIvkr()
+		ivkr_call(ivkr_find_method("FlashMgr", "ExecuteToolMenuCommand"), 2)
+	end,
+	function GotoMovie(resource)
+		ivkr_push_object(get_flashmgr())
+		resource:pushToIvkr()
+		ivkr_call(ivkr_find_method("FlashMgr", "GotoMovie"), 2)
+		return new FlashInstance()
+	end,
+}
+
+gPlayerProfileMgr = {
+	function IsLoggedIn()
+		ivkr_push_object(get_profilemgr())
+		ivkr_call(ivkr_find_method("PlayerProfileMgr", "IsLoggedIn"), 1)
+		return ivkr_pop_bool()
+	end,
+	function GetPlayerProfile(i)
+		ivkr_push_object(get_profilemgr())
+		ivkr_push_int(i)
+		ivkr_call(ivkr_find_method("PlayerProfileMgr", "GetPlayerProfile"), 2)
+		return new PlayerProfile()
+	end,
+}
+
+gClient = {
+	function GetOverlayMgr()
+		ivkr_push_object(get_client())
+		ivkr_call(ivkr_find_method("Client", "GetOverlayMgr"), 1)
+		return new OverlayMgr()
+	end
+}
+
+gMatchingService = {
+	function SendRelayP2P(target, msg)
+		ivkr_push_pointer(get_matchingservice())
+		ivkr_push_string(target)
+		ivkr_push_string(msg)
+		ivkr_call(ivkr_find_method("MatchingService", "SendRelayP2P"), 3)
+		return ivkr_pop_bool()
+	end,
+}
+
+gEntityType = Type("/EE/Types/Engine/Entity")
+gBaseAvatarType = Type("/EE/Types/Engine/BaseAvatar")
+gLotusNpcAvatarType = Type("/Lotus/Types/Game/LotusNpcAvatar")
+gLotusVehicleAvatarType = Type("/Lotus/Types/Game/LotusVehicleAvatar")
+gLotusGameRulesType = Type("/Lotus/Types/Game/LotusGameRules")
+gLotusBasePvpGameRulesType = Type("/Lotus/Types/Game/LotusBasePvpGameRules")
+gLotusHubGameRulesType = Type("/Lotus/Types/Game/LotusHubGameRules")
+gLotusDuelGameRulesType = Type("/Lotus/Types/Game/LotusDuelGameRules")
+gDynamicSkyType = Type("/EE/Types/Effects/DynamicSky")
+
+ZERO_VECTOR = Vector()
+ZERO_ROTATION = Rotation()
+EMPTY_SYMBOL = Symbol()
+
+Engine.SLOT_1 = 0
+Engine.SLOT_2 = 1
+Engine.SLOT_3 = 2
+Engine.SLOT_4 = 3
+Engine.SLOT_5 = 4
+Engine.SLOT_6 = 5
+Engine.SLOT_7 = 6
+Engine.SLOT_8 = 7
+Engine.SLOT_9 = 8
+Engine.SLOT_10 = 9
+Engine.SLOT_11 = 10
+Engine.SLOT_12 = 11
+Engine.SLOT_13 = 12
+Engine.SLOT_14 = 13
+Engine.INVALID = 14
+
+Lotus_Game = {}
+Lotus_Game.EMISSIVE_MAP_ATTEN = Symbol("EmissiveMapAtten")
+Lotus_Game.TINT_COLOR = Symbol("TintColor")
+Lotus_Game.UNLIT_ATTEN = Symbol("UnlitAtten")
+Lotus_Game.ALPHA_ATTEN = Symbol("AlphaAtten")
+Lotus_Game.CLOAK = Symbol("Cloak")
+Lotus_Game.V_SCALES = Symbol("vScales")
+Lotus_Game.V_SCALES_FADE = Symbol("vScalesFade")
+Lotus_Game.EMISSIVE_TINT_COLOR = Symbol("EmissiveTintColor")
+Lotus_Game.EMISSIVE_TINT_COLOR_HI = Symbol("EmissiveTintColorHi")
+Lotus_Game.EMISSIVE_TINT_COLOR_LO = Symbol("EmissiveTintColorLo")
+Lotus_Game.LOW_COLOR = Symbol("LowColor")
+Lotus_Game.HIGH_COLOR = Symbol("HighColor")
+Lotus_Game.TINT_COLOR0 = Symbol("TintColor0")
+Lotus_Game.TINT_COLOR1 = Symbol("TintColor1")
+Lotus_Game.TINT_COLOR2 = Symbol("TintColor2")
+Lotus_Game.TINT_COLOR3 = Symbol("TintColor3")
+
+function get_core_dict(lang = get_lang_code())
+	local data = owf_repo_find("OpenWF/translations/core/"..lang..".cat.txt")
+	if not data then
+		data = owf_repo_find("OpenWF/translations/core/en.cat.txt")
+	end
+	return cat.decode(data, "flat")
+end
+
+function get_webui_dict(lang = get_lang_code())
+	local data = owf_repo_find("OpenWF/translations/webui/"..lang..".cat.txt")
+	if not data then
+		data = owf_repo_find("OpenWF/translations/webui/en.cat.txt")
+	end
+	return cat.decode(data, "flat")
+end
+
+-- Compatibility
+OWF_EVT_BLOCKED_CHAT_MESSAGE = OWF_EVT_SUBMIT_CHAT_MESSAGE
+chat_block_prefix = |prefix| -> chat_subscribe_prefix(prefix, true)
+chat_unblock_prefix = chat_unsubscribe_prefix
+
+function chat_system_reply(text)
+	if ivkr_push_chat_redux() then
+		ivkr_push_string("SystemMessage")
+		ivkr_gettable(-2)
+		ivkr_push_value(-2)
+		ivkr_push_string(text)
+		ivkr_call2(2, 0)
+
+		ivkr_pop(1)
+	end
+end
+
+function chat_add_to_sent_history(text)
+	if ivkr_push_chat_redux() then
+		ivkr_push_string("mPanelList")
+		assert(ivkr_gettable(-2) == IVKR_TABLE)
+		ivkr_push_nil()
+		if ivkr_next(-2) then
+			ivkr_push_string("OnMessageSent")
+			ivkr_gettable(-2)
+			local i = 0
+			local j = 0
+			while true do
+				ivkr_get_upvalue(i)
+				if ivkr_type(-1) == IVKR_FUNCTION and ++j == 2 then
+					break
+				end
+				ivkr_pop(1)
+				++i
+			end
+			ivkr_push_string(text)
+			ivkr_call2(1, 0)
+			ivkr_pop(3)
+		end
+		ivkr_pop(2)
+	end
+end
+
+function chat_get_sent_history()
+	local res
+	if ivkr_push_chat_redux() then
+		ivkr_push_string("mPanelList")
+		assert(ivkr_gettable(-2) == IVKR_TABLE)
+		ivkr_push_nil()
+		if ivkr_next(-2) then
+			ivkr_push_string("OnMessageSent")
+			ivkr_gettable(-2)
+			local i = 0
+			local j = 0
+			while true do
+				ivkr_get_upvalue(i)
+				if ivkr_type(-1) == IVKR_FUNCTION and ++j == 2 then
+					break
+				end
+				ivkr_pop(1)
+				++i
+			end
+			ivkr_get_upvalue(1)
+			res = ivkr_pop_string_array()
+			ivkr_pop(4)
+		end
+		ivkr_pop(2)
+	end
+	return res
+end
+
+function chat_get_sent_history_index()
+	local res
+	if ivkr_push_chat_redux() then
+		ivkr_push_string("mPanelList")
+		assert(ivkr_gettable(-2) == IVKR_TABLE)
+		ivkr_push_nil()
+		if ivkr_next(-2) then
+			ivkr_push_string("OnMessageSent")
+			ivkr_gettable(-2)
+			local i = 0
+			local j = 0
+			while true do
+				ivkr_get_upvalue(i)
+				if ivkr_type(-1) == IVKR_FUNCTION and ++j == 2 then
+					break
+				end
+				ivkr_pop(1)
+				++i
+			end
+			ivkr_get_upvalue(2)
+			res = ivkr_pop_number()
+			ivkr_pop(4)
+		end
+		ivkr_pop(2)
+	end
+	return res
+end
+
+function chat_set_sent_history_index(idx)
+	if ivkr_push_chat_redux() then
+		ivkr_push_string("mPanelList")
+		assert(ivkr_gettable(-2) == IVKR_TABLE)
+		ivkr_push_nil()
+		if ivkr_next(-2) then
+			ivkr_push_string("OnMessageSent")
+			ivkr_gettable(-2)
+			local i = 0
+			local j = 0
+			while true do
+				ivkr_get_upvalue(i)
+				if ivkr_type(-1) == IVKR_FUNCTION and ++j == 2 then
+					break
+				end
+				ivkr_pop(1)
+				++i
+			end
+			ivkr_push_int(idx)
+			ivkr_set_upvalue(2)
+			ivkr_pop(4)
+		end
+		ivkr_pop(2)
+	end
+end
+
+owf_script_toggles = {}
+function owf_script_add_toggle(name, value = false)
+	local toggle = {
+		name = name,
+		value = value
+	}
+	owf_script_toggles:insert(toggle)
+	return toggle
+end
+
+function owf_command(cmd)
+	if res := owf_command_raw(cmd) then
+		return json.decode(res)
+	end
+	local channel, text = cmd:split("?", 2):unpack()
+	if inst := owf_script_send_message(channel, text or "") then
+		while owf_script_is_reply_pending(inst) do
+			yield()
+		end
+		if r := owf_script_get_reply(inst) then
+			return json.decode(r)
+		end
+	end
+end
+
+function owf_get_available_scripts()
+	return owf_command("available_scripts").available_scripts
+end
+
+function owf_get_running_scripts()
+	return owf_command("running_scripts").running_scripts:filter(|x| -> x:sub(1, 15) == "OpenWF/Scripts/"):map(|x| -> x:sub(16))
+end
+
+function owf_get_running_scripts_ex()
+	return owf_command("running_scripts").running_scripts
+end
+
+function owf_start_script(name)
+	http.request("http://localhost:"..owf_get_client_http_port().."/start_script?"..url.encode("OpenWF/Scripts/"..name))
+end
+
+function owf_start_script_inline(code)
+	http.request("http://localhost:"..owf_get_client_http_port().."/start_script_inline?"..url.encode(code))
+end
+
+function owf_stop_script(name)
+	owf_command("stop_script?OpenWF/Scripts/"..name)
+end
+
+function owf_toggle_script(name)
+	if name in owf_get_running_scripts() then
+		owf_stop_script(name)
+	else
+		owf_start_script(name)
+	end
+end
+
+function owf_get_build_label()
+	return owf_get_build_version() .. "/" .. owf_get_build_hash()
+end
+
+owf_logout = || -> do owf_command("logout") end
+owf_save_config = || -> do owf_command("save_config") end
+owf_reload_hotkeys = || -> do owf_command("reload_hotkeys") end
+owf_reload_label_replacements = || -> do owf_command("reload_label_replacements") end
+
+get_high_damage_numbers_patch = || -> owf_command("high_damage_numbers_patch").high_damage_numbers_patch
+set_high_damage_numbers_patch = |b| -> do owf_command("high_damage_numbers_patch?"..b) end
+get_skip_mission_start_timer = || -> owf_command("skip_mission_start_timer").skip_mission_start_timer
+set_skip_mission_start_timer = |b| -> do owf_command("skip_mission_start_timer?"..b) end
+get_disable_profanity_filter = || -> owf_command("disable_profanity_filter").disable_profanity_filter
+set_disable_profanity_filter = |b| -> do owf_command("disable_profanity_filter?"..b) end
+get_simulacrum_blacklisted = || -> owf_command("simulacrum_blacklisted").simulacrum_blacklisted
+set_simulacrum_blacklisted = |b| -> do owf_command("simulacrum_blacklisted?"..b) end
+get_simulacrum_whitelisted = || -> owf_command("simulacrum_whitelisted").simulacrum_whitelisted
+set_simulacrum_whitelisted = |b| -> do owf_command("simulacrum_whitelisted?"..b) end
+get_alternative_loading = || -> owf_command("alternative_loading").alternative_loading
+set_alternative_loading = |b| -> do owf_command("alternative_loading?"..b) end
+get_ee_log_in_console = || -> owf_command("ee_log_in_console").ee_log_in_console
+set_ee_log_in_console = |b| -> do owf_command("ee_log_in_console?"..b) end
+
+set_fov_override = |f| -> do owf_command("fov_override?"..(f * 10000)) end
+
+OWF_FONT_SIMPLE8 = 8
+OWF_FONT_SIMPLE5 = 5
+
+owf_overlay_set_color = owf_overlay_set_colour
+
+UpgradeType = setmetatable({}, {
+	__index = |t, k| -> rawset(t, k, ivkr_get_enum_value(k))[k]
+})
+
+OperationType = {
+	ADD = 0,
+	ADD_BASE = 1,
+	MULTIPLY = 2,
+	STACKING_MULTIPLY = 3,
+	SET = 4,
+	SET_BASE = 5,
+	SET_MIN = 6,
+	SET_MAX = 7
+}
+
+DamageType = UpgradeType
+PostureModifier = UpgradeType
+
+Injury = {
+	PAIN = 0,
+	INJURY_RESISTED = 1,
+	INJURY_BLOCKED = 2,
+	STAGGER = 3,
+	BIG_STAGGER = 4,
+	STUN = 5,
+	KNOCKDOWN = 6,
+	GROUNDFIRE = 7,
+	THROW = 8,
+	RAGDOLL = 9,
+	PRE_DEATH = 10,
+	DEATH = 11,
+	DEATH_RAGDOLL = 12,
+	DEATH_SLICE = 13,
+	DEATH_SEVER = 14,
+	ANY = 15,
+	MAX_Injury = 16
+}
+
+ForceType = {
+	FT_FORCE = 0,
+	FT_IMPULSE = 1,
+	FT_VELOCITY_CHANGE = 2,
+	FT_ACCELERATION = 3,
+}
+
+-- unsure about the name
+ColorCustomizationSlot = {
+	PrimaryColors = 0,
+	Attachments = 1,
+	Sigil = 2,
+	Eyes = 3,
+	Facial = 4,
+	Clothing = 5,
+	Syandana = 6,
+}
+
+-- unsure about the name
+PowerSuitCustomizationSlot = {
+	Helmet = 0,
+	ArmLeft = 1,
+	LegLeft = 2,
+	CustomEmblem = 3,
+	EventEmblem = 4,
+	AnimationSet = 5,
+	Neckwear = 6,
+	BodySkin = 7,
+	Chest = 8,
+	ArmRight = 9,
+	LegRight = 10,
+	Face = 11,
+	SigilChest = 12,
+	SigilBack = 13,
+	SpecialEvent = 14,
+	FxSet = 15,
+	SpecialFxSet = 16,
+}
+
+mem_rip = function(addr)
+	return addr + mem_read_i32(addr) + 4
+end
+
+ivkr_typename = function(idx)
+	ivkr_push_value(idx)
+	ivkr_call(ivkr_find_global("GetTypeName"), 1)
+	return ivkr_pop_string()
+end
+
+function ivkr_push_global(name)
+	if compareversions(owf_get_build_version(), "2025.10.14.16.10") >= 0 then
+		ivkr_push_int_as_bool(ivkr_hash(name))
+	else
+		ivkr_push_string(name)
+	end
+	ivkr_gettable(-10002)
+end
+
+local t_functions = {
+	AddHudTracker = function(name, type)
+		ivkr_push_global("_T")
+		ivkr_push_string("AddHudTracker")
+		ivkr_gettable(-2)
+
+		ivkr_push_string(name)
+		ivkr_push_int(type)
+		ivkr_call2(2, 0)
+
+		ivkr_pop(1)
+	end,
+	RemoveHudTracker = function(name)
+		ivkr_push_global("_T")
+		ivkr_push_string("RemoveHudTracker")
+		ivkr_gettable(-2)
+
+		ivkr_push_string(name)
+		ivkr_call2(1, 0)
+
+		ivkr_pop(1)
+	end,
+	OpenScreen = function(name)
+		ivkr_push_global("_T")
+		ivkr_push_string("OpenScreen")
+		ivkr_gettable(-2)
+
+		ivkr_push_string(name)
+		ivkr_call2(1, 1)
+		local ret = new FlashInstance()
+		ivkr_pop(1)
+		return ret
+	end,
+	ShowNotification = function(...args)
+		ivkr_push_global("_T")
+		ivkr_push_string("ShowNotification")
+		ivkr_gettable(-2)
+
+		for args as arg do
+			ivkr_push_any(arg)
+		end
+		ivkr_call2(#args, 0)
+
+		ivkr_pop(1)
+	end,
+}
+_T = setmetatable({}, {
+	function __index(name)
+		ivkr_push_global("_T")
+		ivkr_push_string(name)
+		if ivkr_gettable(-2) > 0 then
+			if func := t_functions[name] then
+				ivkr_pop(2)
+				return func
+			end
+		end
+		local value = ivkr_pop_any()
+		ivkr_pop(1)
+		return value
+	end,
+	function __newindex(name, value)
+		ivkr_push_global("_T")
+		ivkr_push_string(name)
+		ivkr_push_any(value)
+		ivkr_settable(-3)
+		ivkr_pop(1)
+	end
+})
+
+ivkr_find_builtin = function(name)
+	ivkr_push_global(name)
+	return ivkr_pop_c_function()
+end
+
+package.preload["EE.Interface.Utilities"] = || -> {
+	ShowMessage = function(str)
+		ivkr_push_string("EE.Interface.Utilities")
+		ivkr_call(ivkr_find_builtin("require"), 1)
+		do
+			ivkr_push_string("ShowMessage")
+			ivkr_gettable(-2)
+
+			ivkr_push_string(str)
+			ivkr_call2(1, 0)
+		end
+		ivkr_pop(1)
+	end
+}
+
+package.preload["Lotus.Interface.LotusNetworkUtilities"] = || -> {
+	Host_LoadMission = function(node, missionInfo)
+		ivkr_push_string("Lotus.Interface.LotusNetworkUtilities")
+		ivkr_call(ivkr_find_builtin("require"), 1)
+		do
+			ivkr_push_string("Host_LoadMission")
+			ivkr_gettable(-2)
+
+			node:pushToIvkr()
+			missionInfo:pushToIvkr()
+			ivkr_call2(2, 0)
+		end
+		ivkr_pop(1)
+	end
+}
+
+package.preload["Lotus.Interface.LotusUtilities"] = || -> {
+	SLIDER = 1,
+	CHECKBOX = 2,
+	TOGGLE = 3,
+	BUTTON = 4,
+	TITLE = 5,
+	INPUTBOX = 6,
+	SPACER = 7,
+	INPUTCOUNT = 8,
+	ICONBUTTON = 9,
+	CHOICE = 10,
+	COLOR = 11,
+	IMAGE = 12
+}
+
+package.preload["Lotus.Scripts.Libs.ObjectiveText"] = || -> {
+	SetPrimaryObjText = function(text)
+		ivkr_push_string("Lotus.Scripts.Libs.ObjectiveText")
+		ivkr_call(ivkr_find_builtin("require"), 1)
+		do
+			ivkr_push_string("SetPrimaryObjText")
+			ivkr_gettable(-2)
+
+			ivkr_push_string(text)
+			ivkr_call2(1, 0)
+		end
+		ivkr_pop(1)
+	end,
+	ClearPrimaryObjText = function()
+		ivkr_push_string("Lotus.Scripts.Libs.ObjectiveText")
+		ivkr_call(ivkr_find_builtin("require"), 1)
+		do
+			ivkr_push_string("ClearPrimaryObjText")
+			ivkr_gettable(-2)
+			ivkr_call2(0, 0)
+		end
+		ivkr_pop(1)
+	end,
+}
+
+package.preload["Lotus.Scripts.Libs.DuviriActivityLib"] = || -> {
+	ModifyEncounterLimit = function(type, delta)
+		ivkr_push_string("Lotus.Scripts.Libs.DuviriActivityLib")
+		ivkr_call(ivkr_find_builtin("require"), 1)
+		do
+			ivkr_push_string("ModifyEncounterLimit")
+			ivkr_gettable(-2)
+
+			type:pushToIvkr()
+			ivkr_push_int(delta)
+			ivkr_call2(2, 0)
+		end
+		ivkr_pop(1)
+	end,
+	IsEncounterLimitReached = function(type)
+		local res
+		ivkr_push_string("Lotus.Scripts.Libs.DuviriActivityLib")
+		ivkr_call(ivkr_find_builtin("require"), 1)
+		do
+			ivkr_push_string("IsEncounterLimitReached")
+			ivkr_gettable(-2)
+
+			type:pushToIvkr()
+			ivkr_call2(1, 1)
+			res = ivkr_pop_bool()
+		end
+		ivkr_pop(1)
+		return res
+	end,
+}
+
+coroutine.sleep = function(ms)
+	local t = os.millis() + ms
+	repeat
+		yield()
+	until t <= os.millis()
+end
+
+Sleep = coroutine.sleep
+
+owf_internal_event_queue = {}
+owf_lambda_callbacks = {}
+owf_flash_callbacks = {}
+owf_next_event = || -> owf_internal_event_queue:remove(1)
+
+ivkr_push_callback = function(callback)
+	local callbackName = tostring(callback)
+	if type(callback) == "function" then
+		owf_lambda_callbacks[callbackName] = callback
+	end
+	ivkr_push_string("OWF_"..owf_script_get_name()..callbackName)
+	owf_register_callback(callbackName)
+end
+
+ivkr_push_any = function(val)
+	switch type(val) do
+		case "nil":
+			ivkr_push_nil()
+			return true
+
+		case "boolean":
+			ivkr_push_bool(val)
+			return true
+
+		case "number":
+			if math.type(val) == "integer" do
+				ivkr_push_int(val)
+			else
+				ivkr_push_float(val)
+			end
+			return true
+
+		case "string":
+			ivkr_push_string(val)
+			return true
+
+		case "table":
+			ivkr_newtable()
+			for k, v in val do
+				if not ivkr_push_any(k) or not ivkr_push_any(v) then
+					ivkr_pop(1)
+					return false
+				end
+				ivkr_settable(-3)
+			end
+			return true
+
+		case "function":
+			local cid = #owf_flash_callbacks + 1
+			owf_flash_callbacks[cid] = val
+			ivkr_push_callback2(cid)
+			return true
+	end
+	print("Unexpected value: "..dumpvar(val))
+	return false
+end
+
+ivkr_pop_any = function(lim = 2)
+	switch ivkr_type(-1) do
+		case IVKR_NIL:
+			ivkr_pop(1)
+			return nil
+
+		case IVKR_BOOL:
+			return ivkr_pop_bool()
+
+		case IVKR_NUMBER:
+			return ivkr_pop_number()
+
+		case IVKR_STRING:
+			return ivkr_pop_string()
+
+		case IVKR_TABLE:
+			if lim == 0 then
+				ivkr_pop(1)
+				return { __not_walked__ = "Depth limit reached" }
+			else
+				local t = {}
+				ivkr_push_nil()
+				while ivkr_next(-2) do
+					local v = ivkr_pop_any(lim - 1)
+					ivkr_push_value(-1)
+					local k = ivkr_pop_any(lim - 1)
+					t[k] = v
+				end
+				ivkr_pop(1)
+				return t
+			end
+	end
+	local typename = ivkr_typename(-1)
+	ivkr_pop(1)
+	return { __not_walked__ = "Unsupported type: "..typename }
+end
+
+local function errorfunc(e)
+	if type(e) == "string" and e:sub(-14) == "Stop requested" then
+		print(e)
+	else
+		print(debug.traceback(e,2))
+	end
+end
+
+function owf_internal_callback(cid, nargs)
+	local args = {}
+	for i = 1, nargs do
+		ivkr_push_value(-i)
+		args[nargs - i + 1] = ivkr_pop_any()
+	end
+	local t = table.pack(xpcall(owf_flash_callbacks[cid], errorfunc, table.unpack(args, 1, nargs)))
+	if t[1] then
+		for i = 2, t.n do
+			if not ivkr_push_any(t[i]) then
+				ivkr_push_nil()
+			end
+		end
+		return t.n - 1
+	end
+	return 0
+end
+
+local script_commands = {}
+function owf_register_command(cmd, cb)
+	script_commands[cmd] = cb
+	owf_register_dynamic_custom_route("/" .. cmd)
+	register_websocket_message_prefix(cmd)
+	owf_script_register_channel(cmd)
+end
+function owf_unregister_command(cmd)
+	script_commands[cmd] = nil
+	owf_unregister_dynamic_custom_route("/" .. cmd)
+	unregister_websocket_message_prefix(cmd)
+	owf_script_unregister_channel(cmd)
+end
+local function format_command_response(cmd, r)
+	if type(r) ~= "table" then
+		r = { [cmd] = r }
+	end
+	local s = json.encode(r)
+	if s == "[]" then
+		return "{}"
+	end
+	return s
+end
+
+return function(f)
+	owf_script_route_base = owf_script_get_name()
+	local is_bgscript = (owf_script_route_base == "OpenWF Background Script")
+	if is_bgscript then
+		owf_script_route_base = "/"..owf_script_route_base
+	else
+		owf_script_route_base = owf_script_get_name():sub(7)
+	end
+	owf_register_command(owf_script_route_base:sub(2).."/request_broadcast", function()
+		return {
+			from = owf_script_get_name(),
+			script_broadcast = {
+				toggles = owf_script_toggles,
+			},
+		}
+	end)
+	owf_register_command(owf_script_route_base:sub(2).."/set_toggle", function(arg)
+		local value = arg:sub(1, 1) == "1"
+		local name = arg:sub(2)
+		if toggle := owf_script_toggles:find(|x| -> x.name == name) then
+			toggle.value = value
+		else
+			print("Could not find a toggle called "..name)
+		end
+	end)
+
+	coroutine.yield()
+
+	local simple_yield = coroutine.yield
+	coroutine.yield = yield
+
+	local sched = new scheduler()
+	function sched.yieldfunc()
+		local nres
+		while true do
+			local cid, nargs = simple_yield(nres)
+			if not cid then
+				break
+			end
+			block_yield()
+			nres = owf_internal_callback(cid, nargs)
+			unblock_yield()
+		end
+	end
+	sched.errorfunc = errorfunc
+	owf_create_thread = |x| -> sched:add(x)
+	local mainco
+	sched:add(function()
+		repeat
+			simple_yield()
+
+			-- Any instance we may have should be GC'd ASAP. This is necessary logic-wise for script replies.
+			-- This should also avoid stuttering with long-running scripts as those may slow down Luau if they don't release references in a timely manner.
+			collectgarbage("step")
+
+			while evt := owf_internal_next_event() do
+				if evt.type == OWF_EVT_CUSTOM_ROUTE_REQUEST then
+					local path, arg = url.decode(evt.path):split("?", 2):unpack()
+					if cb := script_commands[path:sub(2)] then
+						sched:add(function()
+							owf_dynamic_custom_route_response(evt.inst, "text/plain", format_command_response(path:sub(2), cb(arg)))
+						end)
+						continue
+					end
+				elseif evt.type == OWF_EVT_WEBSOCKET_MESSAGE then
+					local cmd, arg = evt.text:split("?", 2):unpack()
+					if cb := script_commands[cmd] then
+						sched:add(function()
+							local r = format_command_response(cmd, cb(arg))
+							if #r > 2 then
+								owf_broadcast_message(r, evt.sender)
+							end
+						end)
+						continue
+					end
+				elseif evt.type == OWF_EVT_SUBMIT_CHAT_MESSAGE then
+					if evt.blocked then
+						sched:add(function()
+							chat_add_to_sent_history(evt.text)
+						end)
+					end
+				elseif evt.type == OWF_EVT_CALLBACK then
+					evt.name = evt.name:sub(1 + #owf_script_get_name())
+					if cb := owf_lambda_callbacks[evt.name] then
+						sched:add(cb)
+						owf_lambda_callbacks[evt.name] = nil
+						continue
+					end
+				--[[elseif evt.type == OWF_EVT_SCRIPT_TRIGGERED then
+					local arr = evt.data:split(":")
+					evt.script = arr[1]
+					evt.func = arr[2]
+					evt.data = nil]]
+				elseif evt.type == OWF_EVT_OUTGOING_CHAT_MESSAGE then
+					local arr = evt.data:split(" :", 2)
+					evt.channel = arr[1]
+					evt.text = arr[2]
+					evt.data = nil
+				elseif evt.type == OWF_EVT_SCRIPT_MESSAGE then
+					local data = json.decode(evt.data)
+					if cb := script_commands[data.channel] then
+						sched:add(function()
+							owf_script_send_reply(evt.inst, format_command_response(data.channel, cb(data.text)))
+						end)
+						continue
+					end
+					evt.channel = data.channel
+					evt.text = data.text
+					evt.data = nil
+				end
+				owf_internal_event_queue:insert(evt)
+			end
+		until mainco:status() == "dead" and (owf_lambda_callbacks:size() == 0 or owf_get_stop_requested())
+	end)
+	mainco = sched:add(f)
+	sched.yieldfunc()
+	sched:run()
+	if is_bgscript and not owf_get_stop_requested() then
+		print("The background script has just died; some functionality will be unavailable. Want to try again? http://localhost:"..owf_get_client_http_port().."/start_bgscript")
+	end
+end

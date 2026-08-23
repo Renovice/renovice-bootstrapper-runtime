@@ -1,0 +1,29 @@
+-- Modifications to sample scripts will be lost the next time you start the game.
+local avatar
+local function disable()
+	if not IsNull(avatar) then
+		avatar:SetCustomAnimController(nil)
+		avatar:SetCustomMotionController(nil)
+		if (mc := avatar:MotionControl()) instanceof LotusSpaceFlightMotionController then
+			mc:EnableFlight(false)
+		end
+		avatar:SetCustomCameraController(nil)
+		avatar:SetPostureModifier(PostureModifier.PM_AIRBORNE, false)
+		avatar:SetCollisionEnabled(true)
+	end
+end
+repeat
+	if avatar ~= gRegion:GetLocalPlayerAvatar() then
+		disable()
+		local loader = UISys.ScriptResLoader_Create({ "/Lotus/Powersuits/Fairy/FairyFlightAnimController", "/Lotus/Types/Game/LotusGroundFlightMotionController", "/Lotus/Types/Player/SpaceBattle/SpaceMoveCameraController" })
+		repeat yield() until loader:IsDone()
+		avatar = gRegion:GetLocalPlayerAvatar()
+	end
+	if not IsNull(avatar) then
+		avatar:SetCustomAnimController(Type("/Lotus/Powersuits/Fairy/FairyFlightAnimController"))
+		avatar:SetCustomMotionController(Type("/Lotus/Types/Game/LotusGroundFlightMotionController"))
+		avatar:SetCustomCameraController(Type("/Lotus/Types/Player/SpaceBattle/SpaceMoveCameraController"))
+		avatar:SetCollisionEnabled(false)
+	end
+until not pcall(yield)
+disable()

@@ -1,0 +1,15 @@
+[submodule "Pluto"]
+	path = modules/Pluto
+	url = https://github.com/PlutoLang/Pluto
+[submodule "Translations"]
+	path = modules/owf-translations
+	url = https://onlyg.it/OpenWF/Translations
+[submodule "Soup"]
+	path = modules/Soup
+	url = https://github.com/calamity-inc/Soup
+[submodule "ee-notation-parser"]
+	path = modules/ee-notation-parser
+	url = https://github.com/Sainan/ee-notation-parser
+[submodule "warframe-cache-tools"]
+	path = modules/warframe-cache-tools
+	url = https://github.com/Sainan/warframe-cache-tools

@@ -1,0 +1,8 @@
+*.pluto linguist-language=Lua
+
+*.json linguist-detectable
+
+tools/pluto.exe linguist-vendored
+tools/plutoc.exe linguist-vendored
+tools/u64_dyn.lua linguist-vendored
+tools/u64_dyn.php linguist-vendored

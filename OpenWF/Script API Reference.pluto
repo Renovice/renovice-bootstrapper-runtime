@@ -1,0 +1,919 @@
+-- The scripting API uses Pluto, a fork of Lua.
+-- - Homepage: https://pluto-lang.org/
+-- - Syntax Highlighting: https://pluto-lang.org/docs/Editor%20Integration
+end
+
+-- Classes
+
+Vector = require "pluto:vector3"
+end
+
+class Rotation
+	function __construct(public heading = 0, public pitch = 0, public bank = 0) end
+	function __tostring() end
+end
+
+class Symbol
+	function __construct(public name = "") end
+	function __eq(b) end
+	function __tostring() end
+	function c_str() end
+end
+
+class Color
+	function __construct(public red, public green, public blue, public alpha = 255) end
+	function __tostring() end
+	function GetUInt() end
+end
+
+class ObjectType
+	function __eq(other) end
+	function GetName() end
+	function GetFullName() end
+	function GetParent() end
+	function getHierarchy() end
+end
+
+class Object
+	function __eq(other) end
+	function GetType() end
+	function GetName() end
+	function GetFullName() end
+	function IsA(type) end
+end
+
+class Player extends Object
+	function GetAvatar() end
+	function GetPlayerName() end
+	function GetClanName() end
+	function GetPlayerAccountIDString() end
+	function GetPlayerMatchMakingString() end
+	function GetHudStatus() end
+	function CameraControl() end
+end
+
+class HumanPlayer extends Player
+	function IsFreeCameraActive() end
+	function ToggleFreeCamera() end
+	function SetFreeCameraLocked(b) end
+	function IsFreeCameraLockedActive() end
+	function AssignAvatar(avatar, b1 = true, b2 = true) end
+	function SendGiveItem(resource, amount) end
+end
+
+class LotusHumanPlayer extends HumanPlayer
+	function GetLoadOut() end
+end
+
+class LotusProfileTypes.LoadOut
+	function GetStoredItemStruct(i1, i2) end
+end
+
+class MongoId end
+
+class LotusProfileTypes.StoredItem
+	mItem
+	mModSlot
+	mCustSlot
+	mAttachedUpgrades
+end
+
+class LotusProfileTypes.WeaponInfo
+	mItemId
+	mItemType
+	mModularParts
+	function GetCustomization() end
+end
+
+class LotusProfileTypes.UpgradeInfo
+	mItemType
+	mUpgradeFingerprint
+end
+
+class BaseEntity extends Object end
+
+class Entity extends BaseEntity
+	function GetPosition() end
+	function SetPosition(pos) end
+	function DistanceToEntity(b) end
+	function GetRotation() end
+	function GetSimRotation() end
+	function SetRotation(rot) end
+	function GetHealth() end
+	function SetHealth(health) end
+	function GetDrawOnTop() end
+	function SetDrawOnTop(b) end
+	function GetMeshScale() end
+	function SetMeshScale(f) end
+	function GetMesh() end
+	function SetMesh(object, b1, b2) end
+	function Attach(type, optionalBoneSymbol, optionalPosOffset) end
+	function GetAttachment(type) end
+	function GetAllAttachments(type) end
+	function GetTag() end
+	function SetTag(symbol) end
+	function FirePort(port) end
+	function SetVisibility(visible, delegateToAttachments = false) end
+	function GetSpeed() end
+	function Destroy() end
+	function SetMaterialParam(symbol, f1, f2 = 3.4028235e38, f3 = 3.4028235e38, f4 = 3.4028235e38, b = false) end
+	function RunScript(resource, funcSymbol, b) end
+end
+
+class BaseAvatar extends Entity
+	function GetMaxHealth(scaled = true) end
+	function SetMaxHealth(health, setBase = false) end
+	function Suicide() end
+	function DamageControl() end
+	function InventoryControl() end
+	function InputControl() end
+	function GiveItem(type, b) end
+	function MotionControl() end
+	function GetView() end
+	function SetView(rot) end
+	function GetCameraView() end
+	function SetCameraView(rot) end
+	function SetEyePosition(pos) end
+	function GetFaction() end
+	function GetOriginalFaction() end
+	function SetFaction(symbol) end
+	function GetLocTag() end
+	function ClearAgent() end
+	function PushInputFilter(resource) end
+	function SetCustomAnimController(type) end
+	function GetAnimControllerType() end
+	function SetCustomMotionController(type) end
+	function SetCustomCameraController(type) end
+	function EnableRagdollRecovery(b1, b2) end
+	function DamageDD(damageData) end
+	function GetRagdoll() end
+	function SetPostureModifier(i, b) end
+	function PlayAnimation(resource) end
+
+class Avatar extends BaseAvatar
+	function ControlCamera(b) end
+	function isFollowedByCamera() end
+end
+
+class LotusAvatar extends Avatar
+	function IsAvatarFriendly(other) end
+	function PlayEmote(resource) end
+	function GetUIName() end
+	function SetUIName(str) end
+	function HasDynamicUIName() end
+	function SetDynamicUIName(b) end
+	function SetCollisionEnabled(b) end
+	function SetCinematicID(symbol) end
+end
+
+class DamageControllerBase extends Object
+	function GiveTemporaryImmunity(a, b) end
+	function HasTemporaryImmunity() end
+	function RemoveTemporaryImmunity() end
+	function GetShield() end
+	function SetShield(i) end
+	function GetMaxShield() end
+	function SetMaxShield(i) end
+	function GetOverguardAmount() end
+	function SetOverguardAmount(i) end
+	function GetOverguardMax() end
+	function SetOverguardMax(i) end
+end
+
+class DamageController extends DamageControllerBase
+end
+
+class LotusDamageController extends DamageController
+	function GetArmourRating() end
+	function SetArmourRating(i) end
+end
+
+class InventoryControllerBase extends Object
+	function RemoveItem(slot, b) end
+	function GetWeaponInHand(hand) end
+	function AddUpgrade(upgradeType, operationType, value, _reserved = nil, _reserved = nil, damageType = DamageType.DT_ANY) end
+end
+
+class LotusInventoryController extends InventoryControllerBase
+	function GetActivePowerSuit() end
+	function DoItemDrop() end
+	function GetConsumableItem(idx) end
+	function UseConsumableItem(idx) end
+end
+
+class ResourceBase extends Object end
+
+class Mesh extends ResourceBase end
+
+class Item extends Object
+	function GetAttachmentEntity(category, hand = 4) end
+	function GetEnergyColor(outColor, secondary = false) end
+
+class WeaponBase extends Item
+end
+
+class WeaponEx extends WeaponBase
+	function GetActiveImpactBehavior() end
+	function AddUpgrade(obj) end
+
+class LotusWeapon extends WeaponEx
+	function GetXP() end
+	function SetXP(xp) end
+	function GetCustomization() end
+	function SetCustomization(cust) end
+	function SetModularParts(parts, gilded) end
+
+class WeaponUpgrade extends Item end
+
+class LotusWeaponUpgradeBase extends WeaponUpgrade
+	function InitializeFromFingerprint(str) end
+end
+
+class LotusArtifactUpgrade extends LotusWeaponUpgradeBase end
+
+class WeaponImpactBehavior extends Object
+	criticalHitChance
+	criticalHitDamageMultiplier
+	instantImpulse
+end
+
+class PowerSuit extends LotusWeapon
+	function SetEnergy(value) end
+	function SetMaxEnergy(value) end
+	function GetUnmodifiedMaxEnergy() end
+	function GetCurEnergy() end
+	function GetMaxEnergy() end
+	function GetAbilityByIndex(i) end
+	function AddAbilityByType(type, idx) end
+end
+
+class PowerSuitAbility extends Item
+	function GetCooldownDuration() end
+	function SetCooldownDuration(val) end
+	function GetCooldownTime() end
+	function SetCooldownTime(val) end
+	function AllowReactivate(b) end
+end
+
+class InputControllerBase extends Object
+end
+
+class InputController extends InputControllerBase
+	function SetStopMovement(b) end
+end
+
+class GameRules extends Object
+	function IsPauseMenuShowing() end
+	function RequestPause() end
+	function RequestUnpause() end
+	function RequestResource(name, callback) end
+	function RequestSlomo(f) end
+	function CancelSlomo() end
+	function IsSlomo() end
+	function getSlomoltiplier() end
+	function setSlomoltiplier(f) end
+end
+
+class GameRulesImpl extends GameRules
+	function SetPauseDisabled(b) end
+	function CanUnstick() end
+	function UnstickLocalPlayer() end
+end
+
+class LotusBaseGameRules extends GameRulesImpl
+	function GetCurrentStarChart() end
+	function GetStoreManifest() end
+	function AddActiveLevelAuraUpgrade(type) end
+	function RemoveActiveLevelAuraUpgrade(type) end
+	function GetMission() end
+	function IsPlayingHardGameModeMission() end
+end
+
+class LotusGameRules extends LotusBaseGameRules
+	function OpenMissionContinueDialog() end
+end
+
+class LotusAttractModeGameRules extends GameRulesImpl
+	function GetStarChart() end
+	function GetStoreManifest() end
+end
+
+class RadialSolarMap extends Object
+	function GetRegions() end
+	function BuildMissionForLocation(symbol) end
+	function SetLevelStreamingArgs(locationSymbol, openLevelArgs) end
+end
+
+class RadialRegion
+	name
+	sectors
+	droneDamage
+	damageChance
+	resources
+end
+
+class RadialSector
+	name
+	unlocked
+	nodeType
+	missionTag
+	mission
+	founders
+	challenges
+	tileset
+end
+
+class LotusMissionInfo
+	missionType
+	minEnemyLevel
+	maxEnemyLevel
+	goalTag
+	activeMissionTag
+	location
+	levelOverride
+	gameRules
+	enemySpec
+	extraEnemySpec
+	vipAgent
+	customAdvancedSpawners
+	missionReward
+	missionRewardExtra
+	buddyAgents
+	miscItemFee
+	function EncodeAsString() end
+	function GetEnemies() end
+	function GetExtraEnemies() end
+	function GetMissionEventResources() end
+	function GetExtraMissionEventResources() end
+	function GetAdvancedAiDirectorSpawns() end
+	function GetCustomAdvancedAiDirectorSpawns() end
+end
+
+class MissionReward
+	credits
+	xp
+	items
+	countedItems
+	countedStoreItems
+	randomizedItems
+end
+
+class MissionRewardItemManifest extends ResourceBase
+	function GetMaxAvailableTier() end
+	function PickRandomItemIndex(tier, f) end
+	function GetTieredItem(tier, i) end
+end
+
+class MissionRewardItem
+	function GetStoreItem() end
+end
+
+class MissionAI
+	agent
+end
+
+class ChallengeBase extends Object end
+
+class GenericChallenge extends ChallengeBase end
+
+class ChallengeBase extends Object end
+
+class StoreManifest extends Object
+	function GetStoreItemsOfType(objectType) end
+	function GetGiftBonusItems() end
+end
+
+class StoreItem extends Object
+	function GetProductCategory() end
+	function ExcludeFromCodex() end
+	function ShowInMarket() end
+end
+
+class GiftBonusItem
+	gift
+	reward
+end
+
+class CountedItem
+	mItemType
+	mItemCount
+end
+
+class CountedStoreItem
+	mStoreItem
+	mItemCount
+end
+
+class PickUpTypeRarity
+	mStoreItem
+	mItemType
+	mRarity
+end
+
+class CodexManifest
+	function GetEnvironmentEntries() end
+end
+
+class CodexTypes.Entry
+	locName
+	icon
+	reqScans
+	secret
+	type
+end
+
+class Texture extends ResourceBase end
+
+class MotionControllerBase
+	function GetSpeedMultiplier() end
+	function SetSpeedMultiplier(f) end
+end
+
+class LotusMotionController extends MotionControllerBase end
+
+class LotusSpaceFlightMotionController extends LotusMotionController
+	function EnableFlight(b) end
+end
+
+class CameraControllerBase extends Object
+	function setFovMultiplier(fMul) end
+	function getFovMultiplier() end
+	function SetBaseFovOverride(fov) end
+	function GetBaseFovOverride() end
+	function GetViewOffset() end
+	function SetViewOffset(vec) end
+	function GetAimViewOffset() end
+	function SetAimViewOffset(vec) end
+	function GetRunViewOffset() end
+	function SetRunViewOffset(vec) end
+	function GetDodgeOffset() end
+	function SetDodgeOffset(vec) end
+	function GetInAirViewOffset() end
+	function SetInAirViewOffset(vec) end
+	function SetInAirAimViewOffset(vec) end
+	function SetMeleeOffset(vec) end
+	function SetCoverLeftViewOffset(vec) end
+	function SetCoverRightViewOffset(vec) end
+	function SetCrouchCoverAimLeftViewOffset(vec) end
+	function SetCrouchCoverAimRightViewOffset(vec) end
+	function SetWallRunLeftViewOffset(vec) end
+	function SetWallRunRightViewOffset(vec) end
+	function SetWallRunLeftAimViewOffset(vec) end
+	function SetWallRunRightAimViewOffset(vec) end
+end
+
+class EngineNpcMgr extends Object
+	function GetAiDirector() end
+end
+
+class EngineAiDirector extends Object
+	function SetMaxPopulationSpawnCount(i) end
+	function SetMaxAI(i) end
+	function SetDifficulty(i) end
+	function ClearEncounters() end
+	function AddEncounter(type) end
+	function SelectEncounterHintsWithType(type, minDist, maxDist) end
+	function ActivateSpecificEncounterAtSpecificHint(hint, type) end
+	function AddGlobalEncounterTag(symbol) end
+	function RemoveGlobalEncounterTag(symbol) end
+end
+
+class NpcManager extends EngineNpcMgr
+	function PauseAllAgents() end
+	function CreateAgentAtPosition(type, pos, rot, optionalSymbol, optionalLevel) end
+end
+
+class EngineNpcAgent extends Object
+	function GetAvatar() end
+end
+
+class LotusNpcAvatar extends LotusAvatar
+	function GetEnhancementCount() end
+	function GetEnhancementLocTag() end
+end
+
+class LotusVehicleAvatar extends LotusNpcAvatar
+	function GetRider() end
+	function GetTrickController() end
+end
+
+class TrickController extends Object
+	function SetMaxPointsPerCombo(pts) end
+end
+
+class HudStatus extends Object
+end
+
+class LotusHudStatus extends HudStatus
+	function GetFlashMarkers() end
+end
+
+class LotusHudStatusTypes.FlashMarker
+	garbage
+	markerType
+	distanceToEye
+	pos
+	baseMarkerInfo
+	function ScreenX() end
+	function ScreenY() end
+	function ScreenZ() end
+end
+
+class BaseMarkerInfo extends Entity
+	function SetMarkerType(i) end
+	function SetDisplayRange(range) end
+end
+
+class Effect extends Entity
+	function SetTint(color) end
+end
+
+class LensFlare extends Entity
+	function SetTint(color) end
+end
+
+class Decoration extends Entity
+	function TriggerAnimation() end
+	function IsTriggeredAnimationDone() end
+end
+
+class Ragdoll extends Entity
+	function ApplyGlobalForce(vec, forceType) end
+end
+
+class WeaponCustomization
+	function GetSkin(iSlot) end
+	function SetSkin(objectType, iSlot) end
+	function GetColors(i) end
+	function SetColors(i, v) end
+end
+
+class CustomizationColorPalette
+	mTintColor0
+	mTintColor1
+	mTintColor2
+	mTintColor3
+	mEmissiveColor0
+	mEmissiveColor1
+	mEnergyColor
+	mEnergyColor1
+	function GetColor(i) end
+	function SetColor(i, c) end
+	function Initialized(i) end
+	function SetInitialized(i, b) end
+end
+
+class OverlayBase extends Object
+end
+
+class FlashInstance extends OverlayBase
+	function AttachToEntity(ent, off, rot, vecScale) end
+	function Execute(func, str) end
+	function Close() end
+
+class OverlayMgr
+	function SetSelectedStyle(resource) end
+end
+
+class PlayerProfile
+	function GetAccountIDString() end
+end
+
+class LevelInfo
+	postProcess
+end
+
+class PostProcess
+	blur
+	motionBlurStrength
+	bloom
+	targetExposure
+	adaptationRateUp
+	adaptationRateDown
+	exposureConvergeSpeed
+	useBnwBuffer
+	bnwBufferInvert
+	bnwBufferBias
+	useExposureEVCurve
+	skyBloom
+	saturation
+	focalBlur
+	horizonDOF
+	horizonRadius
+	horizonFog
+	horizonFogRadius
+	horizonFogElevation
+	distanceFogDensity
+	heightFogFalloff
+	heightFogDensity
+	heightFogY
+	lightMapBoost
+	attenuateAudio
+	lightning
+	colorCorrectionConverge
+	saturationBias
+	brightnessBias
+	contrastBias
+	grainBias
+	focalNearPlane
+	focalNearDepth
+	focalFarPlane
+	focalFarDepth
+	radialBlurStrength
+	irradianceVolumeGain
+	sunShaftsDensity
+	sunShaftsDecay
+	sunShaftsMultiplier
+	sunShaftsFogAttenuation
+	sunShafts
+end
+
+class DynamicSky
+	function GetTimeOfDay() end
+	function GetTimeOfDayRate() end
+end
+
+class Engine.OpenLevelArgs
+	function SetLevel(level) end
+	function SetGameRules(gamerules) end
+	function AddContextTag(tag) end
+	function AddContextObject(objectType) end
+end
+
+class Engine.DamageData
+	baseAmount
+	criticalChance
+	criticalMultiplier
+	injuryType
+end
+
+class UISys.ScriptResLoader
+	function IsDone() end
+	function SpotLoad() end
+	function Abort() end
+end
+
+-- Global functions end
+
+function IsNull(val) end
+function Sleep(ms) end
+
+function Type(name) end
+function Resource(name) -- constructs an Object instance end
+function WeakResource(name) -- constructs an ObjectType instance end
+function Range(minValue, maxValue) end
+
+function Localize(loctag, subs = {}) end
+function AngleToDirection(rot) end
+
+function Engine.OpenLevel(args) end
+
+function UISys.ScriptResLoader_Create(names) end
+
+-- OpenWF global functions end
+
+function yield() end
+function owf_get_stop_requested() end
+function owf_create_thread(f) end
+function get_lang_code() end
+function get_game_lang_code() end
+function get_core_dict(lang = get_lang_code()) end
+function get_webui_dict(lang = get_lang_code()) end
+function owf_get_build_label() end
+function owf_get_build_version() end
+function owf_get_build_hash() end
+function owf_get_server_host() end
+function owf_get_http_port() end
+function owf_get_https_port() end
+function owf_get_auth_query() end
+function owf_using_secure_connections() end
+function owf_get_client_http_port() end
+function mem_scan_exe(sig) end
+function mem_read_i8(addr) end
+function mem_read_i16(addr) end
+function mem_read_i32(addr) end
+function mem_read_i64(addr) end
+function mem_read_f32(addr) end
+function mem_write_f32(addr, val) end
+function chat_subscribe_prefix(prefix, block) end
+function chat_unsubscribe_prefix(prefix) end
+function chat_subscribe_outgoing_prefix(prefix) end
+function chat_unsubscribe_outgoing_prefix(prefix) end
+function chat_system_reply(text) end
+function chat_add_to_sent_history(text) end
+function chat_get_sent_history() end
+function chat_get_sent_history_index() end
+function chat_set_sent_history_index(idx) end
+function owf_register_custom_route(path, mime, content) end
+function owf_unregister_custom_route(path) end
+function owf_register_dynamic_custom_route(path) end
+function owf_unregister_dynamic_custom_route(path) end
+function owf_dynamic_custom_route_response(inst, mime, content) end
+function owf_script_add_toggle(name, value = false) end
+function owf_script_get_name() end
+function owf_script_get_instance_id() end
+function owf_get_available_scripts() end
+function owf_get_running_scripts() end
+function owf_get_running_scripts_ex() end
+function owf_start_script(name) end
+function owf_start_script_inline(code) end
+function owf_stop_script(name) end
+function owf_toggle_script(name) end
+function owf_logout() end
+function utf8_to_utf16(str) end
+function make_screenshot_bmp(x, y, width, height) end
+
+function owf_reload_label_replacements() end
+
+function owf_save_config() end
+function get_high_damage_numbers_patch() end
+function set_high_damage_numbers_patch(b) end
+function get_skip_mission_start_timer() end
+function set_skip_mission_start_timer(b) end
+function get_disable_profanity_filter() end
+function set_disable_profanity_filter(b) end
+function get_simulacrum_blacklisted() end
+function set_simulacrum_blacklisted(b) end
+function get_simulacrum_whitelisted() end
+function set_simulacrum_whitelisted(b) end
+function get_alternative_loading() end
+function set_alternative_loading(b) end
+function get_ee_log_in_console() end
+function set_ee_log_in_console(b) end
+function get_fov_override() end
+function set_fov_override(f) end
+
+function owf_is_key_down(vk) end
+function get_active_input_filter() end
+function get_active_input_filter_allows_hotkeys() end
+function owf_reload_hotkeys() end
+
+function register_websocket_message_prefix(prefix) end
+function unregister_websocket_message_prefix(prefix) end
+function owf_broadcast_message(message, optionalRecipient) end
+
+function owf_script_register_channel(name) end
+function owf_script_unregister_channel(name) end
+function owf_script_send_message(channel, text) end
+function owf_script_send_reply(inst, text) end
+function owf_script_is_reply_pending(inst) end
+function owf_script_get_reply(inst) end
+
+function owf_command(cmd) end
+function owf_register_command(cmd, cb) end
+function owf_unregister_command(cmd) end
+
+-- OpenWF events
+
+OWF_EVT_SUBMIT_CHAT_MESSAGE = 1
+OWF_EVT_OUTGOING_CHAT_MESSAGE = 2
+OWF_EVT_CUSTOM_ROUTE_REQUEST = 3
+OWF_EVT_CUSTOM_ROUTE_SERVED = 4
+OWF_EVT_CALLBACK = 5
+OWF_EVT_WEBSOCKET_MESSAGE = 6
+OWF_EVT_SCRIPT_MESSAGE = 7
+
+function owf_next_event() end
+
+-- OpenWF Overlay. Any pixel with RGB=255,0,255 will show the game window underneath.
+
+OWF_FONT_SIMPLE8
+OWF_FONT_SIMPLE5
+
+function owf_overlay_get_size() end
+function owf_overlay_add_rect(x, y, w, h, r, g, b) end
+function owf_overlay_add_text(x, y, text, font, r, g, b, scale = 1) end
+function owf_overlay_set_visibility(id, visible) end
+function owf_overlay_set_colour(id, r, g, b) end
+function owf_overlay_set_text(id, text) end
+function owf_overlay_remove(id) end
+function owf_overlay_update() end
+function owf_measure_text(font, text) end
+
+-- Global variables
+
+gRegion
+	function GetLocalPlayer() end
+	function GetLocalPlayerAvatar() end
+	function GetGameCamera() end
+	function GetGameRules() end
+	function GetAvatars() end
+	function FindTagged(symbol) end
+	function FindAll(type) end
+	function CreateObject(type) end
+	function CreateEntity(type, pos, rot) end
+	function GetNpcMgr() end
+	function Raycast(fromPos, toPos, avatar, _reserved_please_set_to_nil, outPos) end
+	function GetLevelInfo() end
+
+gGameRules
+gStarChart
+
+gFlashMgr
+	function ExecuteToolMenuCommand(resource) end
+	function GotoMovie(resource) end
+
+gGameData
+	function SyncInventoryFromDB(callback) end
+	function SyncWorldStateFromDB(callback) end
+
+gPlayerProfileMgr
+	function IsLoggedIn() end
+	function GetPlayerProfile(i) end
+
+gClient
+	function GetOverlayMgr() end
+
+gMatchingService
+	function SendRelayP2P(target, msg) end
+
+gEntityType = Type("/EE/Types/Engine/Entity")
+gBaseAvatarType = Type("/EE/Types/Engine/BaseAvatar")
+gLotusNpcAvatarType = Type("/Lotus/Types/Game/LotusNpcAvatar")
+gLotusVehicleAvatarType = Type("/Lotus/Types/Game/LotusVehicleAvatar")
+gLotusGameRulesType = Type("/Lotus/Types/Game/LotusGameRules")
+gLotusBasePvpGameRulesType = Type("/Lotus/Types/Game/LotusBasePvpGameRules")
+gLotusHubGameRulesType = Type("/Lotus/Types/Game/LotusHubGameRules")
+gLotusDuelGameRulesType = Type("/Lotus/Types/Game/LotusDuelGameRules")
+gDynamicSkyType = Type("/EE/Types/Effects/DynamicSky")
+
+ZERO_VECTOR = Vector()
+ZERO_ROTATION = Rotation()
+EMPTY_SYMBOL = Symbol()
+
+Engine.SLOT_1 = 0 -- Secondary
+Engine.SLOT_2 = 1 -- Primary
+Engine.SLOT_3 = 2
+Engine.SLOT_4 = 3 -- Warframe
+Engine.SLOT_5 = 4
+Engine.SLOT_6 = 5 -- Melee
+Engine.SLOT_7 = 6
+Engine.SLOT_8 = 7
+Engine.SLOT_9 = 8
+Engine.SLOT_10 = 9
+Engine.SLOT_11 = 10
+Engine.SLOT_12 = 11
+Engine.SLOT_13 = 12
+Engine.SLOT_14 = 13
+Engine.INVALID = 14
+
+Lotus_Game.EMISSIVE_MAP_ATTEN = Symbol("EmissiveMapAtten")
+Lotus_Game.TINT_COLOR = Symbol("TintColor")
+Lotus_Game.UNLIT_ATTEN = Symbol("UnlitAtten")
+Lotus_Game.ALPHA_ATTEN = Symbol("AlphaAtten")
+Lotus_Game.CLOAK = Symbol("Cloak")
+Lotus_Game.V_SCALES = Symbol("vScales")
+Lotus_Game.V_SCALES_FADE = Symbol("vScalesFade")
+Lotus_Game.EMISSIVE_TINT_COLOR = Symbol("EmissiveTintColor")
+Lotus_Game.EMISSIVE_TINT_COLOR_HI = Symbol("EmissiveTintColorHi")
+Lotus_Game.EMISSIVE_TINT_COLOR_LO = Symbol("EmissiveTintColorLo")
+Lotus_Game.LOW_COLOR = Symbol("LowColor")
+Lotus_Game.HIGH_COLOR = Symbol("HighColor")
+Lotus_Game.TINT_COLOR0 = Symbol("TintColor0")
+Lotus_Game.TINT_COLOR1 = Symbol("TintColor1")
+Lotus_Game.TINT_COLOR2 = Symbol("TintColor2")
+Lotus_Game.TINT_COLOR3 = Symbol("TintColor3")
+
+UpgradeType = { NONE, AVATAR_ABILITY, AVATAR_ABILITY_AUGMENT, AVATAR_ABILITY_DURATION, AVATAR_ABILITY_EFFICIENCY, AVATAR_ABILITY_EFFICIENCY_MIN, AVATAR_ABILITY_EFFICIENCY_MAX, AVATAR_ABILITY_ENERGY_TO_SHIELD, AVATAR_ABILITY_ENERGY_TO_OVERSHIELD, AVATAR_ABILITY_RANGE, AVATAR_ABILITY_STRENGTH, AVATAR_ACROBATIC_SPEED, AVATAR_AFTERBURNER_MULTIPLIER, AVATAR_AIM_TIME, AVATAR_AIR_JUMP_HEIGHT, AVATAR_ALLOW_HEALTH_PICKUP, AVATAR_ALLOW_ENERGY_PICKUP, AVATAR_ARMOUR, AVATAR_AURA_EFFECTIVENESS_ON_ME, AVATAR_AURA_STRENGTH, AVATAR_AUTO_PARRY_CHANCE, AVATAR_BLEEDOUT_MODIFIER, AVATAR_BULLET_DODGE_ANGLE, AVATAR_BULLET_DODGE_CHANCE, AVATAR_CARRY_CAPACITY, AVATAR_CASTING_SPEED, AVATAR_CLEAR_TRANSFERENCE_STATIC_ON_KILL, AVATAR_CRIT_CHANCE, AVATAR_CRIT_CHANCE_LIMIT, AVATAR_CRIT_CHANCE_PER_PROC_ACTIVE, AVATAR_CRIT_CHANCE_STEALTH, AVATAR_CRIT_CHANCE_VULNERABILITY, AVATAR_CRIT_CHANCE_WEAKPOINT_VULNERABILITY, AVATAR_CRIT_DAMAGE, AVATAR_CRIT_DAMAGE_VULNERABILITY, AVATAR_CROWD_CONTROL_DAMAGE, AVATAR_CROWD_CONTROL_TIME_MULTIPLIER, AVATAR_DAMAGE_POWER_MULTIPLIER, AVATAR_DAMAGE_REDUCTION_DURING_REVIVE, AVATAR_DAMAGE_TAKEN, AVATAR_DAMAGE_VULNERABILITY, AVATAR_DAMAGE_WEAKPOINT_VULNERABILITY, AVATAR_DASH_DAMAGE, AVATAR_DASH_DISTANCE, AVATAR_DASH_RADIUS, AVATAR_DASH_CONTACT_ENERGY, AVATAR_DODGE_COOLDOWN, AVATAR_DODGE_COST_MULTIPLIER, AVATAR_DODGE_SPEED, AVATAR_DOUBLE_DROP_CHANCE, AVATAR_DROP_CHANCE_MODIFIER, AVATAR_GLOBAL_DROP_CHANCE_MODIFIER, AVATAR_GLORY_KILL_CHANCE, AVATAR_GLORY_KILL_HEALTH_RANGE, AVATAR_ENEMY_RADAR, AVATAR_ENERGY_GAIN_MULTIPLIER, AVATAR_ENERGY_ON_FULL_SHIELD_REGEN, AVATAR_ENERGY_SPAWN_PERCENT, AVATAR_ENERGY_TO_OVERSHIELDS_ON_SPAWN, AVATAR_EVADE_NPC_BULLET, AVATAR_EXPLOSION_DAMAGE, AVATAR_EXPLOSION_RADIUS, AVATAR_FALL_DAMAGE, AVATAR_FALL_IMPACT_AMOUNT, AVATAR_FALL_IMPACT_RADIUS, AVATAR_FREEZE_ON_MELEE_HIT_CHANCE, AVATAR_FREEZE_ON_MELEE_HIT_DURATION, AVATAR_FORCED_PROC_CHANCE, AVATAR_FULL_ENERGY_EFFECT_RANGE, AVATAR_HACK_CHANCE, AVATAR_HEAL_PERCENT_MAX_HEALTH, AVATAR_HEAL_RATE, AVATAR_HEAL_RATE_FORCED, AVATAR_HEALTH_MAX, AVATAR_HEALTH_MAX_INC_ON_PICKUP, AVATAR_HEAVY_LAND_RESIST_CHANCE, AVATAR_HEAVY_LAND_SPEED, AVATAR_INJURY_BLOCK_CHANCE, AVATAR_INJURY_BLOCK_CHANCE_CC, AVATAR_INJURY_ANIM_RATE, AVATAR_JOG_SPEED, AVATAR_JUMP_HEIGHT, AVATAR_KNOCKDOWN_RECOVERY_SPEED, AVATAR_LOOT_CHANCE, AVATAR_LOOT_RADAR, AVATAR_LOOT_RADAR_B, AVATAR_MARKED_DAMAGE_AMOUNT, AVATAR_MELEE_DAMAGE_REDUCTION, AVATAR_MELEE_DAMAGE_TO_JUMP_KICK, AVATAR_MOVEMENT_ACCELERATION, AVATAR_MOVEMENT_SPEED, AVATAR_NO_DEATH_PENALTY, AVATAR_NPC_HIT_CHANCE, AVATAR_NPC_VIS_RANGE, AVATAR_NPC_ENABLES_AUGMENT, AVATAR_NUM_JUMPS, AVATAR_OVERSHIELD_MAX, AVATAR_OVERGUARD_MAX, AVATAR_PICKUP_BONUS_AMOUNT, AVATAR_POWER_MAX, AVATAR_POWER_RATE, AVATAR_POWER_RATE_INC_ON_PICKUP, AVATAR_POWER_RATE_PERCENT_MAX, AVATAR_PROC_DAMAGE, AVATAR_PROC_IMMUNITY_DURATION, AVATAR_PROC_REFLECT_AMPLIFICATION, AVATAR_PROC_REFLECT_CHANCE, AVATAR_PROC_TIME, AVATAR_PROC_ABILITY_STACK, AVATAR_PROC_STACK, AVATAR_PROC_STACKED_UPGRADE_BASE_MODIFIER, AVATAR_PROC_CHANCE_VULNERABILITY, AVATAR_RAGE_BURN_RATE, AVATAR_REHACK_CHANCE, AVATAR_RESPAWN_TIME, AVATAR_REVENGE_DAMAGE_AMOUNT, AVATAR_REVENGE_DAMAGE_CHANCE, AVATAR_REVIVE_ASSIST, AVATAR_REVIVE_DISTANCE, AVATAR_REVIVE_SPEED, AVATAR_SENTINEL_ARMOUR_LINK, AVATAR_SENTINEL_CRIT_LINK, AVATAR_SENTINEL_FINISHER_DAMAGE, AVATAR_SENTINEL_HEALTH_LINK, AVATAR_SENTINEL_MASTER_BLEEDOUT_MODIFIER, AVATAR_SENTINEL_PACK_LEADER, AVATAR_SENTINEL_PACK_LEADER_OVERGUARD_CAP, AVATAR_SENTINEL_PACK_LEADER_REVERSE, AVATAR_SENTINEL_PICKUP_TO_ARMOR, AVATAR_SENTINEL_SHIELD_LINK, AVATAR_SENTINEL_STATUS_LINK, AVATAR_SHARE_ENERGY_PICKUP_RADIUS, AVATAR_SHARE_XP_RADIUS, AVATAR_SHIELD_GATE_DURATION, AVATAR_SHIELD_MAX, AVATAR_SHIELD_RECHARGE_DELAY, AVATAR_SHIELD_RECHARGE_RATE, AVATAR_SHIELD_RECHARGE_PERCENT, AVATAR_SHIELD_REDIRECTION, AVATAR_SHIELD_STAMINA_COST_MULTIPLIER, AVATAR_SHIELD_TO_STAMINA_RATIO, AVATAR_SLIDE_BOOST, AVATAR_SLIDE_FRICTION, AVATAR_SLOW_REDUCTION, AVATAR_SOFT_TARGETING_RADIUS_MODIFIER, AVATAR_SPAWN_ENERGY, AVATAR_SPRINT_SPEED, AVATAR_STAMINA_COST_MULTIPLIER, AVATAR_STAMINA_MAX, AVATAR_STAMINA_RECHARGE_DELAY, AVATAR_STAMINA_RECHARGE_RATE, AVATAR_STEALTH_MIN_OCCLUSION_RADIUS, AVATAR_STEALTH_FULL_OCCLUSION_RADIUS, AVATAR_STUN_TIME, AVATAR_SUCCESS_CHANCE, AVATAR_THORNS_PERCENT, AVATAR_TIME_LIMIT_INCREASE, AVATAR_TIME_TO_CLOAK, AVATAR_WALLCLING_TIME, AVATAR_WALLJUMP_HEIGHT, AVATAR_WALLRUN_SPEED, AVATAR_PARKOUR_BOOST, AVATAR_PARKOUR_BULLET_TIME, AVATAR_PARKOUR_GLIDE, AVATAR_PARKOUR_GRAVITY, AVATAR_PARKOUR_DAMAGE_ADDED, AVATAR_PARKOUR_SLAM_ENERGY_COST, GAMEPLAY_BULLET_KILL_XP_AMOUNT, GAMEPLAY_DAMAGE_TO_POWER, GAMEPLAY_ENEMY_AVATAR_XP_REWARD, GAMEPLAY_ENEMY_SPAWN_CHANCE, GAMEPLAY_ENERGY_PICKUP_AMOUNT, GAMEPLAY_EXECUTION_HEALTH_THRESHOLD, GAMEPLAY_FACTION_DAMAGE, GAMEPLAY_FACTION_DAMAGE_RESISTANCE, GAMEPLAY_FACTION_SHIELD_DAMAGE_RESISTANCE, GAMEPLAY_FINISHER_XP_AMOUNT, GAMEPLAY_FREE_REVIVE_COUNT, GAMEPLAY_GEAR_ITEM_COOLDOWN, GAMEPLAY_ITEM_EFFECTIVENESS, GAMEPLAY_KILL_POWER_AMOUNT, GAMEPLAY_KILL_POWER_COOLDOWN, GAMEPLAY_KILL_XP_AMOUNT, GAMEPLAY_KILL_XP_REWARD, GAMEPLAY_MAX_HEALTH_SEGMENT_REWARD, GAMEPLAY_MELEE_KILL_XP_AMOUNT, GAMEPLAY_MONEY_DROP_AMOUNT, GAMEPLAY_MONEY_PICKUP_AMOUNT, GAMEPLAY_MONEY_REWARD_AMOUNT, GAMEPLAY_NON_HUMAN_DAMAGE_RESISTANCE, GAMEPLAY_PERCENT_BASE_DAMAGE_ADDED, GAMEPLAY_PICKUP_AMOUNT, GAMEPLAY_PICKUP_RATE, GAMEPLAY_PICKUP_DOUBLED_CHANCE, GAMEPLAY_POWER_COOLDOWN, GAMEPLAY_POWER_TO_HEALTH_ON_DEATH, GAMEPLAY_HEALTH_ON_DEATH, GAMEPLAY_HEALTH_PICKUP_AMOUNT, GAMEPLAY_SHIELD_UPGRADE_LEVEL, VEHICLE_DODGE_COOLDOWN, VEHICLE_DOUBLE_JUMP_HEIGHT, VEHICLE_FALL_RESIST_CHANCE, VEHICLE_FALL_SPEED, VEHICLE_JUMP_CHARGE_TIME, VEHICLE_JUMP_HEIGHT, VEHICLE_MAGNETISM, VEHICLE_SCORE_MULTIPLIER, VEHICLE_SPEED, VEHICLE_SPEED_ALT, VEHICLE_SPRINT_SPEED, WEAPON_AIMED_SHOT_DAMAGE_BONUS, WEAPON_AMMO_CONSUME_RATE, WEAPON_AMMO_FREE_CHANCE, WEAPON_AMMO_MAX, WEAPON_AMMO_POOL_MULTISHOT_DAMAGE, WEAPON_AMMO_RETRIEVED, WEAPON_ARMOUR_BYPASS, WEAPON_AUGMENT, WEAPON_AUTO_RELOAD_RATE, WEAPON_BATTERY_REGEN_RATE, WEAPON_BONUS_NORMALIZED_PHYSICAL_DAMAGE, WEAPON_BONUS_NORMALIZED_ELEMENTAL_DAMAGE, WEAPON_BYPASS_SHIELD, WEAPON_BYPASS_SHIELD_ON_CRIT, WEAPON_CHANNELING_DAMAGE, WEAPON_CHANNELING_EFFICIENCY, WEAPON_CHARGE_RATE, WEAPON_CHARGE_STEP_SIZE, WEAPON_CHARGED_PROJECTILE_SIZE, WEAPON_CLIP_MAX, WEAPON_CONVERT_AMMO, WEAPON_CONVERT_AMMO_DELAY, WEAPON_CONVERT_AMMO_TO_BUFF, WEAPON_CORPSE_EXPLODE_DAMAGE, WEAPON_CORPSE_EXPLODE_DAMAGE_ENEMY_HEALTH_PCT, WEAPON_CORPSE_EXPLODE_RADIUS, WEAPON_CORPSE_EXPLODE_PROC_CHANCE, WEAPON_CRIT_CHANCE, WEAPON_CRIT_CHANCE_BODY_PART, WEAPON_CRIT_CHANCE_WEAKPOINT, WEAPON_CRIT_DAMAGE, WEAPON_CRIT_FIRE_RATE_BONUS, WEAPON_CRIT_FIRE_RATE_DURATION, WEAPON_CRIT_UNDER_PROC_THRESHOLD_BONUS, WEAPON_CRIT_UNDER_PROC_THRESHOLD_MAX, WEAPON_DAMAGE_AMOUNT, WEAPON_DAMAGE_AMOUNT_TO_HEALTH, WEAPON_DAMAGE_AMOUNT_TO_OVERGUARD, WEAPON_DAMAGE_AMOUNT_TO_SHIELDS, WEAPON_DAMAGE_CONVERSION, WEAPON_DAMAGE_CONVERSION_POST_COALESCE, WEAPON_DAMAGE_IF_VICTIM_PROC_ACTIVE, WEAPON_DAMAGE_PER_ACTIVE_PROC_STACK_ON_VICTIM, WEAPON_DAMAGE_OVER_DISTANCE, WEAPON_DAMAGE_SELF_AMOUNT, WEAPON_DAMAGE_TYPE_BIAS, WEAPON_DAMAGE_TYPE_FLAT_AMOUNT, WEAPON_DAMAGE_WEAKPOINT, WEAPON_DISTANCE_TO_DAMAGE_BONUS, WEAPON_DOUBLE_CRIT_CHANCE, WEAPON_DRAIN_MAX, WEAPON_EMBED_DEATH_PROC_CHANCE, WEAPON_EMPLACEMENT_AMMO_CONSUME_RATE, WEAPON_ENERGY_ON_HEADSHOT_KILL, WEAPON_EXPLOSION_RADIUS, WEAPON_EXTRA_SCAN_CHANCE, WEAPON_FIRE_ITERATIONS, WEAPON_FIRE_RATE, WEAPON_FIRE_REDIRECT_RANGE, WEAPON_FIRE_REDIRECT_PROC_CHANCE, WEAPON_FIRE_REDIRECT_PROC_TYPE, WEAPON_FORCED_PROC_CHANCE, WEAPON_FROZEN_CRIT_CHANCE, WEAPON_FROZEN_CRIT_DAMAGE, WEAPON_GORE_CHANCE, WEAPON_GRENADE_STICKY, WEAPON_BODYSHOT_MULTIPLIER, WEAPON_HEADSHOT_MULTIPLIER, WEAPON_HEALTH_ON_HIT_ENEMY_WITH_PROC, WEAPON_HEALTH_ON_KILL, WEAPON_HEALTH_ON_KILL_CHANCE, WEAPON_HOLSTER_RATE, WEAPON_INCARNON_COMBO_REQUIREMENT, WEAPON_INFINITE_CLIP_MOD, WEAPON_INIT_DAMAGE_MOD, WEAPON_KILL_TO_STAMINA, WEAPON_KNOCKDOWN_TIME, WEAPON_LAST_DAMAGE_MOD, WEAPON_LAST_MULTISHOT, WEAPON_LIFE_STEAL, WEAPON_LIFE_STEAL_CHANNELING, WEAPON_LOCK_TIME, WEAPON_LOW_CRIT_VALUE, WEAPON_LOW_CRIT_DAMAGE, WEAPON_MARK_TARGET, WEAPON_MARKED_DAMAGE_AMOUNT, WEAPON_MARKED_HEADSHOT_MULTIPLIER, WEAPON_MELEE_ARMOR_REDUCTION, WEAPON_MELEE_AUTOTARGET_MAXIMUM_ANGLE, WEAPON_MELEE_AUTOTARGET_RANGE_BONUS, WEAPON_MELEE_AUTOTARGET_SPEED_BONUS, WEAPON_MELEE_AVATAR_DAMAGE_FALL_OFF, WEAPON_MELEE_COMBO_CHANCE_FROM_DOT, WEAPON_MELEE_COMBO_CRIT_CHANCE, WEAPON_MELEE_COMBO_DECAY_AMOUNT, WEAPON_MELEE_COMBO_DURATION_BONUS, WEAPON_MELEE_COMBO_GAIN_MISS_CHANCE, WEAPON_MELEE_COMBO_GAIN_EXTRA_CHANCE, WEAPON_MELEE_COMBO_HIT_BONUS, WEAPON_MELEE_COMBO_INITIAL_BONUS, WEAPON_MELEE_COMBO_MULTIPLIER_BONUS, WEAPON_MELEE_COMBO_MULTIPLIER_CRIT_CHANCE, WEAPON_MELEE_COMBO_MULTIPLIER_PROC_CHANCE, WEAPON_MELEE_COMBO_PROC_CHANCE, WEAPON_MELEE_COMBO_USAGE_EFFICIENCY, WEAPON_MELEE_DAMAGE, WEAPON_MELEE_FINISHER_DAMAGE, WEAPON_MELEE_HEAVY_CHARGE_SPEED, WEAPON_MELEE_HEAVY_EMPOWERED_CHANCE, WEAPON_MELEE_HEAVY_EMPOWERED_DURATION, WEAPON_MELEE_HIT_GROUND_TARGET, WEAPON_MELEE_HIT_STUN_CHANCE, WEAPON_MELEE_SLAM_DAMAGE_BONUS, WEAPON_MELEE_HEAVY_PARRY_DAMAGE_BONUS, WEAPON_MELEE_HEAVY_PARRY_CRIT_CHANCE_BONUS, WEAPON_MELEE_HEAVY_PARRY_CRIT_MULTIPLIER, WEAPON_MELEE_HEAVY_INSTANT_KILL_CHANCE, WEAPON_MELEE_STAMINA_PENALTY, WEAPON_MELEE_STEALTH_LETHAL, WEAPON_MICROWAVE_PROC_CRIT_CHANCE_BONUS, WEAPON_NOCRIT_CHANCE, WEAPON_NOCRIT_DAMAGE, WEAPON_NOISE_REDUCTION, WEAPON_NULLIFIER_BUBBLE_POP_CHANCE, WEAPON_OVERHEAT_DAMAGE, WEAPON_OVERHEAT_PROC_CHANCE, WEAPON_OVERGUARD_CRIT_CHANCE, WEAPON_PARRY_ANGLE, WEAPON_PARRY_COUNTER_CHANCE, WEAPON_PARRY_COUNTER_CHANCE_STAGGER, WEAPON_PARRY_COUNTER_CHANCE_STUN, WEAPON_PARRY_DAMAGE_BLOCKED, WEAPON_PARRY_DAMAGE_REFLECTED, WEAPON_PARRY_DAMAGE_TO_STAMINA, WEAPON_PARRY_EFFECTIVENESS, WEAPON_PARRY_EFFICIENCY, WEAPON_PARRY_HEAVY_COOLDOWN, WEAPON_PERCENT_BASE_DAMAGE_ADDED, WEAPON_PERCENT_BASE_DAMAGE_ADDED_POST_COALESCE, WEAPON_POWER_DAMAGE_BLOCK, WEAPON_POWER_DAMAGE_MAX, WEAPON_POWER_DAMAGE_MULTIPLIER, WEAPON_PICKUP_SHOOT_BONUS, WEAPON_PROC_ACTIVE_BONUS_DAMAGE, WEAPON_PROC_CHANCE, WEAPON_PROC_CHANCE_AGAINST_FULLY_SCANNED, WEAPON_PROC_DAMAGE, WEAPON_PROC_MAX_STACK, WEAPON_PROC_ON_PROC_CHANCE, WEAPON_PROC_TIME, WEAPON_PROC_TIME_EXTEND_ON_HIT, WEAPON_PROC_SELF_CC_REDUCTION_CHANCE, WEAPON_PROJECTILE_BOUNCES, WEAPON_PROJECTILE_ELASTICITY, WEAPON_PROJECTILE_EXPLOSION_CHANCE, WEAPON_PROJECTILE_LINGERING_AOE_DAMAGE, WEAPON_PROJECTILE_LINGERING_AOE_DURATION, WEAPON_PROJECTILE_LINGERING_AOE_RADIUS, WEAPON_PROJECTILE_SIZE, WEAPON_PROJECTILE_SPEED, WEAPON_PUNCTURE_DEPTH, WEAPON_PUNCTURE_INFINITE, WEAPON_RANDOM_PROC_CHANCE, WEAPON_RANGE, WEAPON_RECOIL, WEAPON_REFLECTION_MODIFIER, WEAPON_REFLECTION_EXPLOSION_CHANCE, WEAPON_RELOAD_EMPTY_BATTERY, WEAPON_RELOAD_SPEED, WEAPON_RELOAD_TIME, WEAPON_RICOCHET_CHANCE, WEAPON_SELF_AOE_MULTIPLIER, WEAPON_SHIELD_ON_KILL, WEAPON_SHIELD_ON_KILL_CHANCE, WEAPON_SHIELD_ON_KILL_BY_DAMAGE_TYPE, WEAPON_SHIELD_PERCENT_ON_KILL, WEAPON_SLASH_PROC_ON_CRIT_CHANCE, WEAPON_SLASH_PROC_ON_IMPACT, WEAPON_MAGNETIC_PROC_ON_IMPACT, WEAPON_SNIPER_COMBO_MULTIPLIER_BONUS, WEAPON_SNIPER_COMBO_HIT_BONUS, WEAPON_SNIPER_COMBO_CRIT_CHANCE, WEAPON_SNIPER_COMBO_PROC_CHANCE, WEAPON_SNIPER_COMBO_DURATION_BONUS, WEAPON_SPREAD, WEAPON_STEALTH_MULTIPLIER, WEAPON_SYNDICATE_POWER, WEAPON_TARGET_AMOUNT, WEAPON_UPGRADE_SLOT, WEAPON_VICTIM_CRIT_CHANCE, WEAPON_VICTIM_CRIT_DAMAGE, WEAPON_VICTIM_DAMAGE_AMOUNT, WEAPON_VICTIM_STAMINA_DRAIN_PERCENTAGE, WEAPON_ZOOM, WEAPON_ZOOM_SHAKE_SPEED, WEAPON_MODE_SWITCH_SPEED, WEAPON_PERCENT_BASE_INNATE_DAMAGE_ADDED, WEAPON_ADD_CHARGE_COUNTER_MULTIPLIER, SKILL_ABILITY_UNLOCK, SKILL_ABILITY_TACTICAL_COOLDOWN, SKILL_ABILITY_TACTICAL_EFFICIENCY, SKILL_RJ_BC_AMMO_YIELD, SKILL_RJ_BC_COMPACTION_YIELD, SKILL_RJ_BC_COOLDOWN, SKILL_RJ_BOOST_RAM_DAMAGE, SKILL_RJ_COLLISION_DMG_REDUCTION, SKILL_RJ_ENEMY_DMG_REDUCTION, MAX_Value }
+OperationType = { ADD, ADD_BASE, MULTIPLY, STACKING_MULTIPLY, SET, SET_BASE, SET_MIN, SET_MAX }
+DamageType = { DT_IMPACT, DT_PUNCTURE, DT_SLASH, DT_FIRE, DT_FREEZE, DT_ELECTRICITY, DT_POISON, DT_EXPLOSION, DT_RADIATION, DT_GAS, DT_MAGNETIC, DT_VIRAL, DT_CORROSIVE, DT_RADIANT, DT_SENTIENT, DT_CINEMATIC, DT_SHIELD_DRAIN, DT_HEALTH_DRAIN, DT_ENERGY_DRAIN, DT_FINISHER, DT_SUICIDE, DT_PHYSICAL, DT_INVALID, DT_BASE_ELEMENTAL, DT_COMPOUND_ELEMENTAL, DT_ANY }
+PostureModifier = { PM_AIM, PM_AIM_MAIN_HAND, PM_AIM_OFF_HAND, PM_FREE_FIRED, PM_DODGE, PM_BLOCKING_ANIM, PM_STUN, PM_CLOAK, PM_ANIMATION_CONTROLLED, PM_HIBERNATE, PM_EXPLODE, PM_FINISHER_OPEN, PM_KNOCKDOWN, PM_STAGGER, PM_PRE_DEATH, PM_IN_AIR, PM_MENACE, PM_CARRYING, PM_ALT_AIM_RIGHT, PM_ALT_AIM_LEFT, PM_HELD, PM_GROUNDFIRE, PM_ALTERNATE_COVER, PM_CRIPPLED, PM_WALLJUMP, PM_BULLETJUMP, PM_PARRY, PM_GRAV_DISABLED, PM_EMPLACEMENT, PM_AIRBORNE, PM_HEAVY_MELEE, PM_MELEE_RAGE }
+Injury = { PAIN, INJURY_RESISTED, INJURY_BLOCKED, STAGGER, BIG_STAGGER, STUN, KNOCKDOWN, GROUNDFIRE, THROW, RAGDOLL, PRE_DEATH, DEATH, DEATH_RAGDOLL, DEATH_SLICE, DEATH_SEVER, ANY, MAX_Injury }
+ForceType = { FT_FORCE, FT_IMPULSE, FT_VELOCITY_CHANGE, FT_ACCELERATION }
+ColorCustomizationSlot = { PrimaryColors, Attachments, Sigil, Eyes, Facial, Clothing, Syandana }
+PowerSuitCustomizationSlot = { Helmet, ArmLeft, LegLeft, CustomEmblem, EventEmblem, AnimationSet, Neckwear, BodySkin, Chest, ArmRight, LegRight, Face, SigilChest, SigilBack, SpecialEvent, FxSet, SpecialFxSet }
+
+_T.AddHudTracker -- function(name, type) or nil
+_T.RemoveHudTracker -- function(name) or nil
+_T.OpenScreen -- function(name)
+_T.ShowNotification -- function(text, optIcon, ...) or nil
+
+-- Preloaded modules
+
+"EE.Interface.Utilities"
+	ShowMessage = function(str) end
+
+"Lotus.Interface.LotusNetworkUtilities"
+	Host_LoadMission = function(node, missionInfo) end
+
+"Lotus.Interface.LotusUtilities"
+	SLIDER
+	CHECKBOX
+	TOGGLE
+	BUTTON
+	TITLE
+	INPUTBOX
+	SPACER
+	INPUTCOUNT
+	ICONBUTTON
+	CHOICE
+	COLOR
+	IMAGE
+
+"Lotus.Scripts.Libs.ObjectiveText"
+	SetPrimaryObjText = function(text) end
+	ClearPrimaryObjText = function() end
+
+"Lotus.Scripts.Libs.DuviriActivityLib"
+	ModifyEncounterLimit = function(type, delta) end
+	IsEncounterLimitReached = function(type) end

@@ -1,0 +1,16 @@
+int/
+*.asi
+*.dll
+*.exp
+*.lib
+*.pdb
+Hotfix.owf
+owf_archive_data.inc
+
+# RENOVICE local/private and generated state. Keep local files on disk but do
+# not publish private TLS material or transient reload/build evidence.
+OpenWF/cert/key.pem
+OpenWF/cert/cert.pem
+*.log
+RENOVICE_MIGRATION/local/
+renovice/generated/

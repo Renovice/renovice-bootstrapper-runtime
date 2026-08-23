@@ -1,0 +1,459 @@
+if OWF_CLIENT_HOTFIX ~= 0 then
+	owf_console_set_title(OWF_CLIENT_TITLE.." hotfix "..OWF_CLIENT_HOTFIX)
+else
+	owf_console_set_title(OWF_CLIENT_TITLE)
+end
+
+owf_register_custom_route("/favicon.ico", "image/png", owf_repo_find("OpenWF/favicon.png"))
+
+if OWF_IS_WINE then
+	io.contents("OpenWF/Download Latest DLL.sh", owf_repo_find("OpenWF/Download Latest DLL.sh"))
+else
+	io.contents("OpenWF/Download Latest DLL.ps1", owf_repo_find("OpenWF/Download Latest DLL.ps1"))
+end
+io.contents("OpenWF/Reference Manual.html", owf_repo_find("OpenWF/Reference Manual.html"))
+io.contents("OpenWF/Script API Reference.pluto", owf_repo_find("OpenWF/Script API Reference.pluto"))
+if true then
+	io.mkdirs("OpenWF/Scripts/samples")
+	os.remove("OpenWF/Scripts/samples/Cycle Camera Hotkey (K).pluto") -- pre-0.11.0
+	local samples = {
+		"Auto Teleport to Waypoint",
+		"Become The Stalker",
+		"Chat Commands",
+		"Complete Wave or Mission",
+		"Cycle Camera",
+		"Detailed Enemy HP",
+		"Enter Simulacrum",
+		"First Person View",
+		"Freecam Teleport on Disable",
+		"Freecam Up Down",
+		"Godmode",
+		"Increase Damage",
+		"Kill All Enemies",
+		"Loot Party",
+		"No Ability Cooldowns",
+		"Noclip",
+		"Settings",
+		"Speedometer",
+		"Wallhack",
+		"Watermark",
+	}
+	for samples as sample do
+		io.contents($"OpenWF/Scripts/samples/{sample}.pluto", owf_repo_find($"OpenWF/samples/{sample}.pluto"))
+	end
+	for io.listdir("OpenWF/Scripts/samples") as file do
+		local name = file:sub(24)
+		if io.isfile(file) and name:sub(-6) ~= ".pluto" or not name:sub(1, -7) in samples then
+			local target = "OpenWF/Scripts/"..name
+			if io.exists(target) then
+				target ..= math.random(1000, 1000000)
+			end
+			print("Evicting OpenWF/Scripts/samples/"..name.." to "..target)
+			io.rename("OpenWF/Scripts/samples/"..name, target)
+		end
+	end
+end
+
+local { crypto, http, json, socket } = require "*"
+load(owf_repo_find("OpenWF/lib/websocket.pluto"))()
+
+if owf_script_get_instance_id() == 0 -- Heuristic to avoid managing content again after applying hotfix
+	and compareversions(owf_get_build_version(), "2023.07.26.16.38") >= 0 -- This cache stuff is for echoes of duviri and up
+then
+	local function shcc_pack_H(compressed, decompressed_size)
+		local bin = "SHCC\x1f\x00\x00\x00"
+		bin ..= string.pack("<I1I4s4", 2, decompressed_size, compressed)
+		bin ..= "\x00\xFF\xFF\xFF\xFF\x00\x00\x00\x00\x00\xFF\xFF\xFF\xFF\x00\x00\x00\x00\x52"
+		return bin .. string.pack("<I4", crypto.crc32c(bin))
+	end
+
+	local function shcc_pack_HB(H_compressed, H_decompressed_size, B_compressed, B_decompressed_size)
+		local bin = "SHCC\x1f\x00\x00\x00"
+		bin ..= string.pack("<I1I4s4", 2, H_decompressed_size, H_compressed)
+		bin ..= string.pack("<I1I4s4", 2, B_decompressed_size, B_compressed)
+		bin ..= "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x52"
+		return bin .. string.pack("<I4", crypto.crc32c(bin))
+	end
+
+	local function shcc_pack_H_mod(data)
+		local bin = "SHCC\x1f\x00\x00\x00"
+		local hash = crypto.md5("SHCC\x1f\x00\x00\x00"..data:sub(17), true)
+
+		bin ..= "\x00"
+		bin ..= string.pack("<I4I4", #data, #data)
+		bin ..= hash
+		bin ..= data:sub(17)
+
+		bin ..= "\x00\xFF\xFF\xFF\xFF\x00\x00\x00\x00\x00\xFF\xFF\xFF\xFF\x00\x00\x00\x00\x52"
+		bin ..= string.pack("<I4", crypto.crc32c(bin))
+
+		return bin, hash
+	end
+
+	local manifest_typeid = compareversions(owf_get_build_version(), "2025.09.25.17.01") >= 0 ? "E" : "D"
+
+	local first_run = not io.exists("OpenWF/Content/0")
+	if first_run then
+		io.mkdirs("OpenWF/Content/0")
+	end
+	if compressed, decompressed_size := owf_cache_find("H.Misc", "/H.Cache.bin") then
+		if compressed:byte(1) == 0x80 then
+			io.contents("OpenWF/Content/0/H.Cache.bin!"..manifest_typeid.."_---------------------w.bak", shcc_pack_H(compressed, decompressed_size))
+		end
+	end
+
+	local any_mods = false
+	if oodle_available() then
+		load(owf_repo_find("OpenWF/lib/cachelib.pluto"))()
+
+		local og_cache_manifest_hash
+
+		io.mkdir("OpenWF/Content Replacements")
+		if io.isdir("OpenWF/Content Replacements/0") then
+			local t = os.millis()
+
+			do
+				local compressed, decompressed_size = owf_cache_find("H.Misc", "/B.Cache.Windows.bin")
+				if compressed:byte(1) == 0x80 then
+					io.contents("OpenWF/Content/0/B.Cache.Windows.bin!"..manifest_typeid.."_"..b64m_encode(shcc_decompress_chunk_oodle(compressed, 1, decompressed_size):sub(1, 16)), shcc_pack_H(compressed, decompressed_size))
+				end
+			end
+
+			local meta_manifest = new CacheManifest(shcc_unpack(io.contents("OpenWF/Content/0/H.Cache.bin!"..manifest_typeid.."_---------------------w.bak")).H, true)
+			og_cache_manifest_hash = b64m_encode(meta_manifest:getHash("/B.Cache.Windows.bin"))
+			if cont := io.contents("OpenWF/Content/0/B.Cache.Windows.bin!"..manifest_typeid.."_"..og_cache_manifest_hash) then
+				local main_manifest = new CacheManifest(shcc_unpack(cont).H, true)
+
+				local paths = {}
+				for io.listdir("OpenWF/Content Replacements/0", true) as file do
+					if io.isfile(file) then
+						file = file:sub(30):replace("\\", "/")
+						any_mods = true
+
+						io.mkdirs(io.part("OpenWF/Content/0"..file, "parent"))
+						io.copy("OpenWF/Content Replacements/0"..file, "OpenWF/Content/0"..file)
+
+						local path = file:split("!")[1]
+						if hash := paths[path] then
+							print_to_console("Ignoring "..file.." in favor of "..hash)
+							continue
+						end
+						local hash = file:split("!")[2]:split("_")[2]
+						paths[path] = hash
+						main_manifest:setHash(path, b64m_decode(hash))
+
+						local compressed, decompressed_size = owf_cache_find("H.Misc", path)
+						local B_cache = "B.Misc"
+						if not compressed then
+							compressed, decompressed_size = owf_cache_find("H.Texture", path)
+							B_cache = "B.Texture"
+						end
+						if compressed then
+							if compressed:byte(1) == 0x80 then
+								local B_compressed, B_decompressed_size = owf_cache_find(B_cache, path)
+								io.contents("OpenWF/Content/0"..path.."!"..file:split("!")[2]:split("_")[1].."_"..b64m_encode(shcc_decompress_chunk_oodle(compressed, 1, decompressed_size):sub(1, 16)), shcc_pack_HB(compressed, decompressed_size, B_compressed, B_decompressed_size))
+							end
+						else
+							print_to_console("Could not create backup for "..path)
+						end
+					end
+				end
+
+				if any_mods then
+					local bin, hash = shcc_pack_H_mod(main_manifest:pack())
+					meta_manifest:setHash("/B.Cache.Windows.bin", hash)
+					hash = b64m_encode(hash)
+					io.contents("OpenWF/Content/0/B.Cache.Windows.bin!"..manifest_typeid.."_"..hash, bin)
+					io.contents("OpenWF/Content/0/H.Cache.bin!"..manifest_typeid.."_---------------------w", (shcc_pack_H_mod(meta_manifest:pack())))
+
+					for io.listdir("OpenWF/Content/0") as path do
+						local file = path:sub(18)
+						if #file == 44 and file:sub(1, 22) == "B.Cache.Windows.bin!"..manifest_typeid.."_"
+							and file:sub(23) ~= hash and file:sub(23) ~= og_cache_manifest_hash
+						then
+							os.remove(path)
+						end
+					end
+				end
+
+				print_to_console("Managed content in "..(os.millis() - t).." ms")
+			else
+				print_to_console("Unable to manage content: Original cache manifest not found")
+			end
+		end
+
+		if not any_mods then
+			if io.exists("OpenWF/Content/0/UNMANAGED") then
+				local meta_manifest = new CacheManifest(shcc_unpack(io.contents("OpenWF/Content/0/H.Cache.bin!"..manifest_typeid.."_---------------------w")).H, true)
+				og_cache_manifest_hash = b64m_encode(meta_manifest:getHash("/B.Cache.Windows.bin"))
+			else
+				if not og_cache_manifest_hash then
+					local meta_manifest = new CacheManifest(shcc_unpack(io.contents("OpenWF/Content/0/H.Cache.bin!"..manifest_typeid.."_---------------------w.bak")).H, true)
+					og_cache_manifest_hash = b64m_encode(meta_manifest:getHash("/B.Cache.Windows.bin"))
+				end
+			end
+			owf_set_build_hash(og_cache_manifest_hash)
+		end
+	end
+
+	owf_cache_close()
+
+	if not any_mods and not io.exists("OpenWF/Content/0/UNMANAGED") then
+		io.copy("OpenWF/Content/0/H.Cache.bin!"..manifest_typeid.."_---------------------w.bak", "OpenWF/Content/0/H.Cache.bin!"..manifest_typeid.."_---------------------w")
+		if first_run then
+			io.contents("OpenWF/Content/0/UNMANAGED", "")
+		end
+	end
+end
+
+local requested_versions = false
+local current_version = ""
+local version_is_latest = nil
+local hotfix_available = ""
+local hotfix_available_sha256 = ""
+local downloading_hotfix = false
+
+local function get_version_broadcast()
+	return {
+		current = current_version,
+		latest = version_is_latest,
+		hotfix = OWF_CLIENT_HOTFIX ~= 0 ? "hotfix "..OWF_CLIENT_HOTFIX : "",
+		hotfix_available = hotfix_available,
+	}
+end
+
+local function send_version_broadcast()
+	owf_broadcast_message(json.encode{
+		version_broadcast = get_version_broadcast()
+	})
+end
+
+local function check_for_updates()
+	owf_create_thread(function()
+		current_version = ""
+		version_is_latest = nil
+		local meta
+		if not OWF_PRIVATE_BUILD then
+			send_version_broadcast()
+			meta = http.request("https://openwf.io/supplementals/client%20drop-in/meta")
+			if meta then
+				meta = json.decode(meta)
+			end
+		end
+		version_is_latest = false
+		if meta and meta.manifest then
+			local sha256 = crypto.sha256(io.contents(OWF_CLIENT_DLL_PATH))
+			local hotfix_sha256 = ""
+			if hotfix_bin := io.contents("OpenWF/Hotfix.owf") then
+				hotfix_sha256 = crypto.sha256(hotfix_bin)
+			end
+			version_is_latest = sha256 == meta.sha256
+			if dll := meta.manifest:find(|x| -> x.sha256 == sha256) then
+				current_version = dll.version
+				hotfix_available_sha256 = dll.latest_hotfix_sha256
+				if dll.latest_hotfix_sha256 ~= hotfix_sha256 then
+					hotfix_available = dll.latest_hotfix
+				end
+			end
+		end
+		send_version_broadcast()
+	end)
+end
+
+local ivkr_available <const> = compareversions(owf_get_build_version(), "2023.07.26.16.38") >= 0
+
+local last_status_update = 0
+local last_status_string
+
+local script_log_len = 0
+
+owf_register_command("freecam", function()
+	if ivkr_available and not owf_tunables_has("prohibit_freecam") then
+		if ply := gRegion:GetLocalPlayer() then
+			if not ply:IsFreeCameraActive() then
+				ply:ToggleFreeCamera()
+			end
+			ply:SetFreeCameraLocked(false)
+		end
+	end
+end)
+owf_register_command("lockcam", function()
+	if ivkr_available and not owf_tunables_has("prohibit_freecam") then
+		if ply := gRegion:GetLocalPlayer() then
+			if not ply:IsFreeCameraActive() then
+				ply:ToggleFreeCamera()
+			end
+			ply:SetFreeCameraLocked(true)
+		end
+	end
+end)
+owf_register_command("gamecam", function()
+	if ivkr_available and not owf_tunables_has("prohibit_freecam") then
+		if ply := gRegion:GetLocalPlayer() then
+			if ply:IsFreeCameraActive() then
+				ply:ToggleFreeCamera()
+			end
+		end
+	end
+end)
+owf_register_command("teleport", function(pos)
+	if ivkr_available and not owf_tunables_has("prohibit_teleport") then
+		local arr = pos:split(",")
+		if #arr == 3 then
+			gRegion:GetLocalPlayerAvatar():SetPosition(Vector(tonumber(arr[1]), tonumber(arr[2]), tonumber(arr[3])))
+		end
+	end
+end)
+owf_register_command("enable_pause_always_stops_time", function()
+	set_pause_always_stops_time(true)
+	owf_broadcast_message[[{"pause_always_stops_time":true}]]
+end)
+owf_register_command("disable_pause_always_stops_time", function()
+	gGameRules:RequestUnpause()
+	set_pause_always_stops_time(false)
+	owf_broadcast_message[[{"pause_always_stops_time":false}]]
+end)
+owf_register_command("request_bgscript_broadcasts", function()
+	local r = {
+		bgscript_status_string = last_status_string,
+	}
+	if not requested_versions then
+		requested_versions = true
+		check_for_updates()
+	else
+		r.version_broadcast = get_version_broadcast()
+	end
+	return r
+end)
+owf_register_command("download_latest_hotfix", function()
+	if not downloading_hotfix and hotfix_available ~= "" then
+		downloading_hotfix = true
+		owf_create_thread(function()
+			if bin := http.request($"https://openwf.io/supplementals/client%20drop-in/{current_version}/{hotfix_available}/Hotfix.owf") then
+				if crypto.sha256(bin) == hotfix_available_sha256 then
+					io.contents("OpenWF/Hotfix.owf", bin)
+					http.request("http://localhost:"..owf_get_client_http_port().."/apply_hotfix")
+					hotfix_available = ""
+					owf_broadcast_message[[{"reload":1}]]
+				else
+					print("Downloaded hotfix but checksum mismatches. Discarding it.")
+				end
+			else
+				print("Failed to download hotfix.")
+			end
+			downloading_hotfix = false
+		end)
+	end
+end)
+owf_register_command("check_for_updates", function()
+	check_for_updates()
+end)
+
+local wscoro = coroutine.create(function()
+	while true do
+		if owf_get_auth_query() == "" or owf_tunables_has("disable_websocket") then
+			coroutine.yield()
+		else
+			xpcall(|| -> do
+				local sock = socket.connect(owf_get_server_host(), owf_get_http_port())
+				if sock?:wsUpgrade(owf_get_server_host(), "/custom/ws") then
+					--print("Connected to ws server")
+					local accountId, nonce = owf_get_auth_query():match("accountId=([%l%d]+)&nonce=([%d]+)")
+					sock:wsSend(json.encode({ auth_game = { accountId = accountId, token = crypto.hmac("sha256", nonce, $"accountId={accountId}&ct=WS") } }))
+					while data := sock:wsRecv() do
+						--print("Received: "..data)
+						data = json.decode(data)
+						if data.sync_inventory and ivkr_available then
+							gGameData:SyncInventoryFromDB()
+						end
+						if data.sync_world_state and ivkr_available then
+							gGameData:SyncWorldStateFromDB()
+						end
+						if data.tunables then
+							owf_tunables_load(json.encode(data.tunables))
+						end
+						if data.tunables_delta then
+							owf_tunables_load(json.encode(data.tunables_delta), true)
+						end
+						if data.ports then
+							owf_set_http_port(data.ports.http)
+							owf_set_https_port(data.ports.https)
+							break
+						end
+					end
+					--print("Got nil from wsRecv")
+				else
+					--print("Ws connection failed")
+				end
+			end, |_| -> do
+				--print("Error", _)
+			end)
+		end
+	end
+end)
+
+while pcall(yield) do
+	if os.millis() - last_status_update >= 40 then
+		local status = {
+			camtype = "gamecam",
+			pos = "",
+			markers = {}
+		}
+		if ivkr_available then
+			if ply := gRegion:GetLocalPlayer() then
+				if ply:IsFreeCameraActive() then
+					status.camtype = ply:IsFreeCameraLockedActive() ? "lockcam" : "freecam"
+				end
+				if avatar := ply:GetAvatar() then
+					local pos = avatar:GetPosition()
+					status.pos = "%f,%f,%f":format(pos.x, pos.y, pos.z)
+				end
+				if hud := ply:GetHudStatus() then
+					for hud:GetFlashMarkers() as marker do
+						if not marker.garbage then
+							local pos = marker.baseMarkerInfo:GetPosition()
+							status.markers:insert({
+								type = marker.markerType,
+								x = pos.x,
+								y = pos.y,
+								z = pos.z,
+								dist = marker.distanceToEye,
+							})
+						end
+					end
+				end
+			end
+		end
+		local status_string = json.encode(status)
+		if status_string ~= last_status_string then
+			last_status_string = status_string
+			owf_broadcast_message(json.encode{
+				bgscript_status_string = last_status_string
+			})
+		end
+		if (script_log_nlen := owf_get_script_log_len()) ~= script_log_len then
+			if script_log_nlen > script_log_len then
+				owf_broadcast_message(json.encode({
+					script_log_olen = script_log_len,
+					script_log_nlen = script_log_nlen,
+					script_log_app = owf_get_script_log_sub(script_log_len),
+				}))
+			end
+			script_log_len = script_log_nlen
+		end
+		last_status_update = os.millis()
+	end
+	if (fov_override := get_fov_override()) ~= 0 then
+		if ivkr_available and not owf_tunables_has("prohibit_fov_override") then
+			if ply := gRegion:GetLocalPlayer() then
+				ply:CameraControl():SetBaseFovOverride(fov_override)
+			end
+		end
+	end
+	while evt := owf_next_event() do
+		if evt.type ~= OWF_EVT_CUSTOM_ROUTE_SERVED or evt.path ~= "/favicon.ico" then
+			print("Unhandled event in background script: "..dumpvar(evt))
+		end
+	end
+	coroutine.resume(wscoro)
+end

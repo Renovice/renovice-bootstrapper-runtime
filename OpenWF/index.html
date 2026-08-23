@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<style>
+	body{font-family:sans-serif;background:#000;filter:invert(1)}
+	p,ul{margin-block-start:0;margin-block-end:0}
+	p{margin-bottom:5px}
+	input[type=range]{height:10px}
+	hr{margin:15px 0}
+	ul:has(li){margin-top:2px;padding-inline-start:30px}
+	[id^=prohibit_]{color:#444}
+	[id^=prohibit_]:not([data-value=true]){display:none}
+</style>
+<body>
+	<p id="checking_updates"></p>
+	<p id="update_check_fail" style="display:none"></p>
+	<p id="no_update" style="display:none"></p>
+	<p id="dll_to_dll_update" style="display:none"></p>
+	<p id="dll_to_hotfix_update" style="display:none"></p>
+	<p id="hotfix_to_hotfix_update" style="display:none"></p>
+	<hr>
+	<p><label for="server_host"></label> <input id="server_host" type="text" /> <button id="server_host_submit"></button> <button id="logout" onclick="fire_and_forget('logout')"></button></p>
+	<p><label for="high_damage_numbers_patch"></label> <input id="high_damage_numbers_patch" type="checkbox" /></p>
+	<p><label for="skip_mission_start_timer"></label> <input id="skip_mission_start_timer" type="checkbox" /> <span id="prohibit_skip_mission_start_timer"></span></p>
+	<p><label for="disable_profanity_filter"></label> <input id="disable_profanity_filter" type="checkbox" /> <span id="prohibit_disable_profanity_filter"></span></p>
+	<p><label for="simulacrum_blacklisted"></label> <input id="simulacrum_blacklisted" type="checkbox" /></p>
+	<p><label for="simulacrum_whitelisted"></label> <input id="simulacrum_whitelisted" type="checkbox" /></p>
+	<p><label for="pause_always_stops_time"></label> <input id="pause_always_stops_time" type="checkbox" /></p>
+	<p><label for="alternative_loading"></label> <input id="alternative_loading" type="checkbox" /></p>
+	<p><label for="ee_log_in_console"></label> <input id="ee_log_in_console" type="checkbox" /></p>
+	<p><label for="fov_override"></label> <input id="fov_override" type="range" min="0" value="0" max="2260000" step="10000"> <span id="prohibit_fov_override"></span></p>
+	<p>
+		<button id="save_config" onclick="fire_and_forget('save_config')" style="margin-top:3px"></button>
+		<button id="reload_hotkeys" onclick="fire_and_forget('reload_hotkeys')"></button>
+		<button id="reload_label_replacements" onclick="fire_and_forget('reload_label_replacements')"></button>
+	</p>
+	<hr>
+	<p><label for="camtype"></label> <select id="camtype" data-disabled-if="prohibit_freecam"><option value="gamecam"></option><option value="freecam"></option><option value="lockcam"></option></select> <span id="prohibit_freecam"></span></p>
+	<p><label for="pos"></label> <input id="pos" type="text" style="width:230px" onclick="this.select()" readonly /></p>
+	<form onsubmit="doTeleport();return false"><button type="submit" id="tp_submit" data-disabled-if="prohibit_teleport"></button> <select id="tp-target"><option value="custom"></option></select> <input id="tp-pos" type="text" style="width:230px" onclick="this.select()" /> <span id="prohibit_teleport"></span></form>
+	<hr>
+	<p id="prohibit_scripts" style="margin-bottom:10px"></p>
+	<div id="scripts-container"></div>
+	<textarea id="script_log" style="width:100%;height:150px" readonly></textarea>
+	<p><button id="clear_script_log" onclick="fire_and_forget('clear_script_log')"></button></p>
+	<p><label for="console"></label> <input id="console" type="checkbox" /></p>
+	<script src="/dict.js"></script>
+	<script>
+		document.querySelectorAll("label[for]").forEach(elm => {
+			elm.textContent = dict[elm.getAttribute("for")] + ": ";
+		});
+		document.querySelectorAll("button[id],span[id]").forEach(elm => {
+			elm.textContent = dict[elm.id];
+		});
+		document.querySelectorAll("option[value]").forEach(elm => {
+			elm.textContent = dict[elm.value];
+		});
+		document.querySelectorAll("p[id]").forEach(elm => {
+			elm.innerHTML = dict[elm.id];
+		});
+
+		document.getElementById("server_host_submit").onclick = function() {
+			fetch("/server_host?" + document.getElementById("server_host").value);
+		};
+
+		const toggles = [...document.querySelectorAll("[type=checkbox]")].map(x => x.id);
+		for (const toggle of toggles) {
+			document.getElementById(toggle).onchange = function() {
+				fire_and_forget(toggle + "?" + this.checked);
+			};
+		}
+
+		document.getElementById("pause_always_stops_time").onchange = function() {
+			if (this.checked) {
+				fire_and_forget("enable_pause_always_stops_time");
+			}
+			else {
+				fire_and_forget("disable_pause_always_stops_time");
+			}
+		};
+
+		document.getElementById("fov_override").oninput = function() {
+			fire_and_forget("fov_override?" + this.value);
+		};
+
+		document.getElementById("camtype").onchange = function() {
+			fire_and_forget(this.value);
+		};
+
+		const marker_types = {
+			"3": dict.marker_obj,
+			"9": dict.marker_target,
+			"12": dict.marker_surcap,
+			"29": dict.marker_target,
+			"31": dict.marker_surpup,
+			"40": dict.marker_a,
+			"41": dict.marker_b,
+			"42": dict.marker_c,
+			"49": dict.marker_wp,
+			"65": dict.marker_focus,
+			"75": dict.marker_extract,
+		};
+
+		function onMarkersChange() {
+			document.getElementById("tp-pos").style.display = document.getElementById("tp-target").value == "custom" ? "" : "none";
+		}
+
+		const prohibitions = [...document.querySelectorAll("[id^=prohibit_]")].map(x => x.id);
+
+		function openWebSocket() {
+			window.ws = new WebSocket((location.protocol == "https:" ? "wss" : "ws") + "://" + location.hostname + ":" + location.port);
+			let script_log_len = -1;
+			const script_broadcast_requested = {};
+			ws.onopen = function() {
+				fire_and_forget("request_bgscript_broadcasts");
+			};
+			ws.onmessage = function(e) {
+				const obj = JSON.parse(e.data);
+
+				if ("server_host" in obj) {
+					document.getElementById("server_host").value = obj.server_host;
+				}
+
+				for (const toggle of toggles) {
+					if (toggle in obj) {
+						document.getElementById(toggle).checked = obj[toggle];
+					}
+				}
+
+				if ("fov_override" in obj) {
+					document.getElementById("fov_override").value = parseFloat(obj.fov_override) * 10000;
+				}
+
+				if ("bgscript_status_string" in obj) {
+					const bgscript_status = obj.bgscript_status_string ? JSON.parse(obj.bgscript_status_string) : {};
+					document.getElementById("camtype").value = bgscript_status.camtype ?? "gamecam";
+					document.getElementById("pos").value = bgscript_status.pos ?? "";
+					bgscript_status.markers ??= [];
+					const marker_set = {};
+					for (const marker of bgscript_status.markers) {
+						if (marker.type != 14) {
+							const name = dict.marker.split("|TYPE|").join(marker.type in marker_types ? marker_types[marker.type] : dict.marker_unk).split("|DIST|").join(marker.dist);
+							const pos = marker.x + "," + marker.y + "," + marker.z;
+							const slug = marker.type == 49 ? "wp" : pos;
+							marker_set[slug] = true;
+							let option = document.querySelector("#tp-target [data-slug='"+slug+"']");
+							if (!option) {
+								option = document.getElementById("tp-target").appendChild(document.createElement("option"));
+								option.setAttribute("data-slug", slug);
+							}
+							if (option.value != pos) {
+								option.value = pos;
+							}
+							if (option.textContent != name) {
+								option.textContent = name;
+							}
+						}
+					}
+					for (const child of document.getElementById("tp-target").children) {
+						if (child.value != "custom" && !(child.getAttribute("data-slug") in marker_set)) {
+							document.getElementById("tp-target").removeChild(child);
+							onMarkersChange();
+						}
+					}
+				}
+
+				if ("available_scripts" in obj) {
+					document.getElementById("scripts-container").innerHTML = "";
+					obj.available_scripts.forEach(script => {
+						const p = document.createElement("p");
+						const label = document.createElement("label");
+						label.setAttribute("for", script);
+						label.textContent = script + ": ";
+						p.appendChild(label);
+						const input = document.createElement("input");
+						input.id = script;
+						input.type = "checkbox";
+						input.setAttribute("data-path", "OpenWF/Scripts/" + script);
+						input.onchange = function() {
+							fetch((this.checked ? "/start_script?" : "/stop_script?") + this.getAttribute("data-path"));
+						};
+						p.appendChild(input);
+						const button = document.createElement("button");
+						button.style.marginLeft = "8px";
+						button.textContent = dict.enable_auto_start;
+						button.onclick = function() {
+							const on = (this.textContent != dict.enable_auto_start);
+							fetch((on ? "/remove_autostart_script?" : "/add_autostart_script?") + script);
+							this.textContent = (on ? dict.enable_auto_start : dict.disable_auto_start);
+						};
+						p.appendChild(button);
+						document.getElementById("scripts-container").appendChild(p);
+					});
+				}
+
+				if ("running_scripts" in obj) {
+					for (const script of document.getElementById("scripts-container").children) {
+						const path = script.children[1].getAttribute("data-path");
+						const running = obj.running_scripts.indexOf(path) != -1;
+						script.children[1].checked = running;
+						if (running) {
+							if (!script_broadcast_requested[path]) {
+								script_broadcast_requested[path] = true;
+								fire_and_forget(path.substr(7) + "/request_broadcast");
+							}
+						}
+						else {
+							if (script_broadcast_requested[path]) {
+								const ul = script.querySelector("ul");
+								if (ul) {
+									ul.innerHTML = "";
+								}
+								delete script_broadcast_requested[path];
+							}
+						}
+					}
+				}
+
+				if ("autostart_scripts" in obj) {
+					for (const script of document.getElementById("scripts-container").children) {
+						script.querySelector("button").textContent = (obj.autostart_scripts.indexOf(script.children[1].id) != -1 ? dict.disable_auto_start : dict.enable_auto_start);
+					}
+				}
+
+				if ("script_log" in obj) {
+					const log = document.getElementById("script_log");
+					log.value = obj.script_log;
+					log.scrollTop = log.scrollHeight;
+
+					script_log_len = obj.script_log_len;
+				}
+
+				if ("script_log_app" in obj) {
+					if (script_log_len == obj.script_log_olen) {
+						script_log_len = obj.script_log_nlen;
+
+						const log = document.getElementById("script_log");
+						log.value += obj.script_log_app;
+						log.scrollTop = log.scrollHeight;
+					}
+					else {
+						console.warn("unable to append script log", { script_log_len, obj });
+						if (script_log_len != -1) {
+							ws.send("script_log");
+						}
+					}
+				}
+
+				if ("script_broadcast" in obj) {
+					const p = [...document.getElementById("scripts-container").children].find(x => x.children[1].getAttribute("data-path") == obj.from);
+					let ul = p.querySelector("ul");
+					if (!ul) {
+						ul = p.appendChild(document.createElement("ul"));
+					}
+					ul.innerHTML = "";
+					obj.script_broadcast.toggles.forEach(toggle => {
+						const li = document.createElement("li");
+						{
+							const label = document.createElement("label");
+							label.setAttribute("for", obj.from + toggle.name);
+							label.textContent = toggle.name + ": ";
+							li.appendChild(label);
+						}
+						{
+							const input = document.createElement("input");
+							input.id = obj.from + toggle.name;
+							input.type = "checkbox";
+							input.onchange = function() {
+								fire_and_forget(obj.from.substr(7) + "/set_toggle", (this.checked ? "1" : "0") + toggle.name);
+							};
+							li.appendChild(input);
+						}
+						ul.appendChild(li);
+					});
+				}
+
+				if ("version_broadcast" in obj) {
+					document.getElementById("dll_to_hotfix_update").style.display = "none";
+					document.getElementById("hotfix_to_hotfix_update").style.display = "none";
+					document.getElementById("dll_to_dll_update").style.display = "none";
+					document.getElementById("no_update").style.display = "none";
+					document.getElementById("update_check_fail").style.display = "none";
+					document.getElementById("checking_updates").style.display = "none";
+					if ("latest" in obj.version_broadcast) {
+						if (obj.version_broadcast.current) {
+							let local_version_full = obj.version_broadcast.current;
+							if (obj.version_broadcast.hotfix) {
+								local_version_full += " " + obj.version_broadcast.hotfix;
+							}
+							document.querySelectorAll(".local-version").forEach(x => { x.textContent = obj.version_broadcast.current; });
+							document.querySelectorAll(".local-version-full").forEach(x => { x.textContent = local_version_full; });
+							if (obj.version_broadcast.hotfix_available) {
+								document.querySelectorAll(".hotfix-available").forEach(x => { x.textContent = obj.version_broadcast.hotfix_available; });
+								if (obj.version_broadcast.hotfix) {
+									document.getElementById("hotfix_to_hotfix_update").style.display = "block";
+								}
+								else {
+									document.getElementById("dll_to_hotfix_update").style.display = "block";
+								}
+							}
+							else if (obj.version_broadcast.latest) {
+								document.getElementById("no_update").style.display = "block";
+							}
+							else {
+								document.getElementById("dll_to_dll_update").style.display = "block";
+							}
+						}
+						else {
+							document.getElementById("update_check_fail").style.display = "block";
+						}
+					}
+					else {
+						document.getElementById("checking_updates").style.display = "block";
+					}
+				}
+
+				if ("prohibitions" in obj) {
+					for (const key of prohibitions) {
+						const value = obj.prohibitions.indexOf(key) != -1;
+						document.getElementById(key).setAttribute("data-value", value);
+						const elm_to_disable = document.querySelector(`[data-disabled-if=${key}]`);
+						if (elm_to_disable) {
+							elm_to_disable.disabled = value;
+						}
+					}
+				}
+
+				if ("reload" in obj) {
+					location.reload();
+				}
+			};
+			ws.onerror = function(e) {
+				console.error(e);
+			};
+			ws.onclose = function() {
+				fetch("/ping").then(() => {
+					console.warn("The browser just dropped the WebSocket connection for no reason");
+					openWebSocket();
+				}).catch(() => {
+					onConnectionLost();
+				});
+			};
+		}
+		openWebSocket();
+
+		function fire_and_forget(cmd, arg) {
+			if (ws.readyState == 1) {
+				ws.send(cmd + (arg ? "?"+arg : ""));
+			}
+			else {
+				fetch("/" + cmd + (arg ? "?"+encodeURIComponent(arg) : ""));
+			}
+		}
+
+		function onConnectionLost() {
+			document.body.innerHTML = `<p style="margin-block-start:0">` + dict.err + ` <a href="#" onclick="location.reload()">` + dict.err_retry + `</a></p>`;
+			setInterval(function() {
+				fetch("/ping").then(() => {
+					location.reload();
+				});
+			}, 10_000);
+		}
+
+		document.getElementById("tp-target").onchange = onMarkersChange;
+
+		function doTeleport() {
+			let pos = document.getElementById("tp-target").value;
+			if (pos == "custom") {
+				pos = document.getElementById("tp-pos").value
+			}
+			fire_and_forget("teleport?" + pos);
+		};
+
+		document.getElementById("console").onchange = function() {
+			fetch("/toggle_console");
+		};
+	</script>
+</body>

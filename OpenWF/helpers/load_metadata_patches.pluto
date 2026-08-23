@@ -1,0 +1,160 @@
+local function malformed_line(filename, linenum, line)
+	print_to_console("[Metadata Patches] Ignoring malformed line/instruction")
+	print_to_console("[Metadata Patches] - Where: "..(filename ?? "?")..":"..linenum)
+	print_to_console("[Metadata Patches] - What: "..line)
+end
+
+function parse_metadata_patches(str, filename)
+	local patches = {}
+	local patch = { keys = {}, prefix = "", replacements = {}, substitutions = {}, query_assignments = {} }
+	local ampersand = false
+	local function delimit_patch()
+		if #patch.keys ~= 0 then
+			patches:insert(patch)
+		end
+		patch = { keys = {}, prefix = "", replacements = {}, substitutions = {}, query_assignments = {} }
+	end
+	local function is_in_patch_scope(linenum, line)
+		if #patch.keys == 0 then
+			print_to_console("[Metadata Patches] Ignoring line/instruction that was not preceeded by one or more paths/targets")
+			print_to_console("[Metadata Patches] - Where: "..(filename ?? "?")..":"..linenum)
+			print_to_console("[Metadata Patches] - What: "..line)
+			return false
+		end
+		return true
+	end
+	for linenum, line in str:split("\n") do
+		if line:startswith("/") then
+			if ampersand then
+				ampersand = false
+			else
+				if #patch.prefix:split("{") ~= #patch.prefix:split("}") then
+					print_to_console("[Metadata Patches] The number of { doesn't match the number of } in the patch that was just delimited.")
+					print_to_console("[Metadata Patches] - Note: Use indentation if you did not mean for / to start a new patch.")
+					print_to_console("[Metadata Patches] - Where: "..(filename ?? "?")..":"..linenum)
+					print_to_console("[Metadata Patches] - What: "..line)
+				end
+				delimit_patch()
+			end
+			line = line:strip()
+			if line[-1] == "&" then
+				ampersand = true
+				line = line:sub(1, -2):strip()
+			end
+			for line:split("&") as key do
+				patch.keys:insert(key:strip())
+			end
+			continue
+		end
+		line = line:strip()
+		ampersand = false
+		if line:startswith("&") then
+			ampersand = true
+			line = line:sub(2):strip()
+			if line[-1] == "&" then
+				line = line:sub(1, -2):strip()
+			end
+			for line:split("&") as key do
+				patch.keys:insert(key:strip())
+			end
+		elseif line:startswith(">") then
+			delimit_patch()
+			line = line:sub(2):strip()
+			if line[-1] == "&" then
+				ampersand = true
+				line = line:sub(1, -2):strip()
+			end
+			for line:split("&") as key do
+				patch.keys:insert(key:strip())
+			end
+		elseif line:startswith("r|") then
+			if sep := line:find("|", 3) then
+				if is_in_patch_scope(linenum, line) then
+					patch.replacements[line:sub(3, sep - 1)] = line:sub(sep + 1):rstrip("|")
+				end
+			else
+				malformed_line(filename, linenum, line)
+			end
+		elseif line:startswith("s|") then
+			if sep := line:find("|", 3) then
+				if is_in_patch_scope(linenum, line) then
+					patch.substitutions[line:sub(3, sep - 1)] = line:sub(sep + 1):rstrip("|")
+				end
+			else
+				malformed_line(filename, linenum, line)
+			end
+		elseif line:startswith("q|") then
+			if sep := line:find("|", 3) then
+				if is_in_patch_scope(linenum, line) then
+					patch.query_assignments[line:sub(3, sep - 1)] = line:sub(sep + 1):rstrip("|")
+				end
+			else
+				malformed_line(filename, linenum, line)
+			end
+		elseif line:startswith("$") then
+			if is_in_patch_scope(linenum, line) then
+				for line:sub(2):split(";") as flag do
+					if flag == "clear" then
+						patch.discard_original = true
+					elseif flag == "debug" then
+						patch.debug = true
+					else
+						print_to_console("[Metadata Patches] Ignoring unknown flag: "..flag)
+						print_to_console("[Metadata Patches] - Where: "..(filename ?? "?")..":"..linenum)
+						print_to_console("[Metadata Patches] - What: "..line)
+					end
+				end
+			end
+		elseif #line ~= 0 and line[1] ~= "#" then
+			if is_in_patch_scope(linenum, line) then
+				patch.prefix = patch.prefix .. line .. "\n"
+			end
+		end
+	end
+	if #patch.keys ~= 0 then
+		patches:insert(patch)
+	end
+	return patches
+end
+
+function load_metadata_patches(str, filename)
+	for parse_metadata_patches(str, filename) as patch do
+		for patch.keys as key do
+			if key[1] ~= "/" then
+				print_to_console("[Metadata Patches] Can't patch invalid path: "..key)
+				print_to_console("[Metadata Patches] - Note: > and & are used to start new patches and therefore need to be followed by valid paths to patch.")
+				continue
+			end
+			new_patch(key, patch.prefix, patch.discard_original, patch.debug)
+			for k, v in patch.replacements do
+				add_replacement(k, v)
+			end
+			for k, v in patch.substitutions do
+				if err := add_substitution(k, v, "") then
+					print_to_console("[Metadata Patches] Regex parsing failed for "..k..": "..err)
+				end
+			end
+			for k, v in patch.query_assignments do
+				add_query_assignment(k, v)
+			end
+		end
+	end
+end
+
+if io.exists("OpenWF/Metadata Patches.txt") then
+	if not io.exists("OpenWF/Metadata Patches/Untitled.txt") then
+		io.mkdir("OpenWF/Metadata Patches")
+		io.rename("OpenWF/Metadata Patches.txt", "OpenWF/Metadata Patches/Untitled.txt")
+	end
+elseif not io.exists("OpenWF/Metadata Patches") then
+	io.mkdir("OpenWF/Metadata Patches")
+	io.contents("OpenWF/Metadata Patches/Untitled.txt", owf_repo_find("OpenWF/Metadata Patches.txt"))
+end
+
+for io.listdir("OpenWF/Metadata Patches/") as path do
+	if path:sub(-4) == ".txt" then
+		if str := io.contents(path) then
+			load_metadata_patches(str, io.relative(path))
+		end
+	end
+end

@@ -1,0 +1,11 @@
+-- Modifications to sample scripts will be lost the next time you start the game.
+if not gRegion:GetLocalPlayer():IsFreeCameraActive() then
+	-- Normal -> Freecam
+	gRegion:GetLocalPlayer():ToggleFreeCamera()
+elseif not gRegion:GetLocalPlayer():IsFreeCameraLockedActive() then
+	-- Freecam -> Locked In Place
+	gRegion:GetLocalPlayer():SetFreeCameraLocked(true)
+else
+	-- Locked In Place -> Normal
+	gRegion:GetLocalPlayer():ToggleFreeCamera()
+end

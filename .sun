@@ -1,0 +1,11 @@
+name wtsapi32
+dynamic
++*.cpp
+require modules/Soup/soup
+require modules/Pluto/src
+arg -Wno-invalid-offsetof
+
+arg -DLOGGING=true
+arg -DPRIVATE=true
+
+arg -O3

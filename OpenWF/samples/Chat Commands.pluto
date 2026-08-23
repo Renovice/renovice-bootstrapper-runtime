@@ -1,0 +1,141 @@
+-- Modifications to sample scripts will be lost the next time you start the game.
+local function streaming_request(names)
+	local loader = UISys.ScriptResLoader_Create(names)
+	repeat yield() until loader:IsDone()
+end
+
+local commands = {}
+commands["god"] = function()
+	local avatar = gRegion:GetLocalPlayerAvatar()
+	if avatar instanceof LotusVehicleAvatar then
+		avatar = avatar:GetRider()
+	end
+	if avatar:DamageControl():HasTemporaryImmunity() then
+		avatar:DamageControl():RemoveTemporaryImmunity()
+		chat_system_reply("Removed immunity.")
+	else
+		avatar:DamageControl():GiveTemporaryImmunity(500000, 500000)
+		chat_system_reply("Granted immunity.")
+	end
+end
+commands["suicide"] = function()
+	if gGameRules instanceof LotusGameRules then
+		gRegion:GetLocalPlayerAvatar():Suicide()
+	else
+		chat_system_reply("That's not a good idea.")
+	end
+end
+commands["killall"] = function()
+	local player = gRegion:GetLocalPlayerAvatar()
+	for gRegion:GetAvatars() as avatar do
+		if not avatar:IsAvatarFriendly(player) then
+			avatar:Suicide()
+		end
+	end
+end
+commands["kdrive"] = function()
+	streaming_request({ "/Lotus/Types/Enemies/Corpus/Venus/Hoverboard/CrpHoverboardUnmannedAvatar" })
+	gRegion:CreateEntity(Type("/Lotus/Types/Enemies/Corpus/Venus/Hoverboard/CrpHoverboardUnmannedAvatar"))
+end
+commands["dargyn"] = function()
+	streaming_request({ "/Lotus/Types/Enemies/Grineer/Eidolon/GrineerSkiff/GrineerSkiffUnmannedAvatar" })
+	gRegion:CreateEntity(Type("/Lotus/Types/Enemies/Grineer/Eidolon/GrineerSkiff/GrineerSkiffUnmannedAvatar"))
+end
+commands["kaithe"] = function()
+	gRegion:GetNpcMgr():CreateAgentAtPosition(Type("/Lotus/Types/NeutralCreatures/ErsatzHorse/ErsatzHorseUnmannedGearSummonItemAgent"), gRegion:GetLocalPlayerAvatar():GetPosition(), ZERO_ROTATION)
+end
+commands["simulacrum"] = function()
+	local args = Engine.OpenLevelArgs()
+	args:SetLevel("/Lotus/Levels/Tenno/SimulacrumEnemySpawnerC.level")
+	args:SetGameRules("/Lotus/Types/GameRules/LotusDangerRoomGameRules")
+	Engine.OpenLevel(args)
+end
+commands["level"] = function(text)
+	local level = text:split(" ")[2]
+	chat_system_reply("Loading level "..level)
+	local args = Engine.OpenLevelArgs()
+	args:SetLevel(level)
+	Engine.OpenLevel(args)
+end
+commands["captura"] = function(text)
+	local level = text:split(" ")[2]
+	chat_system_reply("Opening Captura in "..level)
+	local args = Engine.OpenLevelArgs()
+	args:SetLevel(level)
+	args:SetGameRules("/Lotus/Types/GameRules/LotusPhotoBoothGameRules")
+	Engine.OpenLevel(args)
+end
+commands["energy"] = function()
+	local avatar = gRegion:GetLocalPlayerAvatar()
+	if avatar instanceof LotusVehicleAvatar then
+		avatar = avatar:GetRider()
+	end
+	avatar:InventoryControl():GetActivePowerSuit():SetMaxEnergy(1000000)
+	avatar:InventoryControl():GetActivePowerSuit():SetEnergy(1000000)
+end
+commands["scale"] = function(text)
+	local scale = tonumber(text:split(" ")[2])
+	if scale ~= 0 then
+		gRegion:GetLocalPlayerAvatar():SetMeshScale(scale)
+	else
+		chat_system_reply("That's not a good idea.")
+	end
+end
+commands["timescale"] = function(text)
+	local scale = tonumber(text:split(" ")[2])
+	if scale == 1 then
+		gGameRules:CancelSlomo()
+	elseif scale > 0 then
+		gGameRules:RequestSlomo(scale)
+	else
+		chat_system_reply("That's not a good idea.")
+	end
+end
+commands["pause"] = function()
+	gGameRules:RequestPause()
+end
+commands["unpause"] = function()
+	gGameRules:RequestUnpause()
+end
+commands["script"] = function(text)
+	local query = text:sub(text:find(" ") + 1):lower()
+	if query:sub(-6) ~= ".pluto" then
+		query ..= ".pluto"
+	end
+	if script := owf_get_running_scripts():find(|x| -> x:lower() == query) then
+		owf_stop_script(script)
+		chat_system_reply($"Stopped {script}.")
+	elseif script := owf_get_available_scripts():find(|x| -> x:lower() == query) then
+		owf_start_script(script)
+		chat_system_reply($"Started {script}.")
+	else
+		chat_system_reply($"No such script: {query}")
+	end
+end
+commands["sync"] = function()
+	gGameData:SyncInventoryFromDB()
+	gGameData:SyncWorldStateFromDB()
+end
+commands["resync"] = commands["sync"]
+commands["unstick"] = function()
+	gGameRules:UnstickLocalPlayer()
+end
+commands["quit"] = function()
+	gFlashMgr:ExecuteToolMenuCommand(Resource("/EE/Editor/ToolMenus/Commands/CmdQuit"))
+end
+for prefix in commands do
+	chat_subscribe_prefix("/"..prefix, true)
+	chat_subscribe_outgoing_prefix("$"..prefix)
+end
+repeat
+	while evt := owf_next_event() do
+		if evt.type == OWF_EVT_SUBMIT_CHAT_MESSAGE or evt.type == OWF_EVT_OUTGOING_CHAT_MESSAGE then
+			for prefix, f in commands do
+				if evt.text:sub(2, #prefix + 1) == prefix then
+					f(evt.text)
+					break
+				end
+			end
+		end
+	end
+until yield()

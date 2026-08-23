@@ -1,0 +1,198 @@
+local { crypto, json } = require "*"
+assert(json.encode({ 0, true, json.null }, "msgpack") == "\x93\x00\xc3\xc0")
+
+require "u64_dyn"
+require "vv"
+
+local function pack_pattern(ida_str)
+	ida_str = ida_str:upper()
+	local arr = ida_str ~= "" ? (ida_str:split(" ")) : {}
+
+	local bin = pack_u64_dyn_bp(#arr)
+
+	local none_value = 0
+	if arr:find(|x| -> x == "?") then
+		::retry::
+		local none_value_str = string.format("%02X", none_value)
+		for arr as byte do
+			if byte == none_value_str then
+				assert(none_value ~= 0xff)
+				++none_value
+				goto retry
+			end
+		end
+		bin ..= pack_i64_dyn_bp(none_value)
+	else
+		bin ..= pack_i64_dyn_bp(-1)
+	end
+
+	for arr as byte do
+		local v = byte == "?" ? none_value : tonumber(byte, 16)
+		bin ..= "I1":pack(v)
+	end
+
+	return bin
+end
+
+local function gv2n(ver)
+	local [major, minor, patch] = ver:split("."):map(tonumber)
+	minor ??= 0
+	patch ??= 0
+
+	assert(major < 100)
+	assert(minor < 100)
+	assert(patch < 100)
+
+	return (major * 10000) + (minor * 100) + patch
+end
+
+io.chdir("..")
+
+-- Do a translation update so all target dicts have all source strings
+os.execute("cd modules/owf-translations && php update.php")
+
+local function pack_file(path, archive_path)
+	if archive_path == "OpenWF/bootstrapper-manual.html" then
+		archive_path = "OpenWF/Reference Manual.html"
+	end
+	io.write(path.." -> "..archive_path)
+	local cont = io.contents(path)
+	--[[if path == "OpenWF/runtime.pluto" then
+		io.write(" [compiled]")
+		assert(os.execute("tools\\plutoc "..path))
+		cont = io.contents("plutoc.out")
+		io.remove("plutoc.out")
+	else]]if path:sub(-5) == ".json" and path ~= "OpenWF/Hotkeys.json" then
+		io.write(" [minified]")
+		cont = json.decode(cont, json.withorder | json.withnull)
+		if path == "OpenWF/tunables.json" then
+			assert(json.encode({ 0, true, json.null }, "msgpack") == "\x93\x00\xc3\xc0")
+			local packed = { __order = {} }
+			for cont.__order as k do
+				local v = cont[k]
+				k = crypto.joaat(k)
+				packed.__order:insert(k)
+				if type(v) == "table" then
+					if v["$gv"] then
+						packed[k] = gv2n(v["$gv"])
+					else
+						packed[k] = v:mapped(crypto.joaat)
+					end
+				else
+					packed[k] = v
+				end
+			end
+			cont = json.encode(packed, "msgpack")
+			--print(cont:split(""):map(|x| -> string.format("%02x ", x:byte())):concat())
+		elseif path == "OpenWF/hash_to_code_version.json" then
+			local packed = ""
+			for cont.__order as hash do
+				local code_version = cont[hash]
+				assert(#hash == 22)
+				assert(#code_version == 16)
+				-- Technically could be packed more efficiently in binary but that would require C++ to convert
+				packed ..= hash
+				packed ..= code_version
+			end
+			cont = packed
+		elseif path:sub(1, 10) == "OpenWF/vv/" then
+			if path:sub(1, 14) == "OpenWF/vv/sig/" then
+				local arr = {}
+				for cont.__order as ver do
+					arr:insert({ gv2n(ver), cont[ver] })
+				end
+				cont = vv_enc(pack_pattern, arr)
+			elseif path == "OpenWF/vv/game_versions.json" then
+				local arr = {}
+				for cont.__order as ver do
+					local val = cont[ver]
+					arr:insert({ vv_v2n(ver), gv2n(val) })
+				end
+				cont = vv_enc(pack_u64_dyn_bp, arr)
+			else
+				local arr = {}
+				for cont.__order as ver do
+					local val = cont[ver]
+					if type(val) == "string" and val:sub(1, 2) == "0x" then
+						val = tonumber(val:sub(3), 16)
+					else
+						val = tonumber(val)
+					end
+					arr:insert({ gv2n(ver), val })
+				end
+				if path:sub(1, 14) == "OpenWF/vv/off/" then
+					cont = vv_enc(pack_u64_dyn_bp, arr)
+				else
+					cont = vv_enc(pack_i64_dyn_bp, arr)
+				end
+			end
+		else
+			cont = json.encode(cont)
+		end
+	end
+	--return "I4s4":pack(crypto.joaat(archive_path), cont)
+	return "I4":pack(crypto.joaat(archive_path)) .. pack_u64_dyn_bp(#cont) .. cont
+end
+
+local all_pack, changed_pack
+
+local function add_file_to_archive(path, archive_path, changelist)
+	local packed = pack_file(path, archive_path)
+	all_pack ..= packed
+	if changelist and not path in changelist then
+		io.write(" [unchanged]")
+	else
+		changed_pack ..= packed
+	end
+	io.write("\n")
+end
+
+local function add_folder_to_archive(base, archive_base, changelist)
+	for io.listdir(base) as path do
+		if io.isfile(path) then
+			local archive_path = archive_base..io.part(path, "name")
+			add_file_to_archive(path, archive_path, changelist)
+		end
+	end
+end
+
+local changelist, trans_changelist, cachelib_changelist
+if base_tag := arg[1] then
+	do
+		local p <close> = io.popen("git diff --name-only "..base_tag.." --", "r")
+		changelist = p:read("a"):strip():split("\n")
+	end
+	if "modules/owf-translations" in changelist then
+		local prev_submodule_tip
+		do
+			local p <close> = io.popen("git ls-tree "..base_tag.." -- modules/owf-translations", "r")
+			prev_submodule_tip = p:read("a"):split(" ")[3]:split("\t")[1]
+		end
+		local p <close> = io.popen("cd modules/owf-translations && git diff --name-only "..prev_submodule_tip.." --", "r")
+		trans_changelist = p:read("a"):strip():split("\n"):map(|x| -> "modules/owf-translations/" .. x)
+	else
+		trans_changelist = {}
+	end
+	cachelib_changelist = "modules/warframe-cache-tools" in changelist ? nil : {}
+end
+
+all_pack = ""
+changed_pack = ""
+
+add_folder_to_archive("OpenWF/", "OpenWF/", changelist)
+add_folder_to_archive("OpenWF/cert/", "OpenWF/cert/", changelist)
+add_folder_to_archive("OpenWF/helpers/", "OpenWF/helpers/", changelist)
+add_folder_to_archive("OpenWF/lib/", "OpenWF/lib/", changelist)
+add_file_to_archive("modules/warframe-cache-tools/lib/cachelib.pluto", "OpenWF/lib/cachelib.pluto", cachelib_changelist)
+add_folder_to_archive("OpenWF/samples/", "OpenWF/samples/", changelist)
+add_folder_to_archive("OpenWF/vv/", "OpenWF/vv/", changelist)
+add_folder_to_archive("OpenWF/vv/off/", "OpenWF/vv/off/", changelist)
+add_folder_to_archive("OpenWF/vv/sig/", "OpenWF/vv/sig/", changelist)
+add_folder_to_archive("modules/owf-translations/bootstrapper-core/", "OpenWF/translations/core/", trans_changelist)
+add_folder_to_archive("modules/owf-translations/bootstrapper-overlay/", "OpenWF/translations/overlay/", trans_changelist)
+add_folder_to_archive("modules/owf-translations/bootstrapper-webui/", "OpenWF/translations/webui/", trans_changelist)
+
+io.contents("archive_all.tmp", all_pack)
+if changelist then
+	io.contents("archive_changed.tmp", changed_pack)
+end

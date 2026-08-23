@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "created": "2026-08-23",
+  "source_path": "../Warframe bootstrapper source/warframe-dll-senpai",
+  "destination_path": ".",
+  "source_file_count": 93,
+  "destination_file_count_before_migration_metadata": 93,
+  "source_bytes": 3455331,
+  "destination_bytes_before_migration_metadata": 3455331,
+  "copy_differences": 0,
+  "aggregate_algorithm": "sha256 over sorted utf8 lines: relative/path<TAB>length<TAB>lowercase_sha256<LF>",
+  "aggregate_sha256": "7aad69b6a5c08d30c4da82619855c34a331b1b4d7dd91ab76ee55f44210a7bcf",
+  "source_git_metadata_present": false,
+  "submodule_directories_populated": false,
+  "build_reproducible": false,
+  "notes": "Exact source snapshot copied without altering the original. Missing git metadata means submodule commit pins must be recovered or deliberately established before the first authoritative build."
+}
