@@ -5222,8 +5222,19 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		g_core_dict = g_repo.getDict(ObfusString("core").str(), language);
 		g_overlay_dict = g_repo.getDict(ObfusString("overlay").str(), language);
 
-		// Reject too new versions (depends on core dict)
-		if (game_version >= g_client_tunables.getInt(joaat::compileTimeHash("toonew")))
+		// Reject too new versions (depends on core dict). A game-version family
+		// can cover multiple binary builds, so U43 also requires an exact build
+		// allowlist. This prevents an unknown U43 hotfix from silently inheriting
+		// U43 signatures, offsets, and the native-name hash seed.
+		const bool unsupported_build_43 = (
+			game_version >= GV(43, 0, 0)
+			&& game_version < GV(44, 0, 0)
+			&& !g_client_tunables.isStringInArray(
+				joaat::compileTimeHash("supported_builds_43"),
+				joaat::hashRange(build_version, 16)
+			)
+		);
+		if (unsupported_build_43 || game_version >= g_client_tunables.getInt(joaat::compileTimeHash("toonew")))
 		{
 			auto msg = soup::unicode::utf8_to_utf16(get_core_string(ObfusString("toonew").str()));
 			auto title = soup::unicode::utf8_to_utf16(get_bootstrapper_title());

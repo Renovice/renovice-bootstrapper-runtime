@@ -1,0 +1,9 @@
+>>> Processing dependency: soup
+Linking...
+>>> Processing dependency: Pluto
+>>> Processing dependency: soup
+>>> Now compiling Pluto
+Linking...
+>>> Now compiling wtsapi32
+owf_archive_data
+Linking...

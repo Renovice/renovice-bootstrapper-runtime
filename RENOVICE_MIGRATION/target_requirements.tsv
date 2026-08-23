@@ -9,5 +9,5 @@ TG-007	replacements	F9 atomically refreshes the complete replacement byte map	Ad
 TG-008	lifecycle	Old generation subscriptions tasks and owned resources are deactivated	One hundred successful reloads do not multiply callback count or leave active old tasks	PENDING
 TG-009	status	Every reload reports pass fail rollback and application timing	Log distinguishes immediate next-cast next-spawn next-region and next-module-load outcomes	PENDING
 TG-010	performance	No filesystem or compilation work occurs while reload is idle	Idle instrumentation records zero Hot directory reads and zero generation rebuilds	PENDING
-TG-011	versioning	Unknown game builds remain fail-closed for mandatory custom hooks	Modified or unsupported build cannot activate a partially resolved RENOVICE subsystem	PENDING
+TG-011	versioning	Unknown game builds remain fail-closed for mandatory custom hooks	Modified or unsupported build cannot activate a partially resolved RENOVICE subsystem	IN_PROGRESS
 TG-012	recovery	Known-good current DLL pair remains recoverable until single-DLL parity	Restoring saved pair returns exact previously verified behavior	PENDING

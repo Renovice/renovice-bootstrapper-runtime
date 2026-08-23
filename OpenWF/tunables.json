@@ -2,7 +2,13 @@
 	"min_gv_for_tls": { "$gv": "25.0.0" },
 	"min_gv_for_overlay": { "$gv": "33.0.0" }, // Overlay is not working greatly in U15, U22.13.4.
 	"min_gv_for_scripting": { "$gv": "33.0.0" },
-	"toonew": { "$gv": "43.0.0" },
+	"toonew": { "$gv": "44.0.0" },
+	// Version-family boundaries alone cannot distinguish a certified U43 build
+	// from a later U43 hotfix with changed signatures. Keep U43 fail-closed.
+	"supported_builds_43": [
+		"2026.06.19.13.22",
+		"2026.07.11.15.28",
+	],
 	"nhkif": [
 		"/EE/Types/Input/MenuInputFilter", // Chat
 		"/Lotus/Types/Input/LoadoutReduxInputFilter",

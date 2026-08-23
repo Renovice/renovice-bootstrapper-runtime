@@ -33,8 +33,8 @@ if ((clang --version | Select-Object -First 1) -notmatch "20\.1\.8") {
 
 $evidence = Join-Path $repo "RENOVICE_MIGRATION\evidence"
 New-Item -ItemType Directory -Path $evidence -Force | Out-Null
-$archiveLog = Join-Path $evidence "baseline_private_archive_output.txt"
-$buildLog = Join-Path $evidence "baseline_private_msvc_build_output.txt"
+$archiveLog = Join-Path $evidence "private_archive_output.txt"
+$buildLog = Join-Path $evidence "private_msvc_build_output.txt"
 
 Push-Location $repo
 try {

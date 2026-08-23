@@ -25,10 +25,11 @@ Its five exact gitlinks are restored as real submodules and a fresh recursive
 clone reproduced every pin. The upstream and build proof is documented in
 `RENOVICE_MIGRATION/UPSTREAM_AND_BUILD_BASELINE.md`.
 
-An unedited private MSVC-target build now completes with zero warning/error
-lines and produces an x64 `wtsapi32.dll` with no legacy companion import. This
-is an offline build result, not permission to deploy it and not yet a live-game
-parity claim.
+The unedited private MSVC-target baseline and the first edited U43 compatibility
+build both complete with zero warning/error lines and produce an x64
+`wtsapi32.dll` with no legacy companion import. U43 compatibility is verified
+offline against the exact July executable; this is not permission to deploy it
+and not yet a live-game parity claim.
 
 ## Preservation rule
 
@@ -57,6 +58,14 @@ Build the private baseline without deploying it with:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\build_private.ps1
+```
+
+Verify the exact supported U43 client, its native lookups, and all critical
+compatibility signatures with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\version43\verify_client_43.ps1 `
+  -ExePath 'C:\path\to\Warframe.x64.exe'
 ```
 
 These checks establish the normal-source baseline. They do not claim that the
