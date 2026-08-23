@@ -99,9 +99,18 @@ inline bool valid_execution_boundary(
 	return manager_state_readable && boundary_state_readable && shared_global_state;
 }
 
-inline bool consume_f9_edge(bool down, bool allow_reload, bool& was_down) noexcept
+inline bool consume_f9_signal(
+	bool down,
+	bool pressed_since_poll,
+	bool allow_reload,
+	bool& was_down
+) noexcept
 {
-	const bool pressed = allow_reload && down && !was_down;
+	// GetAsyncKeyState's low bit preserves a quick tap that begins and ends
+	// between two DE script ticks. The high-bit transition remains the fallback
+	// for held keys. Both are reduced to one pending transaction.
+	const bool pressed = allow_reload
+		&& (pressed_since_poll || (down && !was_down));
 	// Always record both press and release, including while Warframe is not the
 	// foreground window. Otherwise an alt-tab after F9 can leave the latch stuck
 	// in the down state and silently suppress the next legitimate press.

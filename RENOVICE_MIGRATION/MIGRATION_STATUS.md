@@ -91,6 +91,17 @@ fixed and live-proven. Inject was left empty. Region-transition stress, one
 hundred reloads, activation-failure recovery, and native-fault containment
 remain open rather than being inferred from this pass.
 
+The later Mallet cast-addon experiment exposed two unproven assumptions in the
+deployed reload path: F9 sampled only the current key-down bit and could be
+suppressed by the ordinary UI hotkey filter, while addons received `_G` and
+then assumed `_G._T` was the module-global shared table. The source now latches
+quick F9 taps, keeps the transaction foreground/policy gated without the UI
+filter, passes VM-resolved `_T` explicitly as vararg two, and persistently logs
+queue, same-VM drain, lifecycle failure, rollback, and commit stages. All
+offline gates pass; this corrected DLL and the flat-Mallet addon still require
+the live sequence recorded in
+`F9_INPUT_AND_SHARED_T_BRIDGE_2026-08-23.md` before being called a runtime pass.
+
 ## Next job
 
 - [x] Deploy only the newly built single DLL, verify its hash in the game root,
@@ -106,6 +117,9 @@ remain open rather than being inferred from this pass.
 - [ ] Live-test SWF replacement, Riven gate off/on, config fallback, and a
   changed loaded full-module replacement applying on its next cast without a
   process restart, including stock restoration when its hash file is removed.
+- [ ] Live-prove the latched F9 input and explicit `_T` addon bridge with the
+  temporary flat-Mallet callback, then remove that temporary addon and commit
+  an empty addon generation.
 - [ ] After the generic lifecycle is live-proven, add only evidence-backed
   convenience event APIs and decide whether `TG-006` in-place export tables are
   still needed.

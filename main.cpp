@@ -1726,7 +1726,10 @@ static int lua_LotusHudStatus_UpdateFlashMarkers_detour(luau_State* L)
 		const bool game_has_focus = foreground_pid == GetCurrentProcessId();
 		const bool allow_hotkeys = game_has_focus
 			&& active_input_filter_allows_hotkeys && !prohibit_scripts;
-		renovice::injection::poll_f9(allow_hotkeys);
+		// F9 is a developer transaction control, not a gameplay script hotkey.
+		// It remains foreground-only and obeys the server prohibition, but menu
+		// input filters must not silently suppress a requested reload.
+		renovice::injection::poll_f9(game_has_focus && !prohibit_scripts);
 		if (allow_hotkeys)
 		{
 			if (hotkeys_mtx.tryLock())

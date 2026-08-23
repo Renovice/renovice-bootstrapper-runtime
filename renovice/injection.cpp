@@ -17,6 +17,7 @@
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -381,8 +382,13 @@ RunResult run_guarded(
 	guard.stage = 5;
 	if (pass_global_argument)
 	{
+		// Supply both stable host contexts explicitly. Older Inject chunks that
+		// read only `local global = ...` remain compatible; addons that need
+		// Warframe's shared cross-module table use the second `_T` argument
+		// instead of assuming `_G._T` has identical lookup semantics.
 		getfield(state, -10002, "_G");
-		result.protected_call_result = protected_call(state, 1, 1, 0);
+		getfield(state, -10002, "_T");
+		result.protected_call_result = protected_call(state, 2, 1, 0);
 		result.result_tag = (guard.base + 1)->type;
 	}
 	else
@@ -435,8 +441,18 @@ RunResult run_guarded(
 
 bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char* field)
 {
+	const char* operation = field == nullptr ? "release" : field;
+	auto log_failure = [&](const char* reason)
+	{
+		std::ostringstream failure;
+		failure << "RENOVICE addon lifecycle FAIL " << addon.name
+			<< " field=" << operation << " reason=" << reason;
+		conout << failure.str() << std::endl;
+		config::log(failure.str());
+	};
 	if (state == nullptr || IsBadReadPtr(state, sizeof(luau_State)) || state->outtop == nullptr)
 	{
+		log_failure("state-unavailable");
 		return false;
 	}
 	std::memset(&guard, 0, sizeof(guard));
@@ -444,15 +460,25 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 	guard.base = state->outtop;
 	guard.thread_id = GetCurrentThreadId();
 	guard.handler = AddVectoredExceptionHandler(1, fault_handler);
-	if (guard.handler == nullptr) return false;
+	if (guard.handler == nullptr)
+	{
+		log_failure("exception-guard-unavailable");
+		return false;
+	}
 	if (setjmp(guard.jump) != 0)
 	{
 		restore_lua_top();
 		finish_guard();
 		conout << "RENOVICE addon lifecycle FAULT " << addon.name
-			<< " field=" << (field == nullptr ? "release" : field)
+			<< " field=" << operation
 			<< " exception_code=" << static_cast<std::uint32_t>(guard.fault_code)
 			<< " address=" << guard.fault_address << std::endl;
+		std::ostringstream failure;
+		failure << "RENOVICE addon lifecycle FAULT " << addon.name
+			<< " field=" << operation
+			<< " exception_code=" << static_cast<std::uint32_t>(guard.fault_code)
+			<< " address=" << guard.fault_address;
+		config::log(failure.str());
 		return false;
 	}
 	guard.active = 1;
@@ -469,6 +495,7 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 		{
 			restore_lua_top();
 			finish_guard();
+			log_failure("lifecycle-root-not-table");
 			return false;
 		}
 		getfield(state, -1, field);
@@ -476,6 +503,7 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 		{
 			restore_lua_top();
 			finish_guard();
+			log_failure("operation-not-function");
 			return false;
 		}
 		state->outtop = guard.base + 2;
@@ -483,6 +511,7 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 		{
 			restore_lua_top();
 			finish_guard();
+			log_failure("protected-call-rejected");
 			return false;
 		}
 	}
@@ -616,6 +645,15 @@ bool run_chunk(
 			<< " pcall=" << result.protected_call_result
 			<< " result_tag=" << result.result_tag
 			<< " registry_restored=" << result.registry_restored << std::endl;
+		std::ostringstream failure;
+		failure << "RENOVICE Inject FAIL " << chunk.name
+			<< " fault_stage=" << result.fault_stage
+			<< " fault_code=" << result.fault_code
+			<< " closure_tag=" << result.closure_tag
+			<< " pcall=" << result.protected_call_result
+			<< " result_tag=" << result.result_tag
+			<< " registry_restored=" << result.registry_restored;
+		config::log(failure.str());
 	}
 	if (lifecycle_key != nullptr)
 	{
@@ -691,6 +729,7 @@ bool apply_generation(
 			<< (transaction == TransactionResult::RollbackFailed
 				|| transaction == TransactionResult::ReleaseRejected ? "FATAL" : "ROLLBACK")
 			<< ": " << label << std::endl;
+		config::log(std::string("RENOVICE ADDON ROLLBACK: ") + label);
 		if (transaction == TransactionResult::ReleaseRejected)
 		{
 			active_chunks = candidate;
@@ -720,6 +759,13 @@ bool apply_generation(
 		<< " one_shots=" << (active_chunks.size() - active_addons.size())
 		<< " one_shot_failures=" << ordinary_failures
 		<< " applies=immediate-safe-boundary/next-event" << std::endl;
+	std::ostringstream success;
+	success << "RENOVICE RELOAD PASS trigger=" << trigger
+		<< " generation=" << generation
+		<< " addons=" << active_addons.size()
+		<< " one_shots=" << (active_chunks.size() - active_addons.size())
+		<< " one_shot_failures=" << ordinary_failures;
+	config::log(success.str());
 	if (ordinary_failures != 0)
 	{
 		conout << "RENOVICE warning: managed addon commit succeeded, but one-shot failures cannot be transactionally undone" << std::endl;
@@ -827,10 +873,17 @@ void poll_f9(bool allow_reload) noexcept
 	{
 		return;
 	}
-	const bool down = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
-	if (consume_f9_edge(down, allow_reload, f9_was_down))
+	const auto key_state = GetAsyncKeyState(VK_F9);
+	const bool down = (key_state & 0x8000) != 0;
+	const bool pressed_since_poll = (key_state & 0x0001) != 0;
+	if (consume_f9_signal(down, pressed_since_poll, allow_reload, f9_was_down))
 	{
-		f9_pending.store(true, std::memory_order_release);
+		const bool already_pending = f9_pending.exchange(true, std::memory_order_acq_rel);
+		if (!already_pending)
+		{
+			conout << "RENOVICE F9 QUEUED source=GetAsyncKeyState" << std::endl;
+			config::log("RENOVICE F9 QUEUED source=GetAsyncKeyState");
+		}
 	}
 }
 
@@ -849,6 +902,11 @@ void drain(luau_State* state)
 	{
 		execution_running.store(false, std::memory_order_release);
 		return;
+	}
+	if (reload)
+	{
+		conout << "RENOVICE F9 DRAIN entered same-VM script boundary" << std::endl;
+		config::log("RENOVICE F9 DRAIN entered same-VM script boundary");
 	}
 
 	auto discard_prepared = []
@@ -905,21 +963,33 @@ void drain(luau_State* state)
 			if (reload)
 			{
 				commit_prepared();
-				if (!replacements::reexecute_changed_loaded(state))
+				const bool module_refresh_complete = replacements::reexecute_changed_loaded(state);
+				if (!module_refresh_complete)
 				{
 					conout << "RENOVICE F9 module refresh incomplete; replacement map remains committed for the next natural load" << std::endl;
 				}
+				config::log(module_refresh_complete
+					? "RENOVICE F9 COMMITTED module_refresh=PASS"
+					: "RENOVICE F9 COMMITTED module_refresh=INCOMPLETE");
 			}
 		}
 		else
 		{
 			if (reload) discard_prepared();
 			conout << "RENOVICE RELOAD ROLLBACK: previous managed generation retained when possible" << std::endl;
+			if (reload)
+			{
+				config::log("RENOVICE F9 ROLLBACK during managed generation apply");
+			}
 		}
 	}
 	else if (!transaction_valid)
 	{
 		conout << "RENOVICE RELOAD ROLLBACK: validation failed before addon staging" << std::endl;
+		if (reload)
+		{
+			config::log("RENOVICE F9 ROLLBACK before addon staging");
+		}
 	}
 	else if (region)
 	{

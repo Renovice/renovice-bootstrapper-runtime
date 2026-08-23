@@ -45,20 +45,34 @@ int main(int argc, char** argv)
 		"missing or cross-VM execution boundary rejected");
 	{
 		bool was_down = false;
-		const bool first = consume_f9_edge(true, true, was_down);
-		const bool unfocused_release = consume_f9_edge(false, false, was_down);
-		const bool second = consume_f9_edge(true, true, was_down);
+		const bool first = consume_f9_signal(true, false, true, was_down);
+		const bool unfocused_release = consume_f9_signal(false, false, false, was_down);
+		const bool second = consume_f9_signal(true, false, true, was_down);
 		check(first && !unfocused_release && second,
 			"F9 release while unfocused rearms the next focused press");
 	}
 	{
 		bool was_down = false;
-		const bool unfocused_press = consume_f9_edge(true, false, was_down);
-		const bool focus_while_held = consume_f9_edge(true, true, was_down);
-		const bool release = consume_f9_edge(false, true, was_down);
-		const bool fresh_press = consume_f9_edge(true, true, was_down);
+		const bool unfocused_press = consume_f9_signal(true, true, false, was_down);
+		const bool focus_while_held = consume_f9_signal(true, false, true, was_down);
+		const bool release = consume_f9_signal(false, false, true, was_down);
+		const bool fresh_press = consume_f9_signal(true, false, true, was_down);
 		check(!unfocused_press && !focus_while_held && !release && fresh_press,
 			"F9 pressed outside Warframe cannot trigger on focus transfer");
+	}
+	{
+		bool was_down = false;
+		const bool quick_tap = consume_f9_signal(false, true, true, was_down);
+		const bool idle = consume_f9_signal(false, false, true, was_down);
+		check(quick_tap && !idle,
+			"latched F9 tap between DE ticks produces exactly one request");
+	}
+	{
+		bool was_down = false;
+		const bool blocked_tap = consume_f9_signal(false, true, false, was_down);
+		const bool no_delayed_trigger = consume_f9_signal(false, false, true, was_down);
+		check(!blocked_tap && !no_delayed_trigger,
+			"latched F9 tap while unauthorized cannot trigger later");
 	}
 
 	struct Record { int id; };
