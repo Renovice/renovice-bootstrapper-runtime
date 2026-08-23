@@ -52,6 +52,8 @@ $mainSource = Get-Content -LiteralPath (Join-Path $repo "main.cpp") -Raw
 
 $dataChecks = [ordered]@{
     "v43 seed" = $seedData.Contains('"43.0.0": 2119891177')
+    "June exact undump fallback" = $tunableData.Contains('"renovice_undump_rva_2026_06_19_13_22": 0x197C9F0')
+    "July exact undump fallback" = $tunableData.Contains('"renovice_undump_rva_2026_07_11_15_28": 0x197E030')
     "July manifest mapping" = $hashData.Contains('"7fwjVVacxcBzO-xahK2RZg": "2026.07.11.15.28"')
     "v44 coarse cutoff" = $tunableData.Contains('"toonew": { "$gv": "44.0.0" }')
     "July exact allowlist" = $tunableData.Contains('"2026.07.11.15.28"')

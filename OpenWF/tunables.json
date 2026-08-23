@@ -9,6 +9,9 @@
 		"2026.06.19.13.22",
 		"2026.07.11.15.28",
 	],
+	// Exact executable addresses: never select these by the broad U43 family.
+	"renovice_undump_rva_2026_06_19_13_22": 0x197C9F0,
+	"renovice_undump_rva_2026_07_11_15_28": 0x197E030,
 	"nhkif": [
 		"/EE/Types/Input/MenuInputFilter", // Chat
 		"/Lotus/Types/Input/LoadoutReduxInputFilter",

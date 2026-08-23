@@ -1,5 +1,7 @@
 #include "main.hpp"
 
+#include "renovice/replacements.hpp"
+
 #define VERIFY_EXE_SIG false
 #define VERIFY_DLL_CHECKSUM false
 #define ASK_SERVER_FOR_TUNABLES true
@@ -2947,6 +2949,12 @@ static soup::Pattern hash_to_pattern(uint32_t hash1, uint32_t hash2)
 
 static SOUP_FORCEINLINE void create_all_hooks()
 {
+	const auto replacement_result = renovice::replacements::initialise(std::string_view(build_version, 16));
+	if (replacement_result == renovice::replacements::InitialiseResult::Failed)
+	{
+		conout << "RENOVICE Lua replacements were requested but could not be activated; the replacement subsystem remains disabled." << std::endl;
+	}
+
 	// 2018.02.22.14.34 (M:8004325165498360760)
 	/*{
 		SIG_INST("48 89 5C 24 18 55 56 57 48 8D AC 24 00 FA FF FF 48 81 EC 00 07 00 00 48 8B 05 ? ? ? ? 48 33 C4");

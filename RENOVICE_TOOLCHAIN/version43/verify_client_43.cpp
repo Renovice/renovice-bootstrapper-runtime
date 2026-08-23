@@ -174,6 +174,14 @@ int main(int argc, char** argv)
 	exact("worldstate integrity", "48 89 5C 24 ? 48 89 74 24 ? 48 89 7C 24 ? 55 41 56 41 57 48 8B EC 48 83 EC ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 45 ? 48 8B F9 84 D2");
 	exact("Lua set-global-by-hash", "49 8B 4E 20 BA ? ? ? ? E8 ? ? ? ? 49 8B 4E 20 E8");
 	exact("Lua set-global", "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 F6 41 01 04 48 8B FA");
+	const auto undump_pattern = parse_pattern("40 53 55 56 57 41 55 41 56 41 57 48 81 EC F0 01 00 00 48 8B 05 ? ? ? ? 48 33");
+	const auto undump_hits = scan(data, undump_pattern);
+	const bool undump_pass = undump_hits.size() == 1 && undump_hits.front() == 0x197d430;
+	std::cout << (undump_pass ? "PASS" : "FAIL")
+		<< "\tDE Luau undump\tmatches=" << undump_hits.size()
+		<< " raw_offset=0x" << std::hex << (undump_hits.empty() ? 0 : undump_hits.front())
+		<< " expected_rva=0x197e030" << std::dec << '\n';
+	pass &= undump_pass;
 	exact("pause allowed", "48 89 5C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 ? 48 8B D9 E8 ? ? ? ? 48 8B C8");
 
 	for (const auto name : {

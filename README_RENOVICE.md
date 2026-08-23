@@ -68,6 +68,14 @@ powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\version43\verify_cli
   -ExePath 'C:\path\to\Warframe.x64.exe'
 ```
 
+Verify the exact deployed body-key and filename conventions, optionally against
+the live `CustomScripts` directory, with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\replacements\verify_replacement_core.ps1 `
+  -ReplacementDirectory 'C:\path\to\Warframe\OpenWF\CustomScripts'
+```
+
 These checks establish the normal-source baseline. They do not claim that the
 custom migration or its live-game parity is complete.
 

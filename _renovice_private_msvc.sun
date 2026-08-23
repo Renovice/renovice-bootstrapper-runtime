@@ -1,6 +1,7 @@
 name wtsapi32
 dynamic
 +*.cpp
++renovice/*.cpp
 require modules/Soup/soup
 require modules/Pluto/src
 arg -Wno-invalid-offsetof

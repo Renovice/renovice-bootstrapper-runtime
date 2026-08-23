@@ -33,21 +33,26 @@ Updated: 2026-08-23
   `match + 0x27 == 0x2c8`.
 - [x] Rebuilt the edited private source with zero warning/error lines as an x64
   DLL with no companion-DLL import.
+- [x] Ported the boot-time DE-Luau replacement path (`LR-001` through `LR-004`)
+  into `renovice/replacements.*` using the source tree's native detour system.
+- [x] Preserved the deployed non-standard body-key basis, annotated filename
+  convention, replacement-owned length, immutable byte lifetime, masked U43
+  signature, and exact-build June/July RVA fallbacks.
+- [x] Validated all four active replacement filenames and rebuilt with zero
+  warning/error lines. Live replacement execution is still pending.
 
 ## Current hard boundary
 
-The first production slice, U43 compatibility, is ported and offline-verified.
-No loader, injection, riven, F9, or addon implementation has been ported yet.
-The new DLL has not been deployed or live-tested, so the known-good two-DLL game
-installation remains the runtime recovery baseline.
+U43 compatibility and the boot-time full-module replacement loader are ported
+and offline-verified. Additive injection, riven UI/SWF behavior, F9, and addon
+transactions have not been ported. The new DLL has not been deployed or
+live-tested, so the known-good two-DLL game installation remains the runtime
+recovery baseline.
 
 ## Next job
 
 - [ ] Run an isolated live load/login/mission smoke test before treating the
   new source-built baseline as runtime-compatible.
-- [ ] Port the existing replacement loader (`LR-001` through `LR-012`) behind
-  source feature gates, beginning with lookup/read/validation and leaving F9
-  transaction work until baseline replacement parity is proven.
 - [ ] Then port additive injection (`LI-001` through `LI-012`) without changing
   its existing runtime behavior.
 
