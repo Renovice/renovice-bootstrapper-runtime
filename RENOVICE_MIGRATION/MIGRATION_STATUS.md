@@ -74,14 +74,16 @@ SWF replacement, and Riven UI behavior are source-ported and offline-verified.
 The generic generation layer manages lifecycle; event-specific wrappers such
 as `AfterMalletDamage` still require a proven native event/callback contract.
 Stable in-place export-table hot modules (`TG-006`) are also a separate future
-facility. The new DLL has not been deployed or live-tested, so the known-good
-two-DLL game installation remains the runtime recovery baseline.
+facility. The new single DLL was deployed byte-for-byte to the game root on
+2026-08-23, but it has not yet been loaded or live-tested. Exact copies of the
+known-good two-DLL runtime remain in `Backusp warframe/Warframe 23.08.2026` as
+the recovery baseline.
 
 ## Next job
 
-- [ ] On the user's signal, deploy only the newly built single DLL with the
-  recorded known-good pair retained for immediate recovery, then run isolated
-  load/login/mission smoke tests.
+- [x] Deploy only the newly built single DLL, verify its hash in the game root,
+  and identify the exact known-good two-DLL recovery pair.
+- [ ] On the user's signal, run isolated load/login/mission smoke tests.
 - [ ] Live-test one reversible managed addon across startup, F9 edit, deletion,
   invalid candidate, activation failure, recovery, region transition, and
   repeated reloads; also verify ordinary one-shot and native-fault containment.

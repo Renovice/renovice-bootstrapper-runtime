@@ -1,5 +1,5 @@
 requirement_id	category	requirement	acceptance_test	status
-TG-001	packaging	Produce one source-built wtsapi32.dll with no wtsapi32_owf.dll dependency	Process module list contains no companion and login plus mission entry succeed	PENDING
+TG-001	packaging	Produce one source-built wtsapi32.dll with no wtsapi32_owf.dll dependency	Process module list contains no companion and login plus mission entry succeed	IN_PROGRESS
 TG-002	parity	Preserve every manifest row marked parity_required yes	Manifest verifier reports no missing parity result and live checklist is complete	IN_PROGRESS
 TG-003	hot_reload	F9 rereads the complete current Hot directory only when pressed	Added changed and deleted files exactly define the staged generation	IN_PROGRESS
 TG-004	hot_reload	Reload is transactional across the complete Hot directory	One deliberately invalid script leaves the prior generation active and reports rollback pass	IN_PROGRESS
@@ -10,4 +10,4 @@ TG-008	lifecycle	Old generation subscriptions tasks and owned resources are deac
 TG-009	status	Every reload reports pass fail rollback and application timing	Log distinguishes immediate next-cast next-spawn next-region and next-module-load outcomes	IN_PROGRESS
 TG-010	performance	No filesystem or compilation work occurs while reload is idle	Idle instrumentation records zero Hot directory reads and zero generation rebuilds	IN_PROGRESS
 TG-011	versioning	Unknown game builds remain fail-closed for mandatory custom hooks	Modified or unsupported build cannot activate a partially resolved RENOVICE subsystem	IN_PROGRESS
-TG-012	recovery	Known-good current DLL pair remains recoverable until single-DLL parity	Restoring saved pair returns exact previously verified behavior	PENDING
+TG-012	recovery	Known-good current DLL pair remains recoverable until single-DLL parity	Restoring saved pair returns exact previously verified behavior	IN_PROGRESS
