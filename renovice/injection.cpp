@@ -537,7 +537,17 @@ bool run_chunk(
 		conout << "RENOVICE Inject skipped " << chunk.name << ": manager state unavailable" << std::endl;
 		return false;
 	}
-	(void)boundary_state; // The boundary proves the thread; the manager owns the main VM state used for loading.
+	const bool boundary_readable = boundary_state != nullptr
+		&& !IsBadReadPtr(boundary_state, sizeof(luau_State));
+	const bool shared_global = boundary_readable
+		&& manager_state->global_state != nullptr
+		&& manager_state->global_state == boundary_state->global_state;
+	if (!valid_execution_boundary(true, boundary_readable, shared_global))
+	{
+		conout << "RENOVICE Inject skipped " << chunk.name
+			<< ": current DE execution boundary is not in the captured manager VM" << std::endl;
+		return false;
+	}
 
 	void* game_buffer = game_allocate(chunk.bytes.size(), 0);
 	if (game_buffer == nullptr || IsBadWritePtr(game_buffer, chunk.bytes.size()))
@@ -560,7 +570,7 @@ bool run_chunk(
 	*reinterpret_cast<void**>(fabricated_descriptor + 0x58) = captured_environment;
 
 	const auto result = run_guarded(
-		manager_state,
+		boundary_state,
 		manager,
 		fabricated_descriptor,
 		lifecycle_key == nullptr ? nullptr : lifecycle_key->c_str());
@@ -591,22 +601,13 @@ bool run_chunk(
 	if (lifecycle_key != nullptr)
 	{
 		AddonRecord failed{chunk.name, *lifecycle_key};
-		if (!lifecycle_operation(manager_state, failed, nullptr))
+		if (!lifecycle_operation(boundary_state, failed, nullptr))
 		{
 			conout << "RENOVICE ADDON FATAL: failed lifecycle root could not be released" << std::endl;
 			subsystem_enabled.store(false, std::memory_order_release);
 		}
 	}
 	return false;
-}
-
-luau_State* captured_state()
-{
-	void* manager = captured_manager;
-	if (manager == nullptr || IsBadReadPtr(manager, 0x28)) return nullptr;
-	auto* state = *reinterpret_cast<luau_State**>(
-		reinterpret_cast<unsigned char*>(manager) + 0x20);
-	return state != nullptr && !IsBadReadPtr(state, sizeof(luau_State)) ? state : nullptr;
 }
 
 bool apply_generation(
@@ -616,10 +617,10 @@ bool apply_generation(
 )
 {
 	const auto generation = next_generation++;
-	auto* state = captured_state();
-	if (state == nullptr)
+	auto* state = boundary_state;
+	if (state == nullptr || IsBadReadPtr(state, sizeof(luau_State)))
 	{
-		conout << "RENOVICE ADDON ROLLBACK: captured VM state unavailable" << std::endl;
+		conout << "RENOVICE ADDON ROLLBACK: current DE execution boundary unavailable" << std::endl;
 		return false;
 	}
 	std::vector<AddonRecord> staged;

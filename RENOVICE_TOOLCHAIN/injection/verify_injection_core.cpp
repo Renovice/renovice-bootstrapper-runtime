@@ -37,6 +37,12 @@ int main(int argc, char** argv)
 		&& !is_lua_bytecode_extension(".lua"), "case-insensitive bytecode extension");
 	check(valid_chunk_size(1) && valid_chunk_size((1ull << 20) - 1)
 		&& !valid_chunk_size(0) && !valid_chunk_size(1ull << 20), "chunk size boundaries");
+	check(valid_execution_boundary(true, true, true),
+		"live boundary accepted when it shares the captured manager VM");
+	check(!valid_execution_boundary(true, false, true)
+		&& !valid_execution_boundary(false, true, true)
+		&& !valid_execution_boundary(true, true, false),
+		"missing or cross-VM execution boundary rejected");
 
 	struct Record { int id; };
 	{

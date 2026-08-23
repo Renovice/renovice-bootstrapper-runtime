@@ -85,4 +85,17 @@ inline bool valid_chunk_size(std::uintmax_t size) noexcept
 {
 	return size != 0 && size < (1ull << 20);
 }
+
+inline bool valid_execution_boundary(
+	bool manager_state_readable,
+	bool boundary_state_readable,
+	bool shared_global_state
+) noexcept
+{
+	// The manager state may be a suspended coroutine. It is safe for the engine
+	// loader to own that state, but injected Lua calls must execute on the live
+	// state supplied by the current DE callback. Registry values are shareable
+	// only when both states belong to the same global VM.
+	return manager_state_readable && boundary_state_readable && shared_global_state;
+}
 }
