@@ -4,6 +4,7 @@
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include <winsock2.h>
@@ -21,6 +22,7 @@ std::filesystem::path scripts_directory;
 std::filesystem::path inject_directory;
 std::filesystem::path log_path;
 Flags active_flags;
+std::optional<Flags> prepared_flags;
 std::mutex state_mutex;
 
 bool ensure_writable_directory(const std::filesystem::path& directory)
@@ -138,10 +140,18 @@ bool initialise()
 		<< " Logging=" << active_flags.logging
 		<< " Verbose=" << active_flags.verbose
 		<< " AutoSpawn=" << active_flags.auto_spawn << std::endl;
+	log("RENOVICE source configuration initialized");
 	return true;
 }
 
 bool reload()
+{
+	if (!prepare_reload()) return false;
+	commit_prepared_reload();
+	return true;
+}
+
+bool prepare_reload()
 {
 	Flags parsed;
 	if (scripts_directory.empty()
@@ -151,9 +161,26 @@ bool reload()
 	}
 	{
 		std::lock_guard lock(state_mutex);
-		active_flags = parsed;
+		prepared_flags = parsed;
 	}
 	return true;
+}
+
+void commit_prepared_reload()
+{
+	{
+		std::lock_guard lock(state_mutex);
+		if (!prepared_flags) return;
+		active_flags = *prepared_flags;
+		prepared_flags.reset();
+	}
+	log("RENOVICE configuration reloaded");
+}
+
+void discard_prepared_reload()
+{
+	std::lock_guard lock(state_mutex);
+	prepared_flags.reset();
 }
 
 const std::filesystem::path& custom_scripts_directory() noexcept

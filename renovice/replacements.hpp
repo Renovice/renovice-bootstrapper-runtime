@@ -12,4 +12,8 @@ enum class InitialiseResult
 };
 
 InitialiseResult initialise(std::string_view exact_build, bool observe_undumps);
+bool reload();
+bool prepare_reload();
+void commit_prepared_reload();
+void discard_prepared_reload();
 }

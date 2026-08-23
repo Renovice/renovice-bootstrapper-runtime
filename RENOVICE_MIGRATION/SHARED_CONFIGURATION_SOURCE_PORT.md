@@ -14,7 +14,7 @@ not deploy the new DLL or perform a live game test.
 | A single source-owned path can serve replacements, injection, configuration, logs, SWFs, and Riven gating. | `renovice::config` resolves and verifies one writable directory before any RENOVICE hook is installed; replacement and injection scanners now consume that path. | **TRUE (offline)** |
 | F9 can reread configuration without any idle filesystem polling. | The existing F9 edge latch calls `config::reload()` only while draining an actual reload request. | **TRUE (offline)** |
 | The three legacy flags can be parsed deterministically without accidental matches in comments or partial key names. | `verify_config_core` covers case, whitespace, aliases, comments, partial keys, duplicate keys, false values, and missing content with `/W4 /WX`. | **TRUE** |
-| `AutoSpawn` already has a safe source-native behavior. | It referred to the retired fabricated scheduler. The flag is preserved and parsed, but must be attached to the managed addon generation in the addon slice. | **FALSE / pending addon port** |
+| `AutoSpawn` already had a safe source-native behavior. | It referred to the retired fabricated scheduler. The managed addon slice now maps it to safe region-generation reapplication instead. | **FALSE historically / replaced offline** |
 
 ## Runtime contract
 
@@ -32,9 +32,10 @@ not deploy the new DLL or perform a live game test.
    added to the idle path.
 
 `Logging` and `Verbose` are available through the source-owned logging API.
-Subsystem-specific migration slices must use that API instead of recreating a
-second log/config implementation. `AutoSpawn` remains intentionally inert until
-the managed addon layer replaces the unsafe legacy scheduler.
+Subsystem-specific migration slices use that API instead of recreating a
+second log/config implementation. `AutoSpawn` now controls managed Inject
+generation reapplication on region transitions; it never enables the unsafe
+legacy scheduler.
 
 ## Offline gates
 

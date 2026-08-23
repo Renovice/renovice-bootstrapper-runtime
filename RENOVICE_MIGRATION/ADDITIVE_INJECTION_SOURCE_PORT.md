@@ -4,16 +4,16 @@ Updated: 2026-08-23
 
 ## Outcome
 
-The ordinary one-shot `CustomScripts/Inject/*.lua_B` path is now implemented
-directly in the restored OpenWF source. The implementation is offline-built and
-signature-verified against the exact installed `2026.07.11.15.28` executable.
-It has not been deployed or claimed live-complete.
+The ordinary one-shot `CustomScripts/Inject/*.lua_B` path and the managed
+`*.addon.lua_B` generation path are now implemented directly in the restored
+OpenWF source. The implementation is offline-built and signature-verified
+against the exact installed `2026.07.11.15.28` executable. It has not been
+deployed or claimed live-complete.
 
-The experimental `.persist` and `.spawn` routes are deliberately excluded from
-this production slice. Their old code fabricates a script resource, scheduler
-instance, vtable, locks, and coroutine enrollment state. Treating that research
-as ordinary addon parity would reintroduce the unstable architecture that this
-source migration is intended to remove.
+The experimental `.persist` and `.spawn` routes remain deliberately excluded.
+Their old code fabricates a script resource, scheduler instance, vtable, locks,
+and coroutine enrollment state. Managed addons replace that experiment with
+registry-rooted lifecycle tables and explicit `activate`/`cleanup` ownership.
 
 ## Hypotheses and results
 
@@ -65,15 +65,15 @@ also improves the deployed guard: if a native fault happens after the loader
 may have shadowed the registry entry, the fault path makes one separately
 guarded restoration attempt before returning.
 
-### H6: the old `.persist` and `.spawn` experiments are ready for production
+### H6: the old `.persist` and `.spawn` experiments are required for managed addons
 
 Result: **FALSE**.
 
-They depend on generation-suffixed names, fabricated resource/scheduler
-structures, several hardcoded layout fields, manual lock unwinding, and
-coroutine enrollment. Files using those markers currently fail the whole
-candidate snapshot with an explicit diagnostic. This is fail-closed and keeps
-the proven ordinary one-shot path separate.
+They depend on fabricated resource/scheduler structures, several hardcoded
+layout fields, manual lock unwinding, and coroutine enrollment. Files using
+those markers fail the whole candidate snapshot with an explicit diagnostic.
+Managed `.addon.lua_B` chunks instead return a lifecycle table that is rooted
+under a unique generation key in the real DE registry.
 
 ### H7: every U43 injector ABI fact is fully settled offline
 
@@ -90,8 +90,9 @@ current tags before narrowing the rule.
 
 ## Offline gates passed
 
-- Injection core native test: 6 fixed classification/size/extension properties.
-- Active Inject directory: readable, 0 ordinary chunks, 0 unsupported chunks.
+- Injection core native test: 16 fixed classification, size, extension, and
+  managed-transaction properties.
+- Active Inject directory: readable, 0 supported chunks, 0 unsupported chunks.
 - Exact July executable: all 7 injector signatures match exactly once.
 - Full private source build: zero warning/error lines, x64, no companion import.
 - Full-module replacement gate remains active; with injection enabled, the
@@ -104,10 +105,11 @@ current tags before narrowing the rule.
 module load -> capture real manager/name/environment once
 DE undump burst after quiet gap -> latch region request
 F9 edge -> latch reload request
-UpdateFlashMarkers script tick -> scan complete Inject folder transactionally
-                              -> keep old snapshot or commit all of new snapshot
-                              -> allocate/copy each chunk with DE allocator
-                              -> load + execute under guarded protected call
+UpdateFlashMarkers script tick -> stage config/SWF/replacements/Riven/Inject
+                              -> load addon lifecycle tables under guard
+                              -> cleanup old + activate new, or roll back
+                              -> atomically publish prepared snapshots
+                              -> run ordinary one-shot chunks
                               -> restore borrowed registry entry and VM top
 ```
 
@@ -118,8 +120,9 @@ DE module loads.
 ## Live boundary
 
 The current installed Inject folder is empty, so the offline build proves
-resolution, construction, and disabled-state behavior but cannot prove an
-actual addon call. Before marking `LI-001` through `LI-007` live-complete, use a
-small reversible fixture that returns a visible/loggable value, then perform a
-second F9 generation and a deliberate fault fixture to confirm both rollback
+resolution, construction, transaction ordering, and disabled-state behavior
+but cannot prove an actual DE-VM addon call. Before marking `LI-001` through
+`LI-012` live-complete, use one reversible managed fixture, a second F9
+generation, an invalid candidate, an activation failure, an ordinary one-shot,
+and a deliberate native-fault fixture. Confirm rollback, no duplicate callback,
 and continued VM health. No installed game file was changed in this slice.

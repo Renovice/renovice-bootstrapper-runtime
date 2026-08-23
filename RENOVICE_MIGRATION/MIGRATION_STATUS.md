@@ -47,24 +47,49 @@ Updated: 2026-08-23
   no additional polling thread or `SetStringVariable` hook was introduced.
 - [x] Made Inject folder reload transactional and explicitly rejected the old
   experimental `.persist`/`.spawn` routes until their lifecycle is redesigned.
+- [x] Ported the shared `CustomScripts` configuration resolver with a real
+  writable-primary probe, LocalAppData fallback, exact flag parsing, cached
+  runtime state, and F9-only reread.
+- [x] Ported content-keyed SWF replacement with strict FWS validation,
+  replacement-owned lifetime, optional size-changing TOC metadata, unique U43
+  signatures, and an empty-folder disabled fast path.
+- [x] Ported the `riven_lock.cfg`-gated Riven UI behavior with cached startup/F9
+  gating, exact URL parsing, asynchronous configured-server requests, and
+  deferred UI refresh on the script boundary.
+- [x] Replaced the unsafe fabricated `.persist`/`.spawn` scheduler experiment
+  with generation-owned `.addon.lua_B` lifecycle tables rooted in the real DE
+  registry and explicit idempotent `activate`/`cleanup` operations.
+- [x] Made F9 stage configuration, SWF, full Lua replacements, Riven gating,
+  and the complete Inject folder before publication; addon activation failure
+  cleans the candidate and attempts to reactivate the previous generation.
+- [x] Added atomic F9 refresh of the full-module replacement snapshot. Existing
+  cached closures remain old until the next matching module load, which is a
+  DE cache/lifetime boundary rather than a partial reload.
 
 ## Current hard boundary
 
-U43 compatibility, boot-time full-module replacement, ordinary additive
-injection, and transactional F9 folder staging are ported and offline-verified.
-Persistent coroutine modules, the proper managed addon/event layer, and riven
-UI/SWF behavior are not ported. The new DLL has not been deployed or live-tested,
-so the known-good two-DLL game installation remains the runtime recovery
-baseline.
+U43 compatibility, full-module replacement, ordinary additive injection,
+managed addon generations, transactional F9 staging, shared configuration,
+SWF replacement, and Riven UI behavior are source-ported and offline-verified.
+The generic generation layer manages lifecycle; event-specific wrappers such
+as `AfterMalletDamage` still require a proven native event/callback contract.
+Stable in-place export-table hot modules (`TG-006`) are also a separate future
+facility. The new DLL has not been deployed or live-tested, so the known-good
+two-DLL game installation remains the runtime recovery baseline.
 
 ## Next job
 
-- [ ] Run an isolated live load/login/mission smoke test before treating the
-  new source-built baseline as runtime-compatible.
-- [ ] Live-test one ordinary Inject fixture, F9 generation replacement, invalid
-  candidate rollback, deliberate fault containment, and subsequent VM health.
-- [ ] Design the managed addon/event dispatcher; do not revive the experimental
-  fabricated scheduler/coroutine path as the default hook architecture.
+- [ ] On the user's signal, deploy only the newly built single DLL with the
+  recorded known-good pair retained for immediate recovery, then run isolated
+  load/login/mission smoke tests.
+- [ ] Live-test one reversible managed addon across startup, F9 edit, deletion,
+  invalid candidate, activation failure, recovery, region transition, and
+  repeated reloads; also verify ordinary one-shot and native-fault containment.
+- [ ] Live-test SWF replacement, Riven gate off/on, config fallback, and a
+  changed full-module replacement applying on its next module load.
+- [ ] After the generic lifecycle is live-proven, add only evidence-backed
+  convenience event APIs and decide whether `TG-006` in-place export tables are
+  still needed.
 
-The future Hot/addon transaction starts after the existing loader and additive
-injector pass source parity; it is not mixed into the first port.
+The source implementation phase is complete for these four systems. Runtime
+parity remains deliberately open until the user-authorized test phase.

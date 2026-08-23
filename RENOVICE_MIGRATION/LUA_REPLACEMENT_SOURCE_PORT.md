@@ -8,8 +8,9 @@ The proven boot-time full-module replacement path is now implemented directly
 in the OpenWF source tree. It no longer depends on MinHook or the companion
 proxy in this development build. No DLL was deployed during this work.
 
-This slice covers manifest rows `LR-001` through `LR-004` only. Additive
-`Inject` modules and F9 reload remain separate future slices.
+This slice originally covered manifest rows `LR-001` through `LR-004`. The
+later managed-addon slice added atomic F9 replacement-map refresh while keeping
+module-cache semantics explicit.
 
 ## Hypotheses and results
 
@@ -83,10 +84,11 @@ the July RVA on `2026.07.11.15.28`.
 
 ## Explicit boundary
 
-This is boot-time replacement parity, not F9 hot replacement. The game caches
-loaded modules; a changed replacement still applies on the next module load or
-client restart. Transactional F9 behavior will require generation/lifecycle
-work and is intentionally not pretended by this slice.
+F9 now stages and atomically swaps the complete replacement byte map together
+with the other RENOVICE prepared state. The game still caches loaded modules;
+a changed body applies on the next matching module load, not retroactively to
+already-created closures. The reload status reports that timing rather than
+pretending an existing closure was rewritten.
 
 The source-built DLL must still pass an authorized live smoke test using a
 recoverable deployment before `LR-001` through `LR-004` can be called live

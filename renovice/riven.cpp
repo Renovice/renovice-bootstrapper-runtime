@@ -8,6 +8,7 @@
 #include <exception>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -45,6 +46,7 @@ TypeArgument type_argument = nullptr;
 
 std::atomic<std::uint32_t> locked_mask = 0;
 std::atomic_bool gate_enabled = false;
+std::optional<bool> prepared_gate;
 std::atomic_bool redraw_pending = false;
 std::atomic_bool reroll_active = false;
 std::mutex context_mutex;
@@ -331,6 +333,13 @@ bool initialise()
 
 bool reload_gate()
 {
+	if (!prepare_gate_reload()) return false;
+	commit_prepared_gate();
+	return true;
+}
+
+bool prepare_gate_reload()
+{
 	std::error_code ec;
 	const bool present = std::filesystem::is_regular_file(
 		config::custom_scripts_directory() / L"riven_lock.cfg", ec);
@@ -339,12 +348,25 @@ bool reload_gate()
 		conout << "RENOVICE Riven gate reload failed: " << ec.message() << std::endl;
 		return false;
 	}
+	prepared_gate = present;
+	return true;
+}
+
+void commit_prepared_gate()
+{
+	if (!prepared_gate) return;
+	const bool present = *prepared_gate;
+	prepared_gate.reset();
 	gate_enabled.store(present, std::memory_order_release);
 	if (!present)
 	{
 		redraw_pending.store(false, std::memory_order_release);
 		invalidate_context();
 	}
-	return true;
+}
+
+void discard_prepared_gate()
+{
+	prepared_gate.reset();
 }
 }

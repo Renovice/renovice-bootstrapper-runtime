@@ -3,11 +3,11 @@ TG-001	packaging	Produce one source-built wtsapi32.dll with no wtsapi32_owf.dll 
 TG-002	parity	Preserve every manifest row marked parity_required yes	Manifest verifier reports no missing parity result and live checklist is complete	IN_PROGRESS
 TG-003	hot_reload	F9 rereads the complete current Hot directory only when pressed	Added changed and deleted files exactly define the staged generation	IN_PROGRESS
 TG-004	hot_reload	Reload is transactional across the complete Hot directory	One deliberately invalid script leaves the prior generation active and reports rollback pass	IN_PROGRESS
-TG-005	addons	Stable event dispatcher swaps addon behavior immediately	Damage callback changed to Overguard is observed on the next event without duplicate old behavior	PENDING
+TG-005	addons	Stable event dispatcher swaps addon behavior immediately	Damage callback changed to Overguard is observed on the next event without duplicate old behavior	IN_PROGRESS
 TG-006	hot_modules	Stable export tables update complete custom modules in place	Existing table holders call new exports after F9 while staged failure preserves old exports	PENDING
-TG-007	replacements	F9 atomically refreshes the complete replacement byte map	Added changed and deleted hash files are reflected on the next matching DE module load	PENDING
-TG-008	lifecycle	Old generation subscriptions tasks and owned resources are deactivated	One hundred successful reloads do not multiply callback count or leave active old tasks	PENDING
-TG-009	status	Every reload reports pass fail rollback and application timing	Log distinguishes immediate next-cast next-spawn next-region and next-module-load outcomes	PENDING
-TG-010	performance	No filesystem or compilation work occurs while reload is idle	Idle instrumentation records zero Hot directory reads and zero generation rebuilds	PENDING
+TG-007	replacements	F9 atomically refreshes the complete replacement byte map	Added changed and deleted hash files are reflected on the next matching DE module load	IN_PROGRESS
+TG-008	lifecycle	Old generation subscriptions tasks and owned resources are deactivated	One hundred successful reloads do not multiply callback count or leave active old tasks	IN_PROGRESS
+TG-009	status	Every reload reports pass fail rollback and application timing	Log distinguishes immediate next-cast next-spawn next-region and next-module-load outcomes	IN_PROGRESS
+TG-010	performance	No filesystem or compilation work occurs while reload is idle	Idle instrumentation records zero Hot directory reads and zero generation rebuilds	IN_PROGRESS
 TG-011	versioning	Unknown game builds remain fail-closed for mandatory custom hooks	Modified or unsupported build cannot activate a partially resolved RENOVICE subsystem	IN_PROGRESS
 TG-012	recovery	Known-good current DLL pair remains recoverable until single-DLL parity	Restoring saved pair returns exact previously verified behavior	PENDING

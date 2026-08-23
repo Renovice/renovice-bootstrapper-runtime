@@ -24,19 +24,44 @@ inline constexpr char signature_protected_call[] =
 enum class ScriptKind
 {
 	Ordinary,
+	ManagedAddon,
 	ExperimentalPersistent,
 	ExperimentalSpawn,
 };
 
+inline bool ascii_icontains(std::string_view text, std::string_view needle) noexcept
+{
+	if (needle.empty() || needle.size() > text.size()) return false;
+	for (std::size_t offset = 0; offset + needle.size() <= text.size(); ++offset)
+	{
+		bool equal = true;
+		for (std::size_t i = 0; i != needle.size(); ++i)
+		{
+			if (std::tolower(static_cast<unsigned char>(text[offset + i]))
+				!= std::tolower(static_cast<unsigned char>(needle[i])))
+			{
+				equal = false;
+				break;
+			}
+		}
+		if (equal) return true;
+	}
+	return false;
+}
+
 inline ScriptKind classify_script(std::string_view filename) noexcept
 {
-	if (filename.find(".spawn") != std::string_view::npos)
+	if (ascii_icontains(filename, ".spawn"))
 	{
 		return ScriptKind::ExperimentalSpawn;
 	}
-	if (filename.find(".persist") != std::string_view::npos)
+	if (ascii_icontains(filename, ".persist"))
 	{
 		return ScriptKind::ExperimentalPersistent;
+	}
+	if (ascii_icontains(filename, ".addon"))
+	{
+		return ScriptKind::ManagedAddon;
 	}
 	return ScriptKind::Ordinary;
 }

@@ -70,6 +70,7 @@ being permanently hard-coded to `127.0.0.1:80`.
 - private x64 build: warnings 0, errors 0, no companion import;
 - built SHA-256: `16b14e8793155d1873dd7360587ae4bd8d73bfcdc129147ee14a01c6dc3e3afd`.
 
-The final gate run will record the definitive DLL hash after the addon layer is
-complete. Live checks must cover gate off/on, wrap scope, lock/unlock color,
+The combined final gate and definitive DLL hash are recorded in
+`FOUR_SYSTEMS_OFFLINE_ACCEPTANCE.md`. Live checks must cover gate off/on, wrap
+scope, lock/unlock color,
 server persistence, reroll, navigation away, and repeated clicks.

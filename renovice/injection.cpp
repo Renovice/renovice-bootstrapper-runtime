@@ -1,7 +1,9 @@
 #include "injection.hpp"
 
+#include "addon_transaction.hpp"
 #include "config.hpp"
 #include "injection_core.hpp"
+#include "replacements.hpp"
 #include "riven.hpp"
 #include "swf.hpp"
 
@@ -49,6 +51,13 @@ struct Chunk
 {
 	std::string name;
 	std::vector<unsigned char> bytes;
+	ScriptKind kind = ScriptKind::Ordinary;
+};
+
+struct AddonRecord
+{
+	std::string name;
+	std::string registry_key;
 };
 
 struct RunResult
@@ -58,6 +67,7 @@ struct RunResult
 	int protected_call_result = 0;
 	int closure_tag = -1;
 	int result_tag = -1;
+	bool lifecycle_stored = false;
 	int fault_stage = 0;
 	unsigned long fault_code = 0;
 	void* fault_address = nullptr;
@@ -91,6 +101,7 @@ CheckStack check_stack = nullptr;
 GameAllocate game_allocate = nullptr;
 
 std::vector<Chunk> active_chunks;
+std::vector<AddonRecord> active_addons;
 std::mutex capture_mutex;
 void* captured_manager = nullptr;
 std::uint32_t captured_name_handle[2]{};
@@ -102,6 +113,8 @@ std::atomic_bool f9_pending = false;
 std::atomic_bool execution_running = false;
 std::atomic<std::uint64_t> last_undump_millis = 0;
 bool f9_was_down = false;
+bool generation_active = false;
+std::uint64_t next_generation = 1;
 GuardState guard;
 
 alignas(16) unsigned char fabricated_name_object[0x40]{};
@@ -151,7 +164,7 @@ bool scan_snapshot(std::vector<Chunk>& snapshot)
 		}
 		const auto name = path.filename().string();
 		const auto kind = classify_script(name);
-		if (kind != ScriptKind::Ordinary)
+		if (kind == ScriptKind::ExperimentalPersistent || kind == ScriptKind::ExperimentalSpawn)
 		{
 			conout << "RENOVICE Inject transaction rejected: experimental "
 				<< (kind == ScriptKind::ExperimentalSpawn ? "spawn" : "persistent")
@@ -160,6 +173,7 @@ bool scan_snapshot(std::vector<Chunk>& snapshot)
 		}
 		Chunk chunk;
 		chunk.name = name;
+		chunk.kind = kind;
 		if (!read_file(path, chunk.bytes))
 		{
 			conout << "RENOVICE Inject transaction rejected: unreadable, empty, or oversized "
@@ -268,7 +282,20 @@ bool try_restore_registry_after_fault() noexcept
 	return true;
 }
 
-RunResult run_guarded(luau_State* state, void* manager, void* descriptor)
+void set_registry_nil(luau_State* state, luau_TValue* base, const char* key)
+{
+	base->value.as_uintptr = 0;
+	base->type = LUAU_NIL;
+	state->outtop = base + 1;
+	setfield(state, -10000, key);
+}
+
+RunResult run_guarded(
+	luau_State* state,
+	void* manager,
+	void* descriptor,
+	const char* lifecycle_key
+)
 {
 	RunResult result;
 	if (state == nullptr || manager == nullptr || descriptor == nullptr
@@ -349,6 +376,35 @@ RunResult run_guarded(luau_State* state, void* manager, void* descriptor)
 	guard.stage = 5;
 	result.protected_call_result = protected_call(state, 1, 1, 0);
 	result.result_tag = (guard.base + 1)->type;
+	if (result.protected_call_result == 0 && lifecycle_key != nullptr)
+	{
+		if (!is_table(result.result_tag))
+		{
+			result.protected_call_result = -1;
+		}
+		else
+		{
+			guard.stage = 7;
+			*guard.base = *(guard.base + 1);
+			state->outtop = guard.base + 1;
+			setfield(state, -10000, lifecycle_key);
+			result.lifecycle_stored = true;
+
+			state->outtop = guard.base;
+			getfield(state, -10000, lifecycle_key);
+			getfield(state, -1, "activate");
+			const bool activate_valid = is_function((guard.base + 1)->type);
+			state->outtop = guard.base + 1;
+			getfield(state, -1, "cleanup");
+			const bool cleanup_valid = is_function((guard.base + 1)->type);
+			if (!activate_valid || !cleanup_valid)
+			{
+				set_registry_nil(state, guard.base, lifecycle_key);
+				result.lifecycle_stored = false;
+				result.protected_call_result = -2;
+			}
+		}
+	}
 
 	guard.stage = 6;
 	*guard.base = guard.borrowed_original;
@@ -357,9 +413,68 @@ RunResult run_guarded(luau_State* state, void* manager, void* descriptor)
 	guard.registry_may_be_shadowed = false;
 	restore_lua_top();
 	finish_guard();
-	result.completed = true;
+	result.completed = result.protected_call_result == 0
+		&& (lifecycle_key == nullptr || result.lifecycle_stored);
 	result.registry_restored = true;
 	return result;
+}
+
+bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char* field)
+{
+	if (state == nullptr || IsBadReadPtr(state, sizeof(luau_State)) || state->outtop == nullptr)
+	{
+		return false;
+	}
+	std::memset(&guard, 0, sizeof(guard));
+	guard.state = state;
+	guard.base = state->outtop;
+	guard.thread_id = GetCurrentThreadId();
+	guard.handler = AddVectoredExceptionHandler(1, fault_handler);
+	if (guard.handler == nullptr) return false;
+	if (setjmp(guard.jump) != 0)
+	{
+		restore_lua_top();
+		finish_guard();
+		conout << "RENOVICE addon lifecycle FAULT " << addon.name
+			<< " field=" << (field == nullptr ? "release" : field)
+			<< " exception_code=" << static_cast<std::uint32_t>(guard.fault_code)
+			<< " address=" << guard.fault_address << std::endl;
+		return false;
+	}
+	guard.active = 1;
+	guard.stage = 20;
+	check_stack(state, 4);
+	if (field == nullptr)
+	{
+		set_registry_nil(state, guard.base, addon.registry_key.c_str());
+	}
+	else
+	{
+		getfield(state, -10000, addon.registry_key.c_str());
+		if (!is_table(guard.base->type))
+		{
+			restore_lua_top();
+			finish_guard();
+			return false;
+		}
+		getfield(state, -1, field);
+		if (!is_function((guard.base + 1)->type))
+		{
+			restore_lua_top();
+			finish_guard();
+			return false;
+		}
+		state->outtop = guard.base + 2;
+		if (protected_call(state, 0, 0, 0) != 0)
+		{
+			restore_lua_top();
+			finish_guard();
+			return false;
+		}
+	}
+	restore_lua_top();
+	finish_guard();
+	return true;
 }
 
 void loader_detour(void* manager, void* descriptor)
@@ -403,20 +518,24 @@ void loader_detour(void* manager, void* descriptor)
 	reinterpret_cast<Loader>(loader_hook.original)(manager, descriptor);
 }
 
-void run_chunk(const Chunk& chunk, luau_State* boundary_state)
+bool run_chunk(
+	const Chunk& chunk,
+	luau_State* boundary_state,
+	const std::string* lifecycle_key = nullptr
+)
 {
 	void* manager = captured_manager;
 	if (manager == nullptr || IsBadReadPtr(manager, 0x28))
 	{
 		conout << "RENOVICE Inject skipped " << chunk.name << ": manager unavailable" << std::endl;
-		return;
+		return false;
 	}
 	auto* manager_state = *reinterpret_cast<luau_State**>(
 		reinterpret_cast<unsigned char*>(manager) + 0x20);
 	if (manager_state == nullptr || IsBadReadPtr(manager_state, sizeof(luau_State)))
 	{
 		conout << "RENOVICE Inject skipped " << chunk.name << ": manager state unavailable" << std::endl;
-		return;
+		return false;
 	}
 	(void)boundary_state; // The boundary proves the thread; the manager owns the main VM state used for loading.
 
@@ -424,7 +543,7 @@ void run_chunk(const Chunk& chunk, luau_State* boundary_state)
 	if (game_buffer == nullptr || IsBadWritePtr(game_buffer, chunk.bytes.size()))
 	{
 		conout << "RENOVICE Inject skipped " << chunk.name << ": game allocation failed" << std::endl;
-		return;
+		return false;
 	}
 	std::memcpy(game_buffer, chunk.bytes.data(), chunk.bytes.size());
 
@@ -440,13 +559,18 @@ void run_chunk(const Chunk& chunk, luau_State* boundary_state)
 		= static_cast<std::uint32_t>(chunk.bytes.size());
 	*reinterpret_cast<void**>(fabricated_descriptor + 0x58) = captured_environment;
 
-	const auto result = run_guarded(manager_state, manager, fabricated_descriptor);
+	const auto result = run_guarded(
+		manager_state,
+		manager,
+		fabricated_descriptor,
+		lifecycle_key == nullptr ? nullptr : lifecycle_key->c_str());
 	if (result.completed && result.registry_restored)
 	{
 		conout << "RENOVICE Inject PASS " << chunk.name
 			<< " closure_tag=" << result.closure_tag
 			<< " pcall=" << result.protected_call_result
 			<< " result_tag=" << result.result_tag << std::endl;
+		return true;
 	}
 	else if (result.fault_code != 0)
 	{
@@ -460,8 +584,127 @@ void run_chunk(const Chunk& chunk, luau_State* boundary_state)
 	{
 		conout << "RENOVICE Inject FAIL " << chunk.name
 			<< " closure_tag=" << result.closure_tag
+			<< " pcall=" << result.protected_call_result
+			<< " result_tag=" << result.result_tag
 			<< " registry_restored=" << result.registry_restored << std::endl;
 	}
+	if (lifecycle_key != nullptr)
+	{
+		AddonRecord failed{chunk.name, *lifecycle_key};
+		if (!lifecycle_operation(manager_state, failed, nullptr))
+		{
+			conout << "RENOVICE ADDON FATAL: failed lifecycle root could not be released" << std::endl;
+			subsystem_enabled.store(false, std::memory_order_release);
+		}
+	}
+	return false;
+}
+
+luau_State* captured_state()
+{
+	void* manager = captured_manager;
+	if (manager == nullptr || IsBadReadPtr(manager, 0x28)) return nullptr;
+	auto* state = *reinterpret_cast<luau_State**>(
+		reinterpret_cast<unsigned char*>(manager) + 0x20);
+	return state != nullptr && !IsBadReadPtr(state, sizeof(luau_State)) ? state : nullptr;
+}
+
+bool apply_generation(
+	const std::vector<Chunk>& candidate,
+	luau_State* boundary_state,
+	const char* trigger
+)
+{
+	const auto generation = next_generation++;
+	auto* state = captured_state();
+	if (state == nullptr)
+	{
+		conout << "RENOVICE ADDON ROLLBACK: captured VM state unavailable" << std::endl;
+		return false;
+	}
+	std::vector<AddonRecord> staged;
+	std::size_t addon_index = 0;
+	for (const auto& chunk : candidate)
+	{
+		if (chunk.kind != ScriptKind::ManagedAddon) continue;
+		AddonRecord addon;
+		addon.name = chunk.name;
+		addon.registry_key = "__RENOVICE_ADDON_" + std::to_string(generation)
+			+ "_" + std::to_string(addon_index++);
+		if (!run_chunk(chunk, boundary_state, &addon.registry_key))
+		{
+			bool released = true;
+			for (const auto& previous : staged)
+			{
+				released = lifecycle_operation(state, previous, nullptr) && released;
+			}
+			if (!released)
+			{
+				conout << "RENOVICE ADDON FATAL: staged lifecycle roots could not be released" << std::endl;
+				subsystem_enabled.store(false, std::memory_order_release);
+			}
+			conout << "RENOVICE ADDON ROLLBACK stage failed: " << chunk.name
+				<< " previous generation remains active" << std::endl;
+			return false;
+		}
+		staged.emplace_back(std::move(addon));
+	}
+
+	const auto transaction = commit_addon_generation(
+		active_addons,
+		staged,
+		[&](const AddonRecord& addon) { return lifecycle_operation(state, addon, "cleanup"); },
+		[&](const AddonRecord& addon) { return lifecycle_operation(state, addon, "activate"); },
+		[&](const AddonRecord& addon) { return lifecycle_operation(state, addon, nullptr); });
+	if (transaction != TransactionResult::Committed)
+	{
+		const char* label = "unknown";
+		switch (transaction)
+		{
+		case TransactionResult::CleanupRejected: label = "old cleanup rejected"; break;
+		case TransactionResult::ActivationRejected: label = "new activation rejected"; break;
+		case TransactionResult::ReleaseRejected: label = "old registry release rejected"; break;
+		case TransactionResult::RollbackFailed: label = "rollback reactivation failed"; break;
+		case TransactionResult::Committed: break;
+		}
+		conout << "RENOVICE ADDON "
+			<< (transaction == TransactionResult::RollbackFailed
+				|| transaction == TransactionResult::ReleaseRejected ? "FATAL" : "ROLLBACK")
+			<< ": " << label << std::endl;
+		if (transaction == TransactionResult::ReleaseRejected)
+		{
+			active_chunks = candidate;
+			generation_active = true;
+		}
+		if (transaction == TransactionResult::RollbackFailed
+			|| transaction == TransactionResult::ReleaseRejected)
+		{
+			subsystem_enabled.store(false, std::memory_order_release);
+		}
+		return false;
+	}
+
+	active_chunks = candidate;
+	generation_active = true;
+	std::size_t ordinary_failures = 0;
+	for (const auto& chunk : active_chunks)
+	{
+		if (chunk.kind == ScriptKind::Ordinary && !run_chunk(chunk, boundary_state))
+		{
+			++ordinary_failures;
+		}
+	}
+	conout << "RENOVICE RELOAD PASS trigger=" << trigger
+		<< " generation=" << generation
+		<< " addons=" << active_addons.size()
+		<< " one_shots=" << (active_chunks.size() - active_addons.size())
+		<< " one_shot_failures=" << ordinary_failures
+		<< " applies=immediate-safe-boundary/next-event" << std::endl;
+	if (ordinary_failures != 0)
+	{
+		conout << "RENOVICE warning: managed addon commit succeeded, but one-shot failures cannot be transactionally undone" << std::endl;
+	}
+	return true;
 }
 
 bool install_loader_hook()
@@ -516,8 +759,13 @@ InitialiseResult initialise()
 	}
 	active_chunks = std::move(snapshot);
 	subsystem_enabled.store(true, std::memory_order_release);
+	const auto addons = std::count_if(active_chunks.begin(), active_chunks.end(), [](const Chunk& chunk)
+	{
+		return chunk.kind == ScriptKind::ManagedAddon;
+	});
 	conout << "RENOVICE additive injection enabled: staged_chunks=" << active_chunks.size()
-		<< " (ordinary one-shot mode; experimental persist/spawn disabled)" << std::endl;
+		<< " managed_addons=" << addons
+		<< " (legacy persist/spawn disabled)" << std::endl;
 	return InitialiseResult::Enabled;
 }
 
@@ -566,44 +814,72 @@ void drain(luau_State* state)
 		return;
 	}
 
-	bool snapshot_valid = true;
-	if (reload || region)
+	auto discard_prepared = []
 	{
-		if (reload && !config::reload())
+		config::discard_prepared_reload();
+		swf::discard_prepared_reload();
+		replacements::discard_prepared_reload();
+		riven::discard_prepared_gate();
+	};
+	auto commit_prepared = []
+	{
+		config::commit_prepared_reload();
+		swf::commit_prepared_reload();
+		replacements::commit_prepared_reload();
+		riven::commit_prepared_gate();
+	};
+
+	bool transaction_valid = true;
+	std::vector<Chunk> candidate;
+	if (reload)
+	{
+		if (!config::prepare_reload())
 		{
 			conout << "RENOVICE F9 configuration reload rejected: previous flags retained" << std::endl;
-			snapshot_valid = false;
+			transaction_valid = false;
 		}
-		if (reload && snapshot_valid && !swf::reload())
+		if (transaction_valid && !swf::prepare_reload())
 		{
 			conout << "RENOVICE F9 SWF reload rejected: previous snapshot retained" << std::endl;
-			snapshot_valid = false;
+			transaction_valid = false;
 		}
-		if (reload && snapshot_valid && !riven::reload_gate())
+		if (transaction_valid && !replacements::prepare_reload())
+		{
+			conout << "RENOVICE F9 Lua replacement reload rejected: previous snapshot retained" << std::endl;
+			transaction_valid = false;
+		}
+		if (transaction_valid && !riven::prepare_gate_reload())
 		{
 			conout << "RENOVICE F9 Riven gate reload rejected: previous gate retained" << std::endl;
-			snapshot_valid = false;
+			transaction_valid = false;
 		}
-		std::vector<Chunk> candidate;
-		snapshot_valid = snapshot_valid && scan_snapshot(candidate);
-		if (snapshot_valid)
+		if (transaction_valid && !scan_snapshot(candidate)) transaction_valid = false;
+		if (!transaction_valid) discard_prepared();
+	}
+
+	const auto current_flags = config::flags();
+	const bool should_apply = reload || !generation_active || (region && current_flags.auto_spawn);
+	if (transaction_valid && should_apply)
+	{
+		if (!reload && !scan_snapshot(candidate)) transaction_valid = false;
+		if (transaction_valid
+			&& apply_generation(candidate, state, reload ? "F9" : (generation_active ? "region" : "startup")))
 		{
-			active_chunks = std::move(candidate);
-			conout << "RENOVICE Inject snapshot committed: trigger="
-				<< (reload ? "F9" : "region") << " chunks=" << active_chunks.size() << std::endl;
+			if (reload) commit_prepared();
 		}
 		else
 		{
-			conout << "RENOVICE Inject snapshot rollback: previous generation retained" << std::endl;
+			if (reload) discard_prepared();
+			conout << "RENOVICE RELOAD ROLLBACK: previous managed generation retained when possible" << std::endl;
 		}
 	}
-
-	if (snapshot_valid || region)
+	else if (!transaction_valid)
 	{
-		for (const auto& chunk : active_chunks)
-		{
-			run_chunk(chunk, state);
-		}
+		conout << "RENOVICE RELOAD ROLLBACK: validation failed before addon staging" << std::endl;
+	}
+	else if (region)
+	{
+		config::verbose_log("RENOVICE region reload skipped because AutoSpawn is false");
 	}
 	execution_running.store(false, std::memory_order_release);
 }

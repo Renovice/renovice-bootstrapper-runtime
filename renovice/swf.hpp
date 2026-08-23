@@ -11,4 +11,7 @@ enum class InitialiseResult
 
 InitialiseResult initialise();
 bool reload();
+bool prepare_reload();
+void commit_prepared_reload();
+void discard_prepared_reload();
 }

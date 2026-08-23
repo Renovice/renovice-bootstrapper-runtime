@@ -68,6 +68,7 @@ soup::DetourHook oodle_hook;
 soup::DetourHook parser_hook;
 soup::DetourHook ntread_hook;
 std::atomic<std::shared_ptr<const Snapshot>> active_snapshot{std::make_shared<Snapshot>()};
+std::shared_ptr<const Snapshot> prepared_snapshot;
 std::mutex armed_mutex;
 std::vector<Armed> armed;
 std::atomic_bool enabled = false;
@@ -395,11 +396,22 @@ InitialiseResult initialise()
 
 bool reload()
 {
+	if (!prepare_reload()) return false;
+	commit_prepared_reload();
+	return true;
+}
+
+bool prepare_reload()
+{
 	std::shared_ptr<const Snapshot> candidate;
 	if (!scan_snapshot(candidate)) return false;
 	if (!enabled.load(std::memory_order_acquire))
 	{
-		if (candidate->replacements.empty()) return true;
+		if (candidate->replacements.empty())
+		{
+			prepared_snapshot = std::move(candidate);
+			return true;
+		}
 		conout << "RENOVICE SWF reload rejected: enabling SWF hooks requires restart" << std::endl;
 		return false;
 	}
@@ -409,7 +421,18 @@ bool reload()
 		conout << "RENOVICE SWF reload rejected: enabling a new any-size TOC rule requires restart" << std::endl;
 		return false;
 	}
-	active_snapshot.store(std::move(candidate), std::memory_order_release);
+	prepared_snapshot = std::move(candidate);
 	return true;
+}
+
+void commit_prepared_reload()
+{
+	if (!prepared_snapshot) return;
+	active_snapshot.store(std::move(prepared_snapshot), std::memory_order_release);
+}
+
+void discard_prepared_reload()
+{
+	prepared_snapshot.reset();
 }
 }

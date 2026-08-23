@@ -3,11 +3,13 @@
 #include "config.hpp"
 #include "injection.hpp"
 
+#include <atomic>
 #include <cctype>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -39,7 +41,10 @@ using Undump = long long(*)(
 constexpr std::uintmax_t maximum_replacement_size = 1ull << 28;
 
 soup::DetourHook undump_hook;
-std::unordered_map<std::uint64_t, std::vector<unsigned char>> active_replacements;
+using Snapshot = std::unordered_map<std::uint64_t, std::vector<unsigned char>>;
+std::atomic<std::shared_ptr<Snapshot>> active_replacements{std::make_shared<Snapshot>()};
+std::shared_ptr<Snapshot> prepared_replacements;
+std::atomic_bool subsystem_enabled = false;
 
 bool ascii_iequals(std::string_view lhs, std::string_view rhs) noexcept
 {
@@ -140,15 +145,15 @@ long long undump_detour(
 {
 	injection::notify_undump();
 	const auto original = reinterpret_cast<Undump>(undump_hook.original);
-	if (!active_replacements.empty()
-		&& body != nullptr && body_size > 0
+	const auto snapshot = active_replacements.load(std::memory_order_acquire);
+	if (!snapshot->empty() && body != nullptr && body_size > 0
 		&& body_size < static_cast<long long>(maximum_replacement_size))
 	{
 		const auto key = body_key(std::string_view(
 			reinterpret_cast<const char*>(body),
 			static_cast<std::size_t>(body_size)
 		));
-		if (const auto replacement = active_replacements.find(key); replacement != active_replacements.end())
+		if (const auto replacement = snapshot->find(key); replacement != snapshot->end())
 		{
 			conout << "RENOVICE Lua replacement matched key=" << key
 				<< " original_bytes=" << body_size
@@ -202,7 +207,7 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 		conout << "RENOVICE Lua replacement hook warning: using certified exact-build undump RVA" << std::endl;
 	}
 
-	active_replacements = std::move(snapshot);
+	active_replacements.store(std::make_shared<Snapshot>(std::move(snapshot)), std::memory_order_release);
 	undump_hook.detour = reinterpret_cast<void*>(&undump_detour);
 	undump_hook.target = target;
 	try
@@ -211,21 +216,59 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 	}
 	catch (const std::exception& ex)
 	{
-		active_replacements.clear();
+		active_replacements.store(std::make_shared<Snapshot>(), std::memory_order_release);
 		conout << "RENOVICE Lua replacement hook failed closed: " << ex.what() << std::endl;
 		return InitialiseResult::Failed;
 	}
 	if (!undump_hook.isCreated())
 	{
-		active_replacements.clear();
+		active_replacements.store(std::make_shared<Snapshot>(), std::memory_order_release);
 		conout << "RENOVICE Lua replacement hook failed closed: trampoline creation failed" << std::endl;
 		return InitialiseResult::Failed;
 	}
 	undump_hook.enable();
 
+	subsystem_enabled.store(true, std::memory_order_release);
+	const auto committed = active_replacements.load(std::memory_order_acquire);
 	conout << "RENOVICE Lua replacement hook enabled: replacements="
-		<< active_replacements.size() << " undump_observer=" << observe_undumps
+		<< committed->size() << " undump_observer=" << observe_undumps
 		<< " target=" << target << std::endl;
 	return InitialiseResult::Enabled;
+}
+
+bool reload()
+{
+	if (!prepare_reload()) return false;
+	commit_prepared_reload();
+	return true;
+}
+
+bool prepare_reload()
+{
+	auto candidate = std::make_shared<Snapshot>();
+	if (!load_snapshot(config::custom_scripts_directory(), *candidate)) return false;
+	if (!subsystem_enabled.load(std::memory_order_acquire))
+	{
+		if (candidate->empty())
+		{
+			prepared_replacements = std::move(candidate);
+			return true;
+		}
+		conout << "RENOVICE Lua replacement reload rejected: enabling undump hook requires restart" << std::endl;
+		return false;
+	}
+	prepared_replacements = std::move(candidate);
+	return true;
+}
+
+void commit_prepared_reload()
+{
+	if (!prepared_replacements) return;
+	active_replacements.store(std::move(prepared_replacements), std::memory_order_release);
+}
+
+void discard_prepared_reload()
+{
+	prepared_replacements.reset();
 }
 }

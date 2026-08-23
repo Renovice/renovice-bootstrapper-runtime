@@ -84,8 +84,15 @@ powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\injection\verify_inj
   -InjectionDirectory 'C:\path\to\Warframe\OpenWF\CustomScripts\Inject'
 ```
 
-These checks establish the normal-source baseline. They do not claim that the
-custom migration or its live-game parity is complete.
+The injection verifier also checks managed-addon generation transaction order
+and rollback. Config, SWF, and Riven core checks are available beside it under
+their matching `RENOVICE_TOOLCHAIN` subdirectories. The combined offline result
+and remaining live boundary are recorded in
+`RENOVICE_MIGRATION/FOUR_SYSTEMS_OFFLINE_ACCEPTANCE.md`.
+
+These checks establish source and offline compatibility. They do not claim
+live-game parity; no edited DLL should be deployed until the explicit live-test
+phase begins and the known-good runtime pair is preserved for rollback.
 
 ## Target layout
 
