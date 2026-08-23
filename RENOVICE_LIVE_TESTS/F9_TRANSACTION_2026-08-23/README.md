@@ -40,3 +40,15 @@ presses were not detected, and the game was later closed normally. Step 5 and
 the final empty-generation cleanup therefore remain unproven, not failed. The
 source now tracks key releases while unfocused and must repeat those remaining
 steps under the new DLL.
+
+For the compact corrected-key-edge retest, deploy generation one with its
+verifier, then delete the addon and replace the verifier with
+`verify_gen1_deleted`. That verifier rejects both a missing global and token
+`101`; it passes only after generation-one cleanup has explicitly written zero,
+then records `5005`. A final committed empty-folder reload clears the ordinary
+snapshot.
+
+That compact retest passed under DLL
+`6b614a3e6d25c7cdff482b8c69e74dbff3b911c6f0e0605665c6705d2caeff1f`:
+the configuration counter advanced `8 -> 9 -> 10 -> 11`, the same process
+remained responsive without a VM error, and Inject was left physically empty.

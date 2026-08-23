@@ -1,0 +1,8 @@
+local global = ...
+
+if global.RENOVICE_MANAGED_TEST_TOKEN ~= 0 then
+    error("RENOVICE_F9_GEN1_DELETE_CLEANUP_MISSING")
+end
+
+global.RENOVICE_ORDINARY_TEST_TOKEN = 5005
+return 5005

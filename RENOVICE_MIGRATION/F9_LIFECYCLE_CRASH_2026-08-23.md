@@ -67,3 +67,21 @@ unfinished ordinary verifier was removed from the live Inject directory before
 the next launch. Generation replacement, invalid-generation rollback, and
 post-rollback replacement are live passes; deletion remains a later retest with
 the corrected key-edge build.
+
+### Corrected-key-edge completion
+
+The next process loaded the corrected DLL hash
+`6b614a3e6d25c7cdff482b8c69e74dbff3b911c6f0e0605665c6705d2caeff1f`.
+With an initially empty Inject directory, the compact live retest produced:
+
+1. generation-one addon plus verifier: configuration counter `8 -> 9`;
+2. addon deletion plus cleanup-only verifier: counter `9 -> 10`;
+3. physically empty Inject directory: counter `10 -> 11`.
+
+The cleanup-only verifier rejected `nil` and token `101`, so its successful
+commit proves `cleanup()` explicitly wrote zero before the old registry root
+was released. The final empty generation proves the ordinary verifier was also
+removed from the active snapshot. PID 3980 remained responsive, EE.log gained
+no GPF, access violation, or Lua VM error, and no new crash directory appeared.
+Addon deletion/root release and F9 rearming across focus changes are therefore
+**live PASS**. The live Inject directory was left empty.

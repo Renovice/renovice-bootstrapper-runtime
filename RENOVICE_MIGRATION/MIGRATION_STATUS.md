@@ -81,6 +81,15 @@ working, and the source log proved Riven wrapping plus accepted lock POSTs.
 Exact copies of the known-good two-DLL runtime remain in
 `Backusp warframe/Warframe 23.08.2026` as the recovery baseline.
 
+The 2026-08-23 managed-addon live sequence now proves successful replacement,
+cleanup, registry-root release, invalid-generation rollback with the previous
+generation preserved, post-rollback replacement, deletion, and a final empty
+generation. A dump-proven wrong-state crash was corrected by executing calls on
+the current same-global-VM boundary. A separate focus-change key latch was also
+fixed and live-proven. Inject was left empty. Region-transition stress, one
+hundred reloads, activation-failure recovery, and native-fault containment
+remain open rather than being inferred from this pass.
+
 ## Next job
 
 - [x] Deploy only the newly built single DLL, verify its hash in the game root,
@@ -88,9 +97,11 @@ Exact copies of the known-good two-DLL runtime remain in
 - [x] Run a live load/login/script smoke test, confirm the exact game-local DLL
   module and absence of the companion, and observe the current replacement and
   Riven paths working.
-- [ ] Live-test one reversible managed addon across startup, F9 edit, deletion,
-  invalid candidate, activation failure, recovery, region transition, and
-  repeated reloads; also verify ordinary one-shot and native-fault containment.
+- [ ] Finish the remaining managed-addon stress cases: activation-failure
+  recovery, region transition, one hundred reloads, and native-fault
+  containment. Startup, F9 edit, invalid-candidate rollback, recovery of the
+  preserved generation, deletion/root release, ordinary one-shot execution,
+  focus rearming, and final empty-generation commit are live passes.
 - [ ] Live-test SWF replacement, Riven gate off/on, config fallback, and a
   changed full-module replacement applying on its next module load.
 - [ ] After the generic lifecycle is live-proven, add only evidence-backed
