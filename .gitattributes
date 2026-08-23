@@ -6,3 +6,23 @@ tools/pluto.exe linguist-vendored
 tools/plutoc.exe linguist-vendored
 tools/u64_dyn.lua linguist-vendored
 tools/u64_dyn.php linguist-vendored
+
+# Deterministic repository line endings. Batch/PowerShell entry points retain
+# Windows CRLF; source, data, manifests, and documentation remain LF in Git and
+# worktrees so hashes do not drift with the machine-wide autocrlf setting.
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.lua text eol=lf
+*.pluto text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.tsv text eol=lf
+*.php text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.exe binary
+*.png binary
+*.pem binary
