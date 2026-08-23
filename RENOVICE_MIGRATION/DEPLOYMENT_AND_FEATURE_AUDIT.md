@@ -17,8 +17,9 @@ Source and destination are byte-identical:
 - companion import: absent;
 - root `wtsapi32_owf.dll`: absent.
 
-The game has not been launched after deployment. This is a deployment and
-static-parity result, not a live pass.
+The game was subsequently launched. A live process-module inspection found
+exactly one game-local custom DLL with the recorded hash, one normal Windows
+`System32\wtsapi32.dll` forwarding target, and zero `wtsapi32_owf.dll` modules.
 
 ## Recovery result
 
@@ -58,7 +59,21 @@ updated to describe the new managed-addon and F9 behavior.
 | Existing hash replacements require renaming. | All four current annotated filenames validate with the deployed custom FNV basis. | **FALSE** |
 | Existing Riven lock placement changed. | `riven_lock.cfg` is found at the old path and the feature gate remains presence-based. | **FALSE** |
 | Old `.persist`/`.spawn` scheduler behavior is still required. | No active file uses it; its ownership and cleanup were unproven; managed lifecycle records replace it. | **FALSE for current parity** |
-| Every feature is proven to work in the running game. | The new DLL has not been loaded after deployment, Inject is empty, and no SWF fixture exists. | **FALSE; live tests remain** |
+| Every feature is proven to work in the running game. | The active replacements and Riven path now have live evidence, but Inject is empty and no SWF fixture exists. | **FALSE; scoped live tests remain** |
+
+## Live smoke result
+
+- The user tested the existing replacement scripts and reported that they work.
+- The running process loaded the exact deployed DLL hash and no companion DLL.
+- `renovice_source.log` records configuration initialization/reload.
+- The log records `Riven stat links wrapped`.
+- Four `Riven lock POST accepted` entries confirm live click/request/accepted
+  endpoint behavior during this session.
+- No RENOVICE `FAULT`, `ROLLBACK`, or `FATAL` entry is present in the source log.
+
+Result: the single-DLL load path, current replacement corpus, configuration,
+and exercised Riven path receive a **LIVE SMOKE PASS**. This is not yet a soak
+or a pass for systems without installed fixtures.
 
 ## Intentional exclusions, not missing gameplay features
 
@@ -72,8 +87,6 @@ updated to describe the new managed-addon and F9 behavior.
 
 ## Genuine remaining boundaries
 
-- Load/login/mission behavior has not yet been observed with this deployed DLL.
-- The four current replacements and Riven UI need a live smoke test.
 - Ordinary injection needs a live fixture because the installed `Inject` folder
   is empty.
 - Managed addon activation, cleanup, rollback, F9 replacement, and region
@@ -89,6 +102,7 @@ updated to describe the new managed-addon and F9 behavior.
 - Source Lua is not compiled inside the game. Files must still be compiled to
   valid DE-Luau `.lua_B` bytecode before placement.
 
-Conclusion: no active old gameplay feature is statically missing. Runtime
-parity cannot be promoted from offline to complete until the live checklist is
-executed.
+Conclusion: no active old gameplay feature is statically missing. The loaded
+single-DLL path, current replacements, and exercised Riven behavior have passed
+a live smoke test. Full runtime parity remains open only for unexercised and
+long-duration lifecycle cases listed above.

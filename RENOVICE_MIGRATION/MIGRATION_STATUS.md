@@ -75,15 +75,19 @@ The generic generation layer manages lifecycle; event-specific wrappers such
 as `AfterMalletDamage` still require a proven native event/callback contract.
 Stable in-place export-table hot modules (`TG-006`) are also a separate future
 facility. The new single DLL was deployed byte-for-byte to the game root on
-2026-08-23, but it has not yet been loaded or live-tested. Exact copies of the
-known-good two-DLL runtime remain in `Backusp warframe/Warframe 23.08.2026` as
-the recovery baseline.
+2026-08-23. The running process then proved the exact game-local hash loaded
+with no companion module; the user reported the four existing replacements
+working, and the source log proved Riven wrapping plus accepted lock POSTs.
+Exact copies of the known-good two-DLL runtime remain in
+`Backusp warframe/Warframe 23.08.2026` as the recovery baseline.
 
 ## Next job
 
 - [x] Deploy only the newly built single DLL, verify its hash in the game root,
   and identify the exact known-good two-DLL recovery pair.
-- [ ] On the user's signal, run isolated load/login/mission smoke tests.
+- [x] Run a live load/login/script smoke test, confirm the exact game-local DLL
+  module and absence of the companion, and observe the current replacement and
+  Riven paths working.
 - [ ] Live-test one reversible managed addon across startup, F9 edit, deletion,
   invalid candidate, activation failure, recovery, region transition, and
   repeated reloads; also verify ordinary one-shot and native-fault containment.
