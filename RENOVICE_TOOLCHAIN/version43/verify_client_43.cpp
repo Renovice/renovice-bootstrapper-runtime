@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../../renovice/injection_core.hpp"
+#include "../../renovice/swf_core.hpp"
 
 namespace
 {
@@ -188,6 +189,8 @@ int main(int argc, char** argv)
 	exact("inject checkstack", renovice::injection::signature_checkstack);
 	exact("inject game allocator", renovice::injection::signature_game_allocator);
 	exact("inject protected call", renovice::injection::signature_protected_call);
+	exact("SWF Oodle decompressor", renovice::swf::signature_oodle_decompress);
+	exact("SWF parser boundary", renovice::swf::signature_parser);
 	const auto undump_pattern = parse_pattern("40 53 55 56 57 41 55 41 56 41 57 48 81 EC F0 01 00 00 48 8B 05 ? ? ? ? 48 33");
 	const auto undump_hits = scan(data, undump_pattern);
 	const bool undump_pass = undump_hits.size() == 1 && undump_hits.front() == 0x197d430;

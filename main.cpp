@@ -3,6 +3,7 @@
 #include "renovice/config.hpp"
 #include "renovice/injection.hpp"
 #include "renovice/replacements.hpp"
+#include "renovice/swf.hpp"
 
 #define VERIFY_EXE_SIG false
 #define VERIFY_DLL_CHECKSUM false
@@ -2957,6 +2958,11 @@ static SOUP_FORCEINLINE void create_all_hooks()
 	{
 		conout << "RENOVICE custom systems failed closed because configuration initialization failed." << std::endl;
 		return;
+	}
+	const auto swf_result = renovice::swf::initialise();
+	if (swf_result == renovice::swf::InitialiseResult::Failed)
+	{
+		conout << "RENOVICE SWF replacements failed closed; stock SWFs remain active." << std::endl;
 	}
 	const auto injection_result = renovice::injection::initialise();
 	if (injection_result == renovice::injection::InitialiseResult::Failed)

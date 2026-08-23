@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "injection_core.hpp"
+#include "swf.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -570,6 +571,11 @@ void drain(luau_State* state)
 		if (reload && !config::reload())
 		{
 			conout << "RENOVICE F9 configuration reload rejected: previous flags retained" << std::endl;
+			snapshot_valid = false;
+		}
+		if (reload && snapshot_valid && !swf::reload())
+		{
+			conout << "RENOVICE F9 SWF reload rejected: previous snapshot retained" << std::endl;
 			snapshot_valid = false;
 		}
 		std::vector<Chunk> candidate;
