@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "injection_core.hpp"
+#include "riven.hpp"
 #include "swf.hpp"
 
 #include <algorithm>
@@ -576,6 +577,11 @@ void drain(luau_State* state)
 		if (reload && snapshot_valid && !swf::reload())
 		{
 			conout << "RENOVICE F9 SWF reload rejected: previous snapshot retained" << std::endl;
+			snapshot_valid = false;
+		}
+		if (reload && snapshot_valid && !riven::reload_gate())
+		{
+			conout << "RENOVICE F9 Riven gate reload rejected: previous gate retained" << std::endl;
 			snapshot_valid = false;
 		}
 		std::vector<Chunk> candidate;

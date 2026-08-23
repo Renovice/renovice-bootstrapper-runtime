@@ -3,6 +3,7 @@
 #include "renovice/config.hpp"
 #include "renovice/injection.hpp"
 #include "renovice/replacements.hpp"
+#include "renovice/riven.hpp"
 #include "renovice/swf.hpp"
 
 #define VERIFY_EXE_SIG false
@@ -2963,6 +2964,10 @@ static SOUP_FORCEINLINE void create_all_hooks()
 	if (swf_result == renovice::swf::InitialiseResult::Failed)
 	{
 		conout << "RENOVICE SWF replacements failed closed; stock SWFs remain active." << std::endl;
+	}
+	if (!renovice::riven::initialise())
+	{
+		conout << "RENOVICE Riven lock failed closed; stock Riven UI remains active." << std::endl;
 	}
 	const auto injection_result = renovice::injection::initialise();
 	if (injection_result == renovice::injection::InitialiseResult::Failed)
