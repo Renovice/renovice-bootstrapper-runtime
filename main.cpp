@@ -1,5 +1,6 @@
 #include "main.hpp"
 
+#include "renovice/config.hpp"
 #include "renovice/injection.hpp"
 #include "renovice/replacements.hpp"
 
@@ -2952,6 +2953,11 @@ static soup::Pattern hash_to_pattern(uint32_t hash1, uint32_t hash2)
 
 static SOUP_FORCEINLINE void create_all_hooks()
 {
+	if (!renovice::config::initialise())
+	{
+		conout << "RENOVICE custom systems failed closed because configuration initialization failed." << std::endl;
+		return;
+	}
 	const auto injection_result = renovice::injection::initialise();
 	if (injection_result == renovice::injection::InitialiseResult::Failed)
 	{

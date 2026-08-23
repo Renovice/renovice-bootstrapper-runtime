@@ -1,5 +1,6 @@
 #include "injection.hpp"
 
+#include "config.hpp"
 #include "injection_core.hpp"
 
 #include <algorithm>
@@ -125,7 +126,7 @@ bool read_file(const std::filesystem::path& path, std::vector<unsigned char>& by
 
 bool scan_snapshot(std::vector<Chunk>& snapshot)
 {
-	const auto directory = std::filesystem::path("OpenWF") / "CustomScripts" / "Inject";
+	const auto& directory = config::injection_directory();
 	std::error_code ec;
 	std::filesystem::create_directories(directory, ec);
 	if (ec)
@@ -566,8 +567,13 @@ void drain(luau_State* state)
 	bool snapshot_valid = true;
 	if (reload || region)
 	{
+		if (reload && !config::reload())
+		{
+			conout << "RENOVICE F9 configuration reload rejected: previous flags retained" << std::endl;
+			snapshot_valid = false;
+		}
 		std::vector<Chunk> candidate;
-		snapshot_valid = scan_snapshot(candidate);
+		snapshot_valid = snapshot_valid && scan_snapshot(candidate);
 		if (snapshot_valid)
 		{
 			active_chunks = std::move(candidate);

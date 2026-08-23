@@ -1,5 +1,6 @@
 #include "replacements.hpp"
 
+#include "config.hpp"
 #include "injection.hpp"
 
 #include <cctype>
@@ -170,7 +171,7 @@ long long undump_detour(
 InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 {
 	std::unordered_map<std::uint64_t, std::vector<unsigned char>> snapshot;
-	if (!load_snapshot(std::filesystem::path("OpenWF") / "CustomScripts", snapshot))
+	if (!load_snapshot(config::custom_scripts_directory(), snapshot))
 	{
 		return InitialiseResult::Failed;
 	}
