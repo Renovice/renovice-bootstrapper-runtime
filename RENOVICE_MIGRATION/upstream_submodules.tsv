@@ -1,0 +1,6 @@
+name	path	url	commit	verified_fresh_recursive_checkout
+Pluto	modules/Pluto	https://github.com/PlutoLang/Pluto	2ea6fd9398d6eaccb8fec283f8ce2005579a59c0	yes
+Soup	modules/Soup	https://github.com/calamity-inc/Soup	b02796b0b20276277c8a4b4d3759643eeab43ff7	yes
+ee-notation-parser	modules/ee-notation-parser	https://github.com/Sainan/ee-notation-parser	fddb8d05b59c3e89778c9a69e0876ed3408f57bb	yes
+Translations	modules/owf-translations	https://onlyg.it/OpenWF/Translations	8e6d5ee3a7972a2f38e90d02ce55b0a830419be9	yes
+warframe-cache-tools	modules/warframe-cache-tools	https://github.com/Sainan/warframe-cache-tools	d5cfff2735e70285ae0f182cb91a6bc7e6566714	yes

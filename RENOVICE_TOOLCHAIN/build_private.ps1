@@ -1,0 +1,83 @@
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$repo = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot "bootstrap_tools.ps1")
+& (Join-Path $repo "RENOVICE_MIGRATION\verify_dependencies.ps1")
+& (Join-Path $repo "RENOVICE_MIGRATION\verify_manifest.ps1")
+
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path -LiteralPath $vswhere)) {
+    throw "Visual Studio vswhere.exe was not found"
+}
+$vsPath = (& $vswhere -latest -version "[17.0,18.0)" -products "*" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+$vsId = (& $vswhere -latest -version "[17.0,18.0)" -products "*" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property instanceId).Trim()
+if ([string]::IsNullOrWhiteSpace($vsPath) -or [string]::IsNullOrWhiteSpace($vsId)) {
+    throw "Visual Studio 2022 with x64 C++ tools was not found"
+}
+Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
+Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
+
+$sunExe = Join-Path $PSScriptRoot "bin\Sun-0.5.0\Sun.exe"
+$phpExe = Join-Path $PSScriptRoot "bin\PHP-8.0.30\php.exe"
+$env:PATH = "C:\msys64\ucrt64\bin;$(Split-Path -Parent $phpExe);$(Split-Path -Parent $sunExe);$env:PATH"
+
+foreach ($tool in @("clang", "llvm-ar", "lld-link", "cl", "dumpbin")) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        throw "Required build tool is missing: $tool"
+    }
+}
+if ((clang --version | Select-Object -First 1) -notmatch "20\.1\.8") {
+    throw "Certified Clang 20.1.8 is not active"
+}
+
+$evidence = Join-Path $repo "RENOVICE_MIGRATION\evidence"
+New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+$archiveLog = Join-Path $evidence "baseline_private_archive_output.txt"
+$buildLog = Join-Path $evidence "baseline_private_msvc_build_output.txt"
+
+Push-Location $repo
+try {
+    $archiveOutput = @(& $phpExe archive.php 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    [System.IO.File]::WriteAllLines($archiveLog, $archiveOutput, [System.Text.UTF8Encoding]::new($false))
+    if ($LASTEXITCODE -ne 0) {
+        throw "Archive generation failed: $LASTEXITCODE"
+    }
+    $archiveOutput | Write-Output
+
+    $buildOutput = @(& $sunExe _renovice_private_msvc 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    [System.IO.File]::WriteAllLines($buildLog, $buildOutput, [System.Text.UTF8Encoding]::new($false))
+    if ($LASTEXITCODE -ne 0) {
+        throw "Private build failed: $LASTEXITCODE"
+    }
+    $buildOutput | Write-Output
+}
+finally {
+    Pop-Location
+}
+
+$patterns = "(?i)(^|\s)(warning|deprecated|error|fatal):|failed to find program|errors? generated"
+$archiveIssues = @(Select-String -LiteralPath $archiveLog -Pattern $patterns -CaseSensitive:$false)
+$buildIssues = @(Select-String -LiteralPath $buildLog -Pattern $patterns -CaseSensitive:$false)
+if ($archiveIssues.Count -ne 0 -or $buildIssues.Count -ne 0) {
+    $archiveIssues | ForEach-Object { Write-Error $_.Line }
+    $buildIssues | ForEach-Object { Write-Error $_.Line }
+    throw "Build output issue gate failed: archive=$($archiveIssues.Count) build=$($buildIssues.Count)"
+}
+
+$dll = Join-Path $repo "wtsapi32.dll"
+if (-not (Test-Path -LiteralPath $dll)) {
+    throw "Expected wtsapi32.dll was not produced"
+}
+$headers = @(dumpbin /headers $dll 2>&1)
+$dependents = @(dumpbin /dependents $dll 2>&1)
+if (-not ($headers -match "8664 machine \(x64\)")) {
+    throw "Output DLL is not x64"
+}
+if ($dependents -match "wtsapi32_owf\.dll") {
+    throw "Output unexpectedly imports the legacy companion DLL"
+}
+
+$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $dll).Hash.ToLowerInvariant()
+$size = (Get-Item -LiteralPath $dll).Length
+Write-Host "PRIVATE BUILD PASS warnings=0 errors=0 x64=yes companion_import=no bytes=$size sha256=$hash"

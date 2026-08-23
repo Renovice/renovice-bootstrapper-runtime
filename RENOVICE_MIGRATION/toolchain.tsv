@@ -1,0 +1,7 @@
+component	version_or_commit	source	archive_sha256	binary_sha256	purpose
+Sun	0.5.0	https://github.com/calamity-inc/Sun/releases/tag/0.5.0	3c2c83ed03e3bb3eeebeb39d556e7e5a258815c998f740c85af7ecb5600f083e	79e2178af1b27f3daa09909a5776920db82715ca1f1c32b11457363ccbdb8b00	OpenWF build orchestrator
+PHP	8.0.30 NTS x64	https://windows.php.net/downloads/releases/archives/	dfb70498ffa2c617f2f655a155564697e3c9cca41709938fd1a5997d1d5b0785	5f545f6578a3c9b094b5f0b3b9deb96941d4db21358b37acd673a1245eb15801	archive.php and translation generation
+Clang/LLVM	20.1.8-2	MSYS2 UCRT64 packages	N/A	clang.exe 3599f6d1cc1d3dd16fdfe587a942a88b5eee53d81b297cade9f5d12470c146c7	C++ compiler with explicit MSVC target
+LLVM ar	20.1.8-2	MSYS2 UCRT64 packages	N/A	dedbecaa1627ed08ee11e67667fc4ad1952a7e17ed712767ad7b21abf37e527b	static dependency archives
+LLD link	20.1.8-2	MSYS2 UCRT64 packages	N/A	c96fa4fae64c0d524bb3a00f33b3d88516b99e8b23af929d9e73bceed7d3be6f	MSVC-target PE linker
+MSVC/Windows SDK	MSVC 19.44.35227 / VS 2022 17.14.33	Visual Studio Community 2022	N/A	N/A	Windows ABI headers libraries and developer environment

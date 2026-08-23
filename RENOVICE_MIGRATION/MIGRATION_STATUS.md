@@ -14,23 +14,32 @@ Updated: 2026-08-23
   feature.
 - [x] Defined twelve single-DLL acceptance requirements.
 - [x] Added a manifest verifier and project-specific preservation rules.
+- [x] Identified the authoritative source as `Sainan/warframe-dll` commit
+  `756bdc17aa9edf61df8204f901cdfff37b47db57`.
+- [x] Proved all 93 copied non-submodule files match that commit after only
+  CRLF/LF normalization.
+- [x] Restored the five exact upstream submodule gitlinks and verified them
+  through a fresh recursive clone.
+- [x] Established a pinned local toolchain and warning/error-gated build script.
+- [x] Built the unedited private source successfully as an x64 `wtsapi32.dll`
+  with zero warning/error lines and no companion-DLL import.
 
 ## Current hard boundary
 
-No production custom implementation has been ported yet. The source snapshot's
-five submodule directories are empty and the snapshot has no git metadata, so a
-reproducible normal-source build is not yet established. Using arbitrary latest
-submodules would invalidate the baseline.
+No production custom implementation has been ported yet. Dependency recovery
+and the offline normal-source build are complete. The new DLL has not been
+deployed or live-tested, so the known-good two-DLL game installation remains the
+runtime recovery baseline.
 
 ## Next job
 
-- [ ] Recover or deliberately establish compatible pinned commits for Pluto,
-  Soup, Translations, ee-notation-parser, and warframe-cache-tools.
-- [ ] Produce an unedited source build and record compiler, flags, warnings,
-  artifact hash, and whether it loads against an isolated test copy.
-- [ ] Implement the version-43 compatibility data and root-cause the two
+- [ ] Compare the normal source against the custom proxy by feature family and
+  port the version-43 compatibility data first.
+- [ ] Root-cause the two
   formerly bypassed mandatory scans.
-- [ ] Only after normal source parity, extract `LR-001` through `LI-012` behind
+- [ ] Run an isolated live load/login/mission smoke test before treating the
+  new source-built baseline as runtime-compatible.
+- [ ] After normal source parity, extract `LR-001` through `LI-012` behind
   source feature gates without changing behavior.
 
 The future Hot/addon transaction starts after the existing loader and additive

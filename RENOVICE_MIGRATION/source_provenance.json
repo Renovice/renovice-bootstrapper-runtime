@@ -11,7 +11,17 @@
   "aggregate_algorithm": "sha256 over sorted utf8 lines: relative/path<TAB>length<TAB>lowercase_sha256<LF>",
   "aggregate_sha256": "7aad69b6a5c08d30c4da82619855c34a331b1b4d7dd91ab76ee55f44210a7bcf",
   "source_git_metadata_present": false,
-  "submodule_directories_populated": false,
-  "build_reproducible": false,
-  "notes": "Exact source snapshot copied without altering the original. Missing git metadata means submodule commit pins must be recovered or deliberately established before the first authoritative build."
+  "authoritative_upstream": "https://github.com/Sainan/warframe-dll",
+  "authoritative_upstream_commit": "756bdc17aa9edf61df8204f901cdfff37b47db57",
+  "upstream_non_submodule_file_count": 93,
+  "upstream_normalized_content_differences": 0,
+  "submodule_directories_populated": true,
+  "submodule_pins_verified_by_fresh_recursive_checkout": true,
+  "build_reproducible": true,
+  "baseline_private_build_exit": 0,
+  "baseline_private_build_issue_lines": 0,
+  "baseline_private_dll_size": 3842560,
+  "baseline_private_dll_sha256": "dfc28b9f29a869da96c1efc91679a92ed3e76e0942c15119e7273c344bd13746",
+  "baseline_private_dll_live_tested": false,
+  "notes": "The source export is content-identical to Sainan/warframe-dll commit 756bdc17 after line-ending normalization. Exact upstream gitlinks were restored. The private MSVC-target baseline builds warning-free; its archive timestamp makes artifact hashes intentionally non-deterministic between runs."
 }

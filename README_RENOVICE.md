@@ -20,10 +20,15 @@ normal source snapshot found zero differences. The canonical aggregate hash is
 recorded in `RENOVICE_MIGRATION/source_provenance.json`; per-file hashes are in
 `RENOVICE_MIGRATION/baseline_files.tsv`.
 
-The supplied snapshot has `.gitmodules` but no `.git` metadata and its five
-submodule directories are empty. Therefore it is a source snapshot, not yet a
-reproducible build checkout. Do not populate those directories from arbitrary
-latest branches: recover or establish explicit compatible commits first.
+The source export was matched to `Sainan/warframe-dll` commit `756bdc17...`.
+Its five exact gitlinks are restored as real submodules and a fresh recursive
+clone reproduced every pin. The upstream and build proof is documented in
+`RENOVICE_MIGRATION/UPSTREAM_AND_BUILD_BASELINE.md`.
+
+An unedited private MSVC-target build now completes with zero warning/error
+lines and produces an x64 `wtsapi32.dll` with no legacy companion import. This
+is an offline build result, not permission to deploy it and not yet a live-game
+parity claim.
 
 ## Preservation rule
 
@@ -42,8 +47,20 @@ powershell -ExecutionPolicy Bypass -File RENOVICE_MIGRATION\verify_manifest.ps1
 
 This checks manifest structure, unique feature IDs, valid states and risks,
 source-file existence, line anchors, migration targets, and required parity
-tests. It does not claim that the source tree currently builds or has completed
-the migration.
+tests. Check dependency pins with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File RENOVICE_MIGRATION\verify_dependencies.ps1
+```
+
+Build the private baseline without deploying it with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File RENOVICE_TOOLCHAIN\build_private.ps1
+```
+
+These checks establish the normal-source baseline. They do not claim that the
+custom migration or its live-game parity is complete.
 
 ## Target layout
 

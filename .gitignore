@@ -14,3 +14,5 @@ OpenWF/cert/cert.pem
 *.log
 RENOVICE_MIGRATION/local/
 renovice/generated/
+RENOVICE_TOOLCHAIN/downloads/
+RENOVICE_TOOLCHAIN/bin/
