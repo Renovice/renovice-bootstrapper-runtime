@@ -1,0 +1,223 @@
+TOOLCHAIN PASS Sun=0.5.0 PHP=8.0.30 LLVM=20.1.8-2
+DEPENDENCY PASS submodules=5 source_commit=756bdc17aa9edf61df8204f901cdfff37b47db57
+MANIFEST PASS features=47 required=43 deployed=33 experimental=7 disabled=2 patched_companion=5 critical=27 targets=12
+CALLBACK RUNTIME PASS source-only, stock composition, varargs/nil returns, reassignment, reversed order, failed prepare, isolation, yield, stock error
+[derecomp] recompile C:\Users\Bartek\OneDrive\Dokumenter\Warframe RE PROJECT RENOVICE\repos\runtime\bootstrapper-runtime\RENOVICE_TOOLCHAIN\injection\callback_runtime.luau -> C:\Users\Bartek\OneDrive\Dokumenter\Warframe RE PROJECT RENOVICE\repos\runtime\bootstrapper-runtime\RENOVICE_TOOLCHAIN\injection\generated\callback_runtime.lua_B : 702 bytes, nps=11, re-parses=yes, hashed-globals=0, hashed-fields=0
+nps=11   consts re-encode exact: 11/11  FULL BODY identical: True
+SIR proto=0 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=1 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=2 status=VERIFIED blocks=1 effects=4 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=3 status=VERIFIED blocks=5 effects=5 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=4 status=VERIFIED blocks=1 effects=1 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=5 status=VERIFIED blocks=1 effects=1 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=6 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=7 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=8 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=9 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=10 status=VERIFIED blocks=1 effects=16 loops=0 adapter_failures=0 verifier_failures=0
+CALLBACK EMBED PASS bytes=702 sha256=527D4F4322F51CF6CE2AE4770CD2AEB4CFF616EA2FB77938BFF4DE3FB461E383
+[derecomp] recompile C:\Users\Bartek\OneDrive\Dokumenter\Warframe RE PROJECT RENOVICE\repos\runtime\bootstrapper-runtime\RENOVICE_SCRIPTING\INTERNAL\ScriptsSettingsBridgeV10.luau -> C:\Users\Bartek\OneDrive\Dokumenter\Warframe RE PROJECT RENOVICE\repos\runtime\bootstrapper-runtime\RENOVICE_SCRIPTING\INTERNAL\_RENOVICE_INTERNAL_ScriptsSettingsBridgeV10.lua_B : 1111 bytes, nps=5, re-parses=yes, hashed-globals=0, hashed-fields=0
+nps=5    consts re-encode exact: 5/5  FULL BODY identical: True
+SEMANTIC_PLAN proto=0 status=MANIFEST_OK reachable_blocks=1 edges=1 predicates=0 effects=2 loops=0 failures=0
+SEMANTIC_PLAN proto=1 status=MANIFEST_OK reachable_blocks=10 edges=15 predicates=5 effects=21 loops=0 failures=0
+SEMANTIC_PLAN proto=2 status=MANIFEST_OK reachable_blocks=1 edges=1 predicates=0 effects=2 loops=0 failures=0
+SEMANTIC_PLAN proto=3 status=MANIFEST_OK reachable_blocks=3 edges=4 predicates=1 effects=2 loops=0 failures=0
+SEMANTIC_PLAN proto=4 status=MANIFEST_OK reachable_blocks=1 edges=1 predicates=0 effects=10 loops=0 failures=0
+SIR proto=0 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=1 status=VERIFIED blocks=10 effects=21 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=2 status=VERIFIED blocks=1 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=3 status=VERIFIED blocks=3 effects=2 loops=0 adapter_failures=0 verifier_failures=0
+SIR proto=4 status=VERIFIED blocks=1 effects=10 loops=0 adapter_failures=0 verifier_failures=0
+SEMANTIC_IR_RENDER_MODULE root=4 prototypes=5 status=RENDERED bytes=4145 output=C:\Users\Bartek\OneDrive\Dokumenter\Warframe RE PROJECT RENOVICE\repos\runtime\bootstrapper-runtime\RENOVICE_SCRIPTING\INTERNAL\ScriptsSettingsBridgeV10.semantic.luau
+[1/2] DE compile/reparse check
+[derecomp] recompile C:\Users\Bartek\AppData\Local\Temp\wf_api_check_14130_6672.luau -> NUL : 1111 bytes, nps=5, re-parses=yes, hashed-globals=0, hashed-fields=0
+[2/2] Focused Warframe API contract check
+REGISTRY contracts=37 evidence_ids=13 negative_contracts=6 core_apis=150 high_confidence_apis=100 catalog_deep_contracts=20
+VERIFIED line=8 call=IsNull args=1 contract=IsNull confidence=STOCK_BYTECODE
+VERIFIED line=8 call=IsNull args=1 contract=IsNull confidence=STOCK_BYTECODE
+VERIFIED line=14 call=PushChildMovie args=1 contract=UIMovie:PushChildMovie confidence=LIVE_CONFIRMED
+VERIFIED line=15 call=IsNull args=1 contract=IsNull confidence=STOCK_BYTECODE
+VERIFIED line=21 call=Close args=0 contract=UIMovie:Close confidence=LIVE_CONFIRMED
+VERIFIED line=31 call=Close args=0 contract=UIMovie:Close confidence=LIVE_CONFIRMED
+VERIFIED line=39 call=Execute args=2 contract=UIMovie:Execute confidence=LIVE_CONFIRMED
+VERIFIED line=40 call=Execute args=2 contract=UIMovie:Execute confidence=LIVE_CONFIRMED
+VERIFIED line=45 call=Execute args=2 contract=UIMovie:Execute confidence=LIVE_CONFIRMED
+VERIFIED line=46 call=Execute args=2 contract=UIMovie:Execute confidence=LIVE_CONFIRMED
+VERIFIED line=47 call=Execute args=2 contract=UIMovie:Execute confidence=LIVE_CONFIRMED
+VERIFIED line=48 call=Execute args=2 contract=UIMovie:Execute confidence=LIVE_CONFIRMED
+VERIFIED line=49 call=Execute args=2 contract=UIMovie:Execute confidence=LIVE_CONFIRMED
+SUMMARY contract_verified=13 catalog_matched=0 catalog_high_confidence=0 violations=0 unverified_calls=0 unverified_unique=0 strict_unknown=no
+[wf_api] focused script check PASS - perform the in-game test next
+SCRIPTS UI BRIDGE PASS bytes=1111 sha256=153E5E580FB0D98DDD63C0DE92D46398F6B87B721E69B51885719B50EEF04C82
+PASS addon stable id is case-normalized
+PASS replacement stable id preserves annotation
+PASS uppercase target-addon filename receives canonical player label
+PASS camel-case target-addon filename receives the same canonical label
+PASS legacy hook shim is never described as a player feature
+PASS internal hook-shim convention is generic and backward compatible
+PASS Octavia Amp label uses canonical feature-description wording
+PASS Riven label identifies both the system and changed behavior
+PASS Metronome label corrects the typo and states the changed behavior
+PASS unknown future scripts retain generic filename normalization
+PASS target addon is visibly grouped under the player-facing addon type
+PASS replacement is visibly identified without changing its loader identity
+PASS one-shot scripts are visibly distinguished from persistent policies
+PASS native toggle false option is OFF
+PASS native toggle true option is ON
+PASS valid persisted id accepted
+PASS control characters rejected
+PASS multiple pending requests are preserved in the next policy
+PASS complete semantic fingerprint accepted
+PASS incomplete semantic fingerprint rejected
+PASS current Initialize and builder upvalue counts accepted
+PASS changed Initialize closure fails closed
+PASS changed builder closure fails closed
+PASS pinned zero-based ownership slots are explicit
+PASS runtime architecture marker identifies exact target-environment hooks
+PASS internal bridge filename is pinned and hidden from user script controls
+PASS only the exact infrastructure bridge is excluded from user rows
+PASS runtime classifies the exact internal bridge as managed infrastructure
+PASS Scripts UI attachment requires both the runtime and internal bridge
+PASS missing runtime or bridge preserves the stock TopMenu
+PASS Lua NAMECALL bridge requires function, parent, and settings resource
+PASS Lua NAMECALL bridge fails closed when any prerequisite is absent
+PASS native provider accepts a present numeric CHECKBOX enum
+PASS missing or nonnumeric CHECKBOX provider argument fails closed
+PASS native checkbox value plus mSetting identifier are accepted
+PASS incomplete checkbox value callback arguments fail closed
+PASS Generic Settings nil completion flag commits staged changes
+PASS Generic Settings true completion flag identifies the alternate close route
+PASS malformed completion callback shapes fail closed
+PASS both recognized Generic Settings close routes apply staged changes
+PASS empty closes and malformed completion shapes never request an apply
+PASS Lua owner environment and userdata movie enable callback capture
+PASS incomplete callback movie ownership fails closed
+PASS runtime clone accepts exact VM and root proto with instance environment
+PASS runtime clone rejects another VM
+PASS runtime clone rejects another root proto
+PASS runtime clone rejects missing instance environment
+PASS first exact TopMenu instance requires attachment
+PASS reopened exact TopMenu instance is never suppressed by prior attachment
+PASS unrelated roots stay rejected after a prior attachment
+PASS published Initialize accepts exact TopMenu ownership
+PASS published Initialize rejects another module environment
+PASS published Initialize rejects non-Lua values
+PASS published Initialize rejects changed closure shape
+PASS published exact VM and root proto accept TopMenu execution
+PASS unpublished and unrelated VM roots reject without fallback probing
+PASS published mMenuOptions plus owned Initialize enables attachment
+PASS Initialize without published mMenuOptions cannot attach early
+PASS successful exact root execution enables decoration
+PASS nested execution cannot decorate the pause module
+PASS failed root execution cannot decorate the pause module
+PASS unrecorded module identity cannot decorate the pause module
+PASS successful exact VM root return enables decoration
+PASS nested VM closure cannot decorate the pause module
+PASS unassociated VM root cannot decorate the pause module
+PASS non-returning VM execution cannot decorate the pause module
+PASS safe runtime tick accepts exact VM owner at outer host return
+PASS safe runtime tick rejects another VM or owner thread
+PASS safe runtime tick rejects nested, non-outer, and recursive execution
+PASS safe runtime tick interval is deterministic and inclusive
+PASS settings reload diagnostics classify accepted and blocked boundaries
+PASS Lua-free F9 poll accepts any outer return only on the exact owner thread
+PASS pinned current TopMenu bytecode readable
+PASS pinned current TopMenu satisfies exact runtime fingerprint
+SCRIPTS UI CORE PASS checks=74
+SAFE RUNTIME TICK SOURCE PASS renovice_pending_only=yes native_application_frame_pluto=yes stock_UpdateFlashMarkers=yes upstream_bgscript_sha256=DC072A9E16937160A4F7DD6AB9A8B89077E3BE137362263ABF813282A2FDD015 renovice_drain_in_pluto_tick=no exact_ui_vm=yes owner_thread=yes idle_base_ci=yes recursion_guard=scoped f9_latch_any_owner_vm=yes explicit_reload_unthrottled=yes blocked_reason_diagnostics=yes exact_T_rebind=yes
+PRIVATE BUILD CACHE CLEAN PASS path=C:\Users\Bartek\OneDrive\Dokumenter\Warframe RE PROJECT RENOVICE\repos\runtime\bootstrapper-runtime\int
+OpenWF/bgscript.pluto -> OpenWF/bgscript.pluto
+OpenWF/bootstrapper-manual.html -> OpenWF/Reference Manual.html
+OpenWF/Download Latest DLL.ps1 -> OpenWF/Download Latest DLL.ps1 [unchanged]
+OpenWF/Download Latest DLL.sh -> OpenWF/Download Latest DLL.sh [unchanged]
+OpenWF/favicon.png -> OpenWF/favicon.png [unchanged]
+OpenWF/hash_to_code_version.json -> OpenWF/hash_to_code_version.json [minified]
+OpenWF/Hotkeys.json -> OpenWF/Hotkeys.json
+OpenWF/index.html -> OpenWF/index.html
+OpenWF/Label Replacements.pluto -> OpenWF/Label Replacements.pluto
+OpenWF/Metadata Patches.txt -> OpenWF/Metadata Patches.txt
+OpenWF/runtime.pluto -> OpenWF/runtime.pluto
+OpenWF/Script API Reference.pluto -> OpenWF/Script API Reference.pluto
+OpenWF/tunables.json -> OpenWF/tunables.json [minified]
+OpenWF/cert/cert.pem -> OpenWF/cert/cert.pem
+OpenWF/cert/key.pem -> OpenWF/cert/key.pem
+OpenWF/helpers/load_metadata_patches.pluto -> OpenWF/helpers/load_metadata_patches.pluto
+OpenWF/helpers/post_apply_hotfix.pluto -> OpenWF/helpers/post_apply_hotfix.pluto [unchanged]
+OpenWF/helpers/pre_load_hotkeys.pluto -> OpenWF/helpers/pre_load_hotkeys.pluto
+OpenWF/helpers/pre_load_label_replacements.pluto -> OpenWF/helpers/pre_load_label_replacements.pluto
+OpenWF/lib/websocket.pluto -> OpenWF/lib/websocket.pluto
+modules/warframe-cache-tools/lib/cachelib.pluto -> OpenWF/lib/cachelib.pluto [unchanged]
+OpenWF/samples/Auto Teleport to Waypoint.pluto -> OpenWF/samples/Auto Teleport to Waypoint.pluto [unchanged]
+OpenWF/samples/Become The Stalker.pluto -> OpenWF/samples/Become The Stalker.pluto [unchanged]
+OpenWF/samples/Chat Commands.pluto -> OpenWF/samples/Chat Commands.pluto [unchanged]
+OpenWF/samples/Complete Wave or Mission.pluto -> OpenWF/samples/Complete Wave or Mission.pluto [unchanged]
+OpenWF/samples/Cycle Camera.pluto -> OpenWF/samples/Cycle Camera.pluto [unchanged]
+OpenWF/samples/Detailed Enemy HP.pluto -> OpenWF/samples/Detailed Enemy HP.pluto
+OpenWF/samples/Enter Simulacrum.pluto -> OpenWF/samples/Enter Simulacrum.pluto [unchanged]
+OpenWF/samples/First Person View.pluto -> OpenWF/samples/First Person View.pluto
+OpenWF/samples/Freecam Teleport on Disable.pluto -> OpenWF/samples/Freecam Teleport on Disable.pluto [unchanged]
+OpenWF/samples/Freecam Up Down.pluto -> OpenWF/samples/Freecam Up Down.pluto [unchanged]
+OpenWF/samples/Godmode.pluto -> OpenWF/samples/Godmode.pluto [unchanged]
+OpenWF/samples/Increase Damage.pluto -> OpenWF/samples/Increase Damage.pluto [unchanged]
+OpenWF/samples/Kill All Enemies.pluto -> OpenWF/samples/Kill All Enemies.pluto [unchanged]
+OpenWF/samples/Loot Party.pluto -> OpenWF/samples/Loot Party.pluto [unchanged]
+OpenWF/samples/No Ability Cooldowns.pluto -> OpenWF/samples/No Ability Cooldowns.pluto
+OpenWF/samples/Noclip.pluto -> OpenWF/samples/Noclip.pluto
+OpenWF/samples/Settings.pluto -> OpenWF/samples/Settings.pluto
+OpenWF/samples/Speedometer.pluto -> OpenWF/samples/Speedometer.pluto [unchanged]
+OpenWF/samples/Wallhack.pluto -> OpenWF/samples/Wallhack.pluto
+OpenWF/samples/Watermark.pluto -> OpenWF/samples/Watermark.pluto [unchanged]
+OpenWF/vv/default_windowMode.json -> OpenWF/vv/default_windowMode.json [minified]
+OpenWF/vv/game_versions.json -> OpenWF/vv/game_versions.json [minified]
+OpenWF/vv/wf_fnv_2_initial.json -> OpenWF/vv/wf_fnv_2_initial.json [minified]
+OpenWF/vv/off/GameHttpRequest_body.json -> OpenWF/vv/off/GameHttpRequest_body.json [minified]
+OpenWF/vv/off/luau_GlobalState_error_longjump_data.json -> OpenWF/vv/off/luau_GlobalState_error_longjump_data.json [minified]
+OpenWF/vv/off/luau_GlobalState_panic_func.json -> OpenWF/vv/off/luau_GlobalState_panic_func.json [minified]
+OpenWF/vv/sig/check_string_substitutions.json -> OpenWF/vv/sig/check_string_substitutions.json [minified]
+OpenWF/vv/sig/Curl_ossl_verifyhost.json -> OpenWF/vv/sig/Curl_ossl_verifyhost.json [minified]
+OpenWF/vv/sig/irc_send_raw.json -> OpenWF/vv/sig/irc_send_raw.json [minified]
+OpenWF/vv/sig/ssl_verify_internal_caller.json -> OpenWF/vv/sig/ssl_verify_internal_caller.json [minified]
+OpenWF/vv/sig/verify_worldstate_integrity.json -> OpenWF/vv/sig/verify_worldstate_integrity.json [minified]
+modules/owf-translations/bootstrapper-core/de.cat.txt -> OpenWF/translations/core/de.cat.txt
+modules/owf-translations/bootstrapper-core/en.cat.txt -> OpenWF/translations/core/en.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-core/fr.cat.txt -> OpenWF/translations/core/fr.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-core/sl.cat.txt -> OpenWF/translations/core/sl.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-core/zh.cat.txt -> OpenWF/translations/core/zh.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-overlay/de.cat.txt -> OpenWF/translations/overlay/de.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-overlay/en.cat.txt -> OpenWF/translations/overlay/en.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-overlay/ja.cat.txt -> OpenWF/translations/overlay/ja.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/de.cat.txt -> OpenWF/translations/webui/de.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/en.cat.txt -> OpenWF/translations/webui/en.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/es.cat.txt -> OpenWF/translations/webui/es.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/fr.cat.txt -> OpenWF/translations/webui/fr.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/ru.cat.txt -> OpenWF/translations/webui/ru.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/sl.cat.txt -> OpenWF/translations/webui/sl.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/uk.cat.txt -> OpenWF/translations/webui/uk.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/zh.cat.txt -> OpenWF/translations/webui/zh.cat.txt [unchanged]
+>>> Hotfix.owf only contains files changed since tag 0.13.6
+>>> Hotfix.owf automatically versioned to 0.13.6 hotfix 3 (0.13.6-hotfix-3)
+>>> Processing dependency: soup
+Linking...
+>>> Processing dependency: Pluto
+>>> Processing dependency: soup
+>>> Now compiling Pluto
+Linking...
+>>> Now compiling wtsapi32
+swf
+script_control
+riven
+replacements
+injection
+config
+owf_web
+owf_tunables
+owf_scripting
+owf_repo
+owf_overlay
+owf_label_replacements
+owf_hotkeys
+owf_config
+owf_archive_data
+main
+Linking...
+PRIVATE BUILD PASS warnings=0 errors=0 x64=yes companion_import=no bytes=4431872 sha256=e3765a895fcab0989f9812ae56fedeb2840ba23573de870f62f12443839d15f8

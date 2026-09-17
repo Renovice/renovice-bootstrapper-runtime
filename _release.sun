@@ -2,6 +2,7 @@ name dwmapi
 dynamic
 +*.cpp
 +renovice/*.cpp
+-RENOVICE_DEPLOYMENTS/*.cpp
 require modules/Soup/soup
 require modules/Pluto/src
 arg -Wno-invalid-offsetof

@@ -15,6 +15,7 @@
 
 #include <winsock2.h>
 #include <windows.h>
+#include "diagnostic_read_probe.hpp"
 
 #include <DetourHook.hpp>
 #include <HttpRequest.hpp>
@@ -62,7 +63,7 @@ bool gate()
 
 bool readable(const void* pointer, std::size_t size) noexcept
 {
-	return pointer != nullptr && !IsBadReadPtr(pointer, size);
+	return pointer != nullptr && !diagnostics::bad_read_ptr(pointer, size);
 }
 
 bool writable(void* pointer, std::size_t size) noexcept

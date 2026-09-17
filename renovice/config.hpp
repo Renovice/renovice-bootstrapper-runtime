@@ -16,7 +16,12 @@ void discard_prepared_reload();
 const std::filesystem::path& custom_scripts_directory() noexcept;
 const std::filesystem::path& injection_directory() noexcept;
 Flags flags();
+DiagnosticsMode diagnostics_mode() noexcept;
+bool diagnostics_enabled() noexcept;
+bool memory_diagnostics_enabled() noexcept;
+void memory_log(std::string_view message) noexcept;
 
 void log(std::string_view message) noexcept;
 void verbose_log(std::string_view message) noexcept;
+void diagnostic_log(std::string_view message, DiagnosticsMode minimum_mode) noexcept;
 }

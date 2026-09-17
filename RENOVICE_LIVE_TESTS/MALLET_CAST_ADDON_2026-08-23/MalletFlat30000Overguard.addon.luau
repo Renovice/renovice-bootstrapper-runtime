@@ -1,4 +1,5 @@
-local global, shared = ...
+local global = ...
+local shared = _T
 if shared == nil then
     error("RENOVICE_MALLET_ADDON_SHARED_T_MISSING")
 end

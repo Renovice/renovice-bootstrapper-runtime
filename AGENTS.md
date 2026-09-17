@@ -1,8 +1,42 @@
 # RENOVICE bootstrapper repository instructions
 
+## User requirements for the addon API (2026-09-07)
+
+- Build a universal raw DE Luau addon API. An authored standalone addon in
+  `CustomScripts/Inject` must declare its target and hooks without adding
+  ability-specific C++ branches, generated base-script shims, or extra enabler
+  scripts. Mallet is a regression fixture, not the runtime architecture.
+- The injector loads DE bytecode into the game's DE Luau VM. Pluto is a
+  separate subsystem; do not describe it as the injector or conflate its
+  scheduler with addon attachment.
+- VM internals, closure/prototype ownership, and native call interception are
+  explicitly within scope. Investigate and fix them when needed. Generic
+  labels such as 'dangerous' or 'unsafe' are not reasons to avoid that work.
+  State concrete invariants, evidence, and actual failures instead.
+- Add correlated runtime diagnostics before requesting another gameplay test:
+  session/build, target, module/prototype registration, matching decision and
+  reason, callback installation, callback entry, arguments, dispatch, return,
+  and decoded errors. A missing event or early return must be distinguishable
+  from successful execution. Bound repeated logging and report suppression.
+- Card publication proves only card publication. Addon load proves only load.
+  Require callback and in-game effect evidence for gameplay acceptance, and
+  another unrelated target before claiming universal runtime validation.
+- Preserve the working replacement pipeline and existing usability. Read the
+  previous negative findings before proposing another attachment mechanism.
+
+Details: `RENOVICE_SCRIPTING/RESEARCH/UNIVERSAL_ADDON_API_REQUIREMENTS_2026-09-07.md`.
+
 This folder is the authoritative edited bootstrapper source. Do not modify the
-untouched source snapshot, `DLL_builder`, the installed `Warframe` folder, or
-deployed DLLs unless the user explicitly authorizes that separate action.
+untouched source snapshot, the recovery source at
+`archive/legacy-runtime/companion-dll-builder`, the installed `Warframe`
+folder, or deployed DLLs unless the user explicitly authorizes that separate
+action.
+
+Before investigating or changing the current script loader, F9 scheduler,
+SCRIPTS menu, replacement refresh, target addons, or search-crash boundary,
+read `RENOVICE_SCRIPTING/CURRENT_BOOTSTRAPPER_STATE.md`. It is the dated
+operational handoff for the deployed architecture; older V-numbered research
+records are evidence, not permission to restore a superseded design.
 
 Before changing custom behavior:
 

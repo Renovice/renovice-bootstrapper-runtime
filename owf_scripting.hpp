@@ -13,7 +13,9 @@
 inline soup::Mutex script_log_mtx;
 inline std::string script_log;
 
-inline uintptr_t ChatRedux_table = 0;
+// The cached ChatRedux table is rooted in the owning game VM registry. A raw
+// table pointer is not a GC root and becomes dangling when that UI is replaced.
+inline void* ChatRedux_global_state = nullptr;
 
 inline std::string active_input_filter;
 inline bool active_input_filter_allows_hotkeys;

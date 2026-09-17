@@ -1,5 +1,10 @@
 # RENOVICE managed addon and transactional F9 source port
 
+> **Superseded lifecycle note (2026-09-02):** Event-driven V18 retired the
+> bytecode-gap "region" heuristic. Managed addons now apply once at startup,
+> explicitly on F9, and at their exact natural target-module load. The older
+> AutoSpawn discussion below is retained as historical implementation evidence.
+
 ## Outcome
 
 The source now has a managed, generation-owned addon lifecycle that replaces
@@ -67,6 +72,13 @@ such as `AfterMalletDamage` can now be built on top of this contract, while
 direct native callback installation remains valid.
 
 ## F9 transaction
+
+When the active and candidate generic managed subsets have exact filename and
+byte identity and every expected lifecycle root is still owned, F9 retains
+those roots instead of executing duplicate loader closures. This decision does
+not skip the complete input scan and does not apply to changed generic managed
+addons, target-managed addons, replacements, or one-shots. The reload summary
+records `managed_generation=reused` or `managed_generation=replaced`.
 
 ```text
 F9 edge (no idle folder watcher)

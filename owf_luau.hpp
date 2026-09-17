@@ -18,6 +18,8 @@ union luau_Value
 	luau_GCObject* gc;
 };
 
+#include "owf_luau_type_tags.hpp"
+
 enum luau_Type
 {
 	LUAU_NIL = 0,
@@ -113,20 +115,43 @@ struct luau_CallInfo
 	luau_StkId base;
 	luau_StkId func;
 	luau_StkId top;
+	const std::uint32_t* savedpc;
+	int nresults;
+	unsigned int flags;
 };
+#if SOUP_BITS == 64
+// Live Amir's Shockwave client proof established the 0x28 stride. V65's
+// DamageDD ingress then proved that +0x18 is an instruction pointer and +0x20
+// is the packed nresults/flags tail. Keep every used field pinned so an ABI
+// drift fails at compile time instead of silently losing exact callsites.
+static_assert(sizeof(luau_CallInfo) == 0x28);
+static_assert(offsetof(luau_CallInfo, func) == 0x08);
+static_assert(offsetof(luau_CallInfo, savedpc) == 0x18);
+static_assert(offsetof(luau_CallInfo, nresults) == 0x20);
+static_assert(offsetof(luau_CallInfo, flags) == 0x24);
+#endif
 
 #define luau_savestack(L, p) ((char*)(p) - (char*)L->stack)
 #define luau_restorestack(L, n) ((luau_TValue*)((char*)L->stack + (n)))
 
 struct luau_State
 {
-	PAD(0, 0x08) luau_TValue* outtop;
+	/* 0x00 */ luau_CommonHeader;
+	/* 0x03 */ uint8_t status;
+	/* 0x04 */ uint8_t activememcat;
+	/* 0x05 */ bool isactive;
+	/* 0x06 */ bool singlestep;
+	PAD(0x07, 0x08) luau_TValue* outtop;
 	/* 0x10 */ luau_TValue* intop;
 	/* 0x18 */ luau_GlobalState* global_state;
 	/* 0x20 */ luau_CallInfo* ci;
 	/* 0x28 */ luau_TValue* stack_last;
 	/* 0x30 */ luau_TValue* stack;
-	PAD(0x38, 0x90);
+	/* 0x38 */ luau_CallInfo* end_ci;
+	/* 0x40 */ luau_CallInfo* base_ci;
+	PAD(0x48, 0x68) luau_GCObject* gclist;
+	PAD(0x70, 0x88) std::uint32_t interrupt_count;
+	PAD(0x8C, 0x90);
 
 	luau_TValue* getValue(int idx)
 	{
@@ -135,6 +160,10 @@ struct luau_State
 };
 #if SOUP_BITS == 64
 static_assert(sizeof(luau_State) == 0x90);
+static_assert(offsetof(luau_State, status) == 0x03);
+static_assert(offsetof(luau_State, outtop) == 0x08);
+static_assert(offsetof(luau_State, interrupt_count) == 0x88);
+static_assert(offsetof(luau_State, gclist) == 0x68);
 #endif
 
 struct luau_Closure

@@ -1,5 +1,9 @@
 # RENOVICE single-DLL migration architecture
 
+Current deployed implementation and regression boundaries are recorded in
+`../RENOVICE_SCRIPTING/CURRENT_BOOTSTRAPPER_STATE.md`. Read that handoff before
+using this older migration plan to change runtime behavior.
+
 ## Outcome
 
 The final artifact is one source-built `wtsapi32.dll` containing normal OpenWF

@@ -1,0 +1,15 @@
+TOPMENU FULL UI MAP VERIFICATION: PASS
+captured_sha256=D3279EE9A715B90BD078D9F614ACC691FD050E957212723541E5C92DD6639D94
+prototype_count=384
+semantic_verified=384
+menu_option_count=62
+initialize_upvalue_count=23
+closure_map_sites=381
+closure_map_failures=0
+closure_map_initialize=parent_383/child_132/proto_349/captures_23
+closure_map_initialize_u14=VAL:R144
+closure_map_initialize_u17=VAL:R150
+initialize_u14=BuildMenuOptions/global_proto_295/upvalues_59/maxstack_48
+initialize_u17=CreateList/global_proto_328/upvalues_12/maxstack_10
+de_roundtrip_exit=0
+nps=384  consts re-encode exact: 384/384  FULL BODY identical: True

@@ -93,14 +93,86 @@ remain open rather than being inferred from this pass.
 
 The later Mallet cast-addon experiment exposed two unproven assumptions in the
 deployed reload path: F9 sampled only the current key-down bit and could be
-suppressed by the ordinary UI hotkey filter, while addons received `_G` and
-then assumed `_G._T` was the module-global shared table. The source now latches
-quick F9 taps, keeps the transaction foreground/policy gated without the UI
-filter, passes VM-resolved `_T` explicitly as vararg two, and persistently logs
-queue, same-VM drain, lifecycle failure, rollback, and commit stages. All
-offline gates pass; this corrected DLL and the flat-Mallet addon still require
-the live sequence recorded in
-`F9_INPUT_AND_SHARED_T_BRIDGE_2026-08-23.md` before being called a runtime pass.
+suppressed by the ordinary UI hotkey filter, while the addon assumed `_G._T`
+was the module-global shared table. The source now latches quick F9 taps, keeps
+the transaction foreground/policy gated without the UI filter, and
+persistently logs queue, same-VM drain, lifecycle failure, rollback, and commit
+stages. A first attempt to synthesize `_T` from the callback-state global
+pseudo-index was live-refuted. Resolving bare `_T` from the loader-assigned
+addon environment then passed live: F9 committed the addon and the next Mallet
+cast granted exactly 30,000 Overguard. The addon was then removed, F9 committed
+generation 14 with `addons=0`, and the user confirmed the flat-on-cast behavior
+disappeared while the permanent Mallet replacement remained functional.
+
+The later ability-card pass live-proved the description override but refuted
+the proposed managed-addon row registry. F9 repeatedly reported `addons=1` and
+`module_refresh=PASS`, yet the screenshot still contained only the four stock
+bottom rows. The corrected editor contract is to generate more instances of
+Warframe's existing native row tables directly inside each ability's
+`GetAbilityUpgradeLevelInfo`, using the same source-of-truth formulas as
+gameplay. This correction is recorded under `RENOVICE_SCRIPTING/CARD_UI`.
+
+The first clean stock-BardMusic target-addon test then proved a common routing
+failure: target identity, addon activation, and both native method adapters
+loaded, but neither the card attachment nor damage attachment executed. This
+was not an addon formula failure. The card path incorrectly treated the native
+`SETGLOBAL` helper frame as the owner, and the damage path performed `ci - 1`
+with a 24-byte partial CallInfo declaration against the VM's 48-byte record.
+The source now identifies card ownership from the assigned Lua export closure,
+declares and statically asserts the complete CallInfo ABI, exposes
+`base_ci`/`end_ci`, and walks only bounded active Lua frames and live stack
+function slots. The corrected DLL and separate addon are deployed with zero
+BardMusic root replacements; corrected live card/gameplay acceptance is open.
+
+The next clean launch still produced no addon card rows. Its log proved the
+corrected ABI, target identity, addon generation, and native adapters loaded,
+but `GetAbilityUpgradeLevelInfo.attach` remained absent. The remaining issue
+was lifecycle order: the export is assigned inside the loader, before post-load
+identity recording and addon activation. The hook now carries the immediate
+target body key only across the real loader's dynamic extent, masks it across
+nested non-target loads, and decorates the initial export before post-load
+activation. Assigned-closure identity remains the later-refresh fallback. The
+new build is deployed with its predecessor preserved; live acceptance remains
+open rather than inferred from offline gates.
+
+The following clean launch disproved that loader-boundary refinement too. The
+fundamental error was treating VM `SETGLOBAL` bytecode as though it called the
+public Lua C API setter detoured by OpenWF. It does not, so the hook could never
+observe a script export. That experiment is removed. The current staged design
+decorates the actual exported field through the registry-root closure's proven
+module environment after load, verifies the wrapper by immediate field
+readback, and resolves `_T` from the original closure environment during card
+dispatch. The third-test client subsequently closed; this corrected DLL is now
+deployed with its setter-based predecessor preserved for rollback.
+
+That environment-decorator build then produced
+`card export attach FAIL reason=export-not-function`. Disassembly falsified a
+hashed-export theory: BardMusic writes its public functions through ordinary
+string-key `SETGLOBAL` constants. The real sequencing error was treating
+module load/undump completion as module execution completion. The current
+staged build hooks the resolved protected-call boundary, matches only the exact
+target root closure identity, lets stock initialization finish, and then
+decorates and readback-verifies the base export. Nested closures, unrelated
+modules, and RENOVICE's own protected calls cannot trigger it. Offline gates
+pass. The client was subsequently confirmed closed; the exact root-execution
+DLL and unchanged addon were deployed and hash-verified with zero BardMusic
+root replacements. Card and gameplay acceptance on the next launch remains
+open.
+
+The final live launch closed that acceptance as **FALSE**. The addon and exact
+target loaded, but Mallet granted no Overguard and its card contained no addon
+rows. An end-to-end audit of `ThemedAbilityProgression`, `AbilityList`,
+`ItemInfoPopup`, `StatCompare`, stock BardMusic, the corpus, and the live logs
+identified the architectural error: the card is a UI-owned synchronous
+`RunScript` request/result transaction, not a cached module-export event.
+`StatCompare` calls `GetAbilityUpgradeLevelInfo` twice (base and modded), then
+immediately consumes `_T.AbilityUpgradeLevelInfo` in the same UI state. The
+cached-environment/root-export and active-frame ownership models are retired.
+The next implementation job is observation-first recovery of the native
+`RunScript` boundary for card result composition, followed separately by an
+evidence-backed Mallet damage boundary such as `SetSourceObject`. The audit is
+under `DeNativeDecompiler (use this instead of native)/RESEARCH/ABILITY CARD
+UI/PIPELINE_AUDIT_2026-08-24`.
 
 ## Next job
 
@@ -117,9 +189,19 @@ the live sequence recorded in
 - [ ] Live-test SWF replacement, Riven gate off/on, config fallback, and a
   changed loaded full-module replacement applying on its next cast without a
   process restart, including stock restoration when its hash file is removed.
-- [ ] Live-prove the latched F9 input and explicit `_T` addon bridge with the
-  temporary flat-Mallet callback, then remove that temporary addon and commit
-  an empty addon generation.
+- [x] Live-prove the F9/shared-`_T` addon path end to end: add and activate the
+  temporary Mallet callback, observe exactly 30,000 Overguard on cast, remove
+  it, commit `addons=0`, and prove the temporary behavior disappeared without
+  disturbing the permanent replacement.
+- [x] Live-confirmed that direct native Mallet rows appear in the stock bottom
+  list after restart. The first custom localization paths rendered raw, so the
+  clean candidate now uses literal native labels and a number-free paragraph.
+- [ ] Deploy and live-prove the new per-VM F9 queue. Cross-VM contexts are now
+  retained and delivered only at their own VM/owner-thread loader boundary;
+  newer generations supersede stale pending work, nested loader re-entry is
+  blocked, and incomplete cross-VM delivery cannot report a generic PASS.
+  Offline replacement/injection/client/build gates pass; the staged DLL is
+  documented in `F9_MULTI_VM_REFRESH_2026-08-24.md`.
 - [ ] After the generic lifecycle is live-proven, add only evidence-backed
   convenience event APIs and decide whether `TG-006` in-place export tables are
   still needed.

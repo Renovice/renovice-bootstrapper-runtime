@@ -1,0 +1,73 @@
+verify_injection_core.cpp
+PASS	ten thousand zero callbacks sample 22 details; first positive results remain visible
+PASS	performance aggregation retains every callback duration and error despite detail sampling
+PASS	prototype graph includes grandchildren and shared descendants once
+PASS	cyclic prototype graph rejects every partial identity
+PASS	unreadable descendant rejects whole graph with exact failure address
+PASS	wrong DE prototype tag rejects graph
+PASS	prototype count and nesting limits reject rather than truncate
+PASS	null child rejects prototype ownership graph
+PASS	ordinary one-shot classification
+PASS	managed addon classification
+PASS	managed addon marker is case-insensitive
+PASS	target-managed addon takes precedence over the generic addon marker
+PASS	target-managed addon marker is case-insensitive
+PASS	target body-key discovery is independent of enabled policy
+PASS	target-managed addon binds to its exact original-body key
+PASS	target-managed addon rejects invalid keys and generic addon names
+PASS	persistent experiment classification
+PASS	persistent rejection marker is case-insensitive
+PASS	spawn experiment classification
+PASS	spawn rejection marker is case-insensitive
+PASS	spawn takes precedence like deployed runner
+PASS	case-insensitive bytecode extension
+PASS	chunk size boundaries
+PASS	live boundary accepted when it shares the captured manager VM
+PASS	missing or cross-VM execution boundary rejected
+PASS	DE VM return callback runs only for startup or explicit reload work
+PASS	idle VM ticks are Lua-free while startup and explicit reload retain VM work
+PASS	blocked reload boundaries expose their exact safety reason
+PASS	ordinary VM-local loader boundary may drain pending refreshes
+PASS	nested loader cannot re-enter an active RENOVICE VM transaction
+PASS	target addon activates only after a successful outer natural target load
+PASS	target addon generations are isolated by exact module key VM and owner thread
+PASS	target addon generation includes exact shared-table identity
+PASS	target addon maintenance reacts only to membership or exact _T generation drift
+PASS	target addon requires the exact readable borrowed module closure environment
+PASS	target hook accepts the exact module root and nested module closures
+PASS	target hook rejects cross-VM and unrelated module closures
+PASS	post-execution decorator accepts only exact module root execution
+PASS	native hook accepts one implementation with any number of aliases
+PASS	native hook rejects absent and ambiguous native implementations
+PASS	native damage adapter enables only when both semantic detours have trampolines
+PASS	native damage adapter rejects every partial two-detour bundle
+PASS	RunScript observer accepts only the synchronous ability-card query shape
+PASS	RunScript observer is transparent while disabled or re-entered
+PASS	RunScript observer rejects wrong arity asynchronous and non-boolean calls
+PASS	RunScript observer rejects missing query tables and missing ability identity
+PASS	RunScript observer distinguishes complete missing-result and ABI-drift outcomes
+PASS	RunScript diagnostic sampling is bounded while retaining synchronous candidates
+PASS	target binding observes every exact synchronous RunScript resource shape even before card query globals exist
+PASS	target script binding is captured only inside the exact RunScript VM and thread
+PASS	target script binding requires exact key VM and base-script resource identity
+PASS	content-keyed target addon owns afterDamage without an object matcher
+PASS	target addon accepts lifecycle-only injection with absent or unused optional hooks
+PASS	target addon rejects malformed hooks and unmatched card projections
+PASS	native damage detours are opt-in only when afterDamage is declared
+PASS	target execution scope requires an exact non-null VM and target key
+PASS	ability matcher accepts no match and same-target addons but rejects ambiguity
+PASS	active target call-stack walk accepts aligned bounded CallInfo frames only
+PASS	target refresh covers create replace and deletion cleanup transactions
+PASS	target refresh executes only at the exact VM and owner-thread boundary
+PASS	F9 release while unfocused rearms the next focused press
+PASS	F9 pressed outside Warframe cannot trigger on focus transfer
+PASS	latched F9 tap between DE ticks produces exactly one request
+PASS	held F9 low-bit key repeat cannot create another transaction
+PASS	latched F9 tap while unauthorized cannot trigger later
+PASS	managed generation cleanup activate release order
+PASS	cleanup rejection reactivates old generation and releases staged roots
+PASS	activation rejection cleans new behavior reactivates old and releases staged roots
+PASS	deleting every addon cleans and releases the old generation
+PASS	old-root release rejection reports fatal after new generation takes ownership
+PASS	failed old-generation reactivation escalates to rollback fatal
+INJECTION CORE PASS

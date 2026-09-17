@@ -1,8 +1,8 @@
 OpenWF/bgscript.pluto -> OpenWF/bgscript.pluto
 OpenWF/bootstrapper-manual.html -> OpenWF/Reference Manual.html
-OpenWF/Download Latest DLL.ps1 -> OpenWF/Download Latest DLL.ps1
-OpenWF/Download Latest DLL.sh -> OpenWF/Download Latest DLL.sh
-OpenWF/favicon.png -> OpenWF/favicon.png
+OpenWF/Download Latest DLL.ps1 -> OpenWF/Download Latest DLL.ps1 [unchanged]
+OpenWF/Download Latest DLL.sh -> OpenWF/Download Latest DLL.sh [unchanged]
+OpenWF/favicon.png -> OpenWF/favicon.png [unchanged]
 OpenWF/hash_to_code_version.json -> OpenWF/hash_to_code_version.json [minified]
 OpenWF/Hotkeys.json -> OpenWF/Hotkeys.json
 OpenWF/index.html -> OpenWF/index.html
@@ -14,31 +14,31 @@ OpenWF/tunables.json -> OpenWF/tunables.json [minified]
 OpenWF/cert/cert.pem -> OpenWF/cert/cert.pem
 OpenWF/cert/key.pem -> OpenWF/cert/key.pem
 OpenWF/helpers/load_metadata_patches.pluto -> OpenWF/helpers/load_metadata_patches.pluto
-OpenWF/helpers/post_apply_hotfix.pluto -> OpenWF/helpers/post_apply_hotfix.pluto
+OpenWF/helpers/post_apply_hotfix.pluto -> OpenWF/helpers/post_apply_hotfix.pluto [unchanged]
 OpenWF/helpers/pre_load_hotkeys.pluto -> OpenWF/helpers/pre_load_hotkeys.pluto
 OpenWF/helpers/pre_load_label_replacements.pluto -> OpenWF/helpers/pre_load_label_replacements.pluto
 OpenWF/lib/websocket.pluto -> OpenWF/lib/websocket.pluto
-modules/warframe-cache-tools/lib/cachelib.pluto -> OpenWF/lib/cachelib.pluto
-OpenWF/samples/Auto Teleport to Waypoint.pluto -> OpenWF/samples/Auto Teleport to Waypoint.pluto
-OpenWF/samples/Become The Stalker.pluto -> OpenWF/samples/Become The Stalker.pluto
-OpenWF/samples/Chat Commands.pluto -> OpenWF/samples/Chat Commands.pluto
-OpenWF/samples/Complete Wave or Mission.pluto -> OpenWF/samples/Complete Wave or Mission.pluto
-OpenWF/samples/Cycle Camera.pluto -> OpenWF/samples/Cycle Camera.pluto
+modules/warframe-cache-tools/lib/cachelib.pluto -> OpenWF/lib/cachelib.pluto [unchanged]
+OpenWF/samples/Auto Teleport to Waypoint.pluto -> OpenWF/samples/Auto Teleport to Waypoint.pluto [unchanged]
+OpenWF/samples/Become The Stalker.pluto -> OpenWF/samples/Become The Stalker.pluto [unchanged]
+OpenWF/samples/Chat Commands.pluto -> OpenWF/samples/Chat Commands.pluto [unchanged]
+OpenWF/samples/Complete Wave or Mission.pluto -> OpenWF/samples/Complete Wave or Mission.pluto [unchanged]
+OpenWF/samples/Cycle Camera.pluto -> OpenWF/samples/Cycle Camera.pluto [unchanged]
 OpenWF/samples/Detailed Enemy HP.pluto -> OpenWF/samples/Detailed Enemy HP.pluto
-OpenWF/samples/Enter Simulacrum.pluto -> OpenWF/samples/Enter Simulacrum.pluto
+OpenWF/samples/Enter Simulacrum.pluto -> OpenWF/samples/Enter Simulacrum.pluto [unchanged]
 OpenWF/samples/First Person View.pluto -> OpenWF/samples/First Person View.pluto
-OpenWF/samples/Freecam Teleport on Disable.pluto -> OpenWF/samples/Freecam Teleport on Disable.pluto
-OpenWF/samples/Freecam Up Down.pluto -> OpenWF/samples/Freecam Up Down.pluto
-OpenWF/samples/Godmode.pluto -> OpenWF/samples/Godmode.pluto
-OpenWF/samples/Increase Damage.pluto -> OpenWF/samples/Increase Damage.pluto
-OpenWF/samples/Kill All Enemies.pluto -> OpenWF/samples/Kill All Enemies.pluto
-OpenWF/samples/Loot Party.pluto -> OpenWF/samples/Loot Party.pluto
+OpenWF/samples/Freecam Teleport on Disable.pluto -> OpenWF/samples/Freecam Teleport on Disable.pluto [unchanged]
+OpenWF/samples/Freecam Up Down.pluto -> OpenWF/samples/Freecam Up Down.pluto [unchanged]
+OpenWF/samples/Godmode.pluto -> OpenWF/samples/Godmode.pluto [unchanged]
+OpenWF/samples/Increase Damage.pluto -> OpenWF/samples/Increase Damage.pluto [unchanged]
+OpenWF/samples/Kill All Enemies.pluto -> OpenWF/samples/Kill All Enemies.pluto [unchanged]
+OpenWF/samples/Loot Party.pluto -> OpenWF/samples/Loot Party.pluto [unchanged]
 OpenWF/samples/No Ability Cooldowns.pluto -> OpenWF/samples/No Ability Cooldowns.pluto
 OpenWF/samples/Noclip.pluto -> OpenWF/samples/Noclip.pluto
 OpenWF/samples/Settings.pluto -> OpenWF/samples/Settings.pluto
-OpenWF/samples/Speedometer.pluto -> OpenWF/samples/Speedometer.pluto
+OpenWF/samples/Speedometer.pluto -> OpenWF/samples/Speedometer.pluto [unchanged]
 OpenWF/samples/Wallhack.pluto -> OpenWF/samples/Wallhack.pluto
-OpenWF/samples/Watermark.pluto -> OpenWF/samples/Watermark.pluto
+OpenWF/samples/Watermark.pluto -> OpenWF/samples/Watermark.pluto [unchanged]
 OpenWF/vv/default_windowMode.json -> OpenWF/vv/default_windowMode.json [minified]
 OpenWF/vv/game_versions.json -> OpenWF/vv/game_versions.json [minified]
 OpenWF/vv/wf_fnv_2_initial.json -> OpenWF/vv/wf_fnv_2_initial.json [minified]
@@ -51,19 +51,20 @@ OpenWF/vv/sig/irc_send_raw.json -> OpenWF/vv/sig/irc_send_raw.json [minified]
 OpenWF/vv/sig/ssl_verify_internal_caller.json -> OpenWF/vv/sig/ssl_verify_internal_caller.json [minified]
 OpenWF/vv/sig/verify_worldstate_integrity.json -> OpenWF/vv/sig/verify_worldstate_integrity.json [minified]
 modules/owf-translations/bootstrapper-core/de.cat.txt -> OpenWF/translations/core/de.cat.txt
-modules/owf-translations/bootstrapper-core/en.cat.txt -> OpenWF/translations/core/en.cat.txt
-modules/owf-translations/bootstrapper-core/fr.cat.txt -> OpenWF/translations/core/fr.cat.txt
-modules/owf-translations/bootstrapper-core/sl.cat.txt -> OpenWF/translations/core/sl.cat.txt
-modules/owf-translations/bootstrapper-core/zh.cat.txt -> OpenWF/translations/core/zh.cat.txt
-modules/owf-translations/bootstrapper-overlay/de.cat.txt -> OpenWF/translations/overlay/de.cat.txt
-modules/owf-translations/bootstrapper-overlay/en.cat.txt -> OpenWF/translations/overlay/en.cat.txt
-modules/owf-translations/bootstrapper-overlay/ja.cat.txt -> OpenWF/translations/overlay/ja.cat.txt
-modules/owf-translations/bootstrapper-webui/de.cat.txt -> OpenWF/translations/webui/de.cat.txt
-modules/owf-translations/bootstrapper-webui/en.cat.txt -> OpenWF/translations/webui/en.cat.txt
-modules/owf-translations/bootstrapper-webui/es.cat.txt -> OpenWF/translations/webui/es.cat.txt
-modules/owf-translations/bootstrapper-webui/fr.cat.txt -> OpenWF/translations/webui/fr.cat.txt
-modules/owf-translations/bootstrapper-webui/ru.cat.txt -> OpenWF/translations/webui/ru.cat.txt
-modules/owf-translations/bootstrapper-webui/sl.cat.txt -> OpenWF/translations/webui/sl.cat.txt
-modules/owf-translations/bootstrapper-webui/uk.cat.txt -> OpenWF/translations/webui/uk.cat.txt
-modules/owf-translations/bootstrapper-webui/zh.cat.txt -> OpenWF/translations/webui/zh.cat.txt
->>> Hotfix.owf automatically versioned to 0.13.6 hotfix 1 (0.13.6-hotfix-1)
+modules/owf-translations/bootstrapper-core/en.cat.txt -> OpenWF/translations/core/en.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-core/fr.cat.txt -> OpenWF/translations/core/fr.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-core/sl.cat.txt -> OpenWF/translations/core/sl.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-core/zh.cat.txt -> OpenWF/translations/core/zh.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-overlay/de.cat.txt -> OpenWF/translations/overlay/de.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-overlay/en.cat.txt -> OpenWF/translations/overlay/en.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-overlay/ja.cat.txt -> OpenWF/translations/overlay/ja.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/de.cat.txt -> OpenWF/translations/webui/de.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/en.cat.txt -> OpenWF/translations/webui/en.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/es.cat.txt -> OpenWF/translations/webui/es.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/fr.cat.txt -> OpenWF/translations/webui/fr.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/ru.cat.txt -> OpenWF/translations/webui/ru.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/sl.cat.txt -> OpenWF/translations/webui/sl.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/uk.cat.txt -> OpenWF/translations/webui/uk.cat.txt [unchanged]
+modules/owf-translations/bootstrapper-webui/zh.cat.txt -> OpenWF/translations/webui/zh.cat.txt [unchanged]
+>>> Hotfix.owf only contains files changed since tag 0.13.6
+>>> Hotfix.owf automatically versioned to 0.13.6 hotfix 3 (0.13.6-hotfix-3)

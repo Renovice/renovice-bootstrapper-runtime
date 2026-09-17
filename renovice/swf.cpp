@@ -20,6 +20,7 @@
 
 #include <winsock2.h>
 #include <windows.h>
+#include "diagnostic_read_probe.hpp"
 #include <winternl.h>
 
 #include <DetourHook.hpp>
@@ -220,7 +221,7 @@ int oodle_detour(
 	const auto result = original(input, input_size, output, output_size, a5, a6, a7,
 		a8, a9, a10, a11, a12, a13, a14);
 	if (result < 8 || output == nullptr || static_cast<std::size_t>(result) > output_size
-		|| IsBadReadPtr(output, static_cast<std::size_t>(result))) return result;
+		|| diagnostics::bad_read_ptr(output, static_cast<std::size_t>(result))) return result;
 
 	const auto snapshot = active_snapshot.load(std::memory_order_acquire);
 	const auto key = replacements::body_key(std::string_view(
@@ -253,14 +254,14 @@ int oodle_detour(
 
 long long parser_detour(void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7, void* a8)
 {
-	if (a2 != nullptr && !IsBadReadPtr(a2, 16))
+	if (a2 != nullptr && !diagnostics::bad_read_ptr(a2, 16))
 	{
 		auto* sub = *reinterpret_cast<unsigned char**>(static_cast<unsigned char*>(a2) + 8);
-		if (sub != nullptr && !IsBadReadPtr(sub, 0x28))
+		if (sub != nullptr && !diagnostics::bad_read_ptr(sub, 0x28))
 		{
 			auto* begin = *reinterpret_cast<unsigned char**>(sub + 0x08);
 			const auto capacity = *reinterpret_cast<std::uint32_t*>(sub + 4);
-			if (begin != nullptr && capacity >= 8 && !IsBadReadPtr(begin, 8)
+			if (begin != nullptr && capacity >= 8 && !diagnostics::bad_read_ptr(begin, 8)
 				&& begin[0] == 'F' && begin[1] == 'W' && begin[2] == 'S')
 			{
 				const auto stock_length = little_u32(begin + 4);
@@ -317,7 +318,7 @@ NTSTATUS NTAPI ntread_detour(
 {
 	const auto result = reinterpret_cast<NtRead>(ntread_hook.original)(
 		file, event, apc, context, status, buffer, length, offset, key);
-	if (buffer != nullptr && length >= 24 && !IsBadReadPtr(buffer, length)
+	if (buffer != nullptr && length >= 24 && !diagnostics::bad_read_ptr(buffer, length)
 		&& !IsBadWritePtr(buffer, length))
 	{
 		const auto snapshot = active_snapshot.load(std::memory_order_acquire);

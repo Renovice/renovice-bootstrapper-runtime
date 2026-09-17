@@ -4,11 +4,12 @@ This directory is the authoritative development copy for merging the custom
 RENOVICE client features into the available OpenWF bootstrapper source and
 eventually shipping one source-built `wtsapi32.dll` without a companion DLL.
 
-The untouched inputs remain outside this directory:
+The untouched inputs remain outside this directory at their canonical
+workspace paths:
 
-- normal source snapshot: `../Warframe bootstrapper source/warframe-dll-senpai`;
-- custom proxy source: `../DLL_builder/wf_lua_redirect.cpp`;
-- guarded DE-Luau runner: `../DLL_builder/inject_seh.c`;
+- normal source snapshot: `vendor/upstream/warframe-dll-snapshot-2026-08-05/warframe-dll-senpai`;
+- custom proxy source: `archive/legacy-runtime/companion-dll-builder/wf_lua_redirect.cpp`;
+- guarded DE-Luau runner: `archive/legacy-runtime/companion-dll-builder/inject_seh.c`;
 - currently working binaries and game files: preserved in their existing
   locations and not modified by this repository setup.
 

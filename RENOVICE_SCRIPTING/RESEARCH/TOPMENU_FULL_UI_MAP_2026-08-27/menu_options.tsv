@@ -1,0 +1,63 @@
+Index	Variable	NameExpression	DescriptionExpression	DefinitionLine	AssignmentLine
+1	c293v17	c293v18	"/Lotus/Language/MasteryTest/MenuRankUpDescription"	5217	6392
+2	c293v18	"/Lotus/Language/YareliQuest/MenuTitle"	"/Lotus/Language/YareliQuest/MenuDesc"	5331	6392
+3	c293v19	"/Lotus/Language/Menu/ResumeGameUpperCase"	"/Lotus/Language/Menu/ResumeGameDescription"	5340	6392
+4	c293v20	"/Lotus/Language/OlliesCrashCourse/UI_OlliesCrashCourseMenuRestart"	"/Lotus/Language/OlliesCrashCourse/UI_OlliesCrashCourseMenuRestartDesc"	5347	6392
+5	c293v21	"/Lotus/Language/SystemMessages/Challenges_Title"	"/Lotus/Language/SystemMessages/Challenges_Desc"	5360	6392
+6	c293v22	"/Lotus/Language/Menu/MenuAbilities"	"/Lotus/Language/Menu/ViewAbilitiesDescription"	5398	6392
+7	c293v23	"/Lotus/Language/Menu/MeleeCombos"	"/Lotus/Language/Menu/MeleeCombosDescription"	5474	6392
+8	c293v24	"/Lotus/Language/Menu/MenuStarChart"	"/Lotus/Language/Menu/MenuStarChartDescription"	5502	6392
+9	c293v25	"/Lotus/Language/FastTravel/1999GenericComputerName"	"/Lotus/Language/FastTravel/1999HomeComputerDesc"	5520	6392
+10	c293v26	"/Lotus/Language/TauPrequel/TauPrequelFinal/TauMissionSelectAction"	"/Lotus/Language/FastTravel/DarkRefractoryDesc"	5537	6392
+11	c293v27	"/Lotus/Language/Menu/MenuFastTravel"		5570	6392
+12	c293v28	"/Lotus/Language/Menu/MenuFastTravel"		5696	6392
+13	c293v29	"/Lotus/Language/Entrati/FastTravelMenuNecralisk"		6187	6392
+14	c293v30	"/Lotus/Language/Entrati/FastTravelMenuSanctum"		6221	6392
+15	c293v31	"/Lotus/Language/CircleOfHell/FastTravelMenuCathedrale"		6265	6392
+16	c293v32	c293v33	c293v33	6358	6392
+17	c293v17	"/Lotus/Language/Menu/MenuLoadout"	"/Lotus/Language/Menu/MenuLoadoutDescription"	6393	7730
+18	c293v18	"/Lotus/Language/Menu/MenuOperator"	"/Lotus/Language/Menu/MenuFocusDescription"	6456	7731
+19	c293v19	"/Lotus/Language/Veilbreaker/KahlCustomizations"		6488	7732
+20	c293v20	"/Lotus/Language/Menu/Store_Extras"		6512	7733
+21	c293v21	"/Lotus/Language/Dojo/DecorationMode"	"/Lotus/Language/Dojo/DecorationModeDesc"	6922	7734
+22	c293v22	c293v23	"/Lotus/Language/Menu/MenuFocusDescription"	6956	7735
+23	c293v23	"/Lotus/Language/Menu/MenuStore"	"/Lotus/Language/Menu/MenuStoreDescription"	6985	7736
+24	c293v24	"/Lotus/Language/Menu/MenuCommunication"		7023	7737
+25	c293v25	"/Lotus/Language/Menu/Codex_Quests"	"/Lotus/Language/Menu/MenuQuestsDescription"	7141	7738
+26	c293v26	"/Lotus/Language/Menu/RailjackTitle"		7229	7739
+27	c293v27	"/Lotus/Language/Menu/HostShipReturnToShip"		7312	7740
+28	c293v28	"/Lotus/Language/Veilbreaker/KahlCampFastTravelName"	"/Lotus/Language/Veilbreaker/KahlCampFastTravelDesc"	7330	7741
+29	c293v29	"/Lotus/Language/Menu/MenuProfile"		7353	7742
+30	c293v30	"/Lotus/Language/Menu/MenuOptions"	"/Lotus/Language/Menu/MenuOptionsDescription"	7653	7743
+31	c293v31	"/Lotus/Language/OlliesCrashCourse/UI_OlliesCrashCourseMenuQuit"	"/Lotus/Language/OlliesCrashCourse/UI_OlliesCrashCourseMenuQuitDesc"	7675	7744
+32	c293v32	"/Lotus/Language/Menu/ViewMissionProgress"	"/Lotus/Language/Menu/ViewMissionProgressDescription"	7688	7745
+33	c293v17	"/Lotus/Language/Menu/ViewLastMissionStats"	"/Lotus/Language/Menu/ViewLastMissionDescription"	7746	8481
+34	c293v18	"/Lotus/Language/Dojo/Decorations"	"/Lotus/Language/Dojo/DecorationsDecription"	7768	8482
+35	c293v19	"/Lotus/Language/Dojo/ReduceGuildTier"	c293v20	7874	8483
+36	c293v20	"KEY LAUNCHER"		7937	8484
+37	c293v21	c293v22	c293v22	8002	8485
+38	c293v22	"/Lotus/Language/Menu/AbortMissionUpperCase"	"/Lotus/Language/Menu/MenuAbortMissionDescription"	8193	8486
+39	c293v23	"/Lotus/Language/Menu/RestartLevelUpperCase"		8260	8487
+40	c293v24	"/Lotus/Language/Menu/RetunToDojoUpperCase"	"/Lotus/Language/Menu/MenuAbortMissionDescription"	8278	8488
+41	c293v25	"/Lotus/Language/Menu/RetunToDojoUpperCase"	"/Lotus/Language/Menu/ExitDojoDuelDescription"	8302	8489
+42	c293v26	"/Lotus/Language/Menu/AbortPermaDeathMission"	"/Lotus/Language/Menu/ExitDojoDescription"	8325	8490
+43	c293v27	"/Lotus/Language/Menu/ExitJunction"	"/Lotus/Language/Menu/ExitDojoDescription"	8339	8491
+44	c293v28	"/Lotus/Language/Photobooth/ExitPhotobooth"	"/Lotus/Language/Menu/ExitDojoDescription"	8365	8492
+45	c293v29	"/Lotus/Language/Menu/ExitSimulacrum"	"/Lotus/Language/Menu/ExitSimulacrumDesc"	8380	8493
+46	c293v30	"/Lotus/Language/Menu/ExitSimulacrum"	"/Lotus/Language/Menu/MenuReturnToShipDescription"	8419	8494
+47	c293v31	"/Lotus/Language/Menu/ExitArenaUpperCase"	"/Lotus/Language/Menu/MenuExitArenaDescription"	8444	8495
+48	c293v32	"/Lotus/Language/Menu/ExitDojoUpperCase"	"/Lotus/Language/Menu/ExitDojoDescription"	8466	8496
+49	c293v17	"/Lotus/Language/Menu/RetunToDojoUpperCase"	"/Lotus/Language/Menu/ExitDojoDuelDescription"	8497	9116
+50	c293v18	c293v1	"/Lotus/Language/Menu/ExitDojoDescription"	8512	9117
+51	c293v19	c293v1		8596	9118
+52	c293v20	"/Lotus/Language/Menu/QuitGameUpperCase"	"/Lotus/Language/Menu/MenuQuitGameDescription"	8680	9119
+53	c293v21	"/Lotus/Language/Menu/QuitGameUpperCase"	"/Lotus/Language/Menu/MenuQuitGameDescription"	8705	9120
+54	c293v22	"/Lotus/Language/Menu/QuitGameUpperCase"	"/Lotus/Language/Menu/MenuQuitGameDescription"	8733	9121
+55	c293v23	"/Lotus/Language/Menu/QuitGameUpperCase"	"/Lotus/Language/Menu/MenuQuitGameDescription"	8803	9122
+56	c293v24	"SIMULACRUM [TEST]"		8853	9123
+57	c293v25	"UI Tools [TEST]"	"Tools for debugging UI issues on dev and test, but not retail"	8912	9124
+58	c293v26	"/Lotus/Language/Menu/RestartLevel"		8970	9125
+59	c293v27	c293v28		8994	9126
+60	c293v28	"SQUAD LINK DEBUG MENU"		9041	9127
+61	c293v29	"TERMINATE SQUAD LINK"		9070	9128
+62	c293v30	"CHEAT MENU [DEV MODE]"		9097	9129

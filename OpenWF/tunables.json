@@ -8,10 +8,20 @@
 	"supported_builds_43": [
 		"2026.06.19.13.22",
 		"2026.07.11.15.28",
+		"2026.08.19.11.06",
+	],
+	// ProductVersion is not unique: Amir's Shockwave retained the August label
+	// while changing the executable. Both August binaries independently pass the
+	// complete version43 signature and displacement verifier.
+	"supported_client_sha256_43": [
+		"87d3c0f946d6fff8b95567b2fce396d407721bc86cafabdafc44ee8f60fb92b0",
+		"d01b5cb5cff51afc5ffb7d3af051674aafa84000bee764780ff71d9d073cad93",
+		"cca46d604a498cd95f0d28e3e8f3eee8833f5d362666a8e5c820c535f7c2af93",
 	],
 	// Exact executable addresses: never select these by the broad U43 family.
 	"renovice_undump_rva_2026_06_19_13_22": 0x197C9F0,
 	"renovice_undump_rva_2026_07_11_15_28": 0x197E030,
+	"renovice_undump_rva_2026_08_19_11_06": 0x197FE10,
 	"nhkif": [
 		"/EE/Types/Input/MenuInputFilter", // Chat
 		"/Lotus/Types/Input/LoadoutReduxInputFilter",

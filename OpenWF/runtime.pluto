@@ -144,6 +144,23 @@ class owfUserdata
 	end
 end
 
+-- Consume the native result even when the optional object is absent. Do not
+-- construct/register a wrapper for nil; non-nil type errors still propagate.
+function ivkr_pop_optional_userdata(mt, nresults)
+	-- A direct native invocation does not receive Lua's automatic nil padding.
+	-- Zero results must leave the caller's existing stack values untouched.
+	if nresults == 0 then return nil end
+	if nresults ~= 1 then
+		ivkr_pop(nresults)
+		error("optional userdata getter returned unexpected value count")
+	end
+	if ivkr_type(-1) == IVKR_NIL then
+		ivkr_pop(1)
+		return nil
+	end
+	return new mt()
+end
+
 class owfProxy extends owfUserdata
 	function __index(name)
 		if owfUserdata[name] then
@@ -316,8 +333,8 @@ class Player extends Object
 
 	function GetAvatar()
 		self:pushToIvkr()
-		ivkr_call(ivkr_find_method("Player", "GetAvatar"), 1)
-		return new LotusAvatar()
+		local nresults = ivkr_call(ivkr_find_method("Player", "GetAvatar"), 1)
+		return ivkr_pop_optional_userdata(LotusAvatar, nresults)
 	end
 
 	function GetPlayerName()
@@ -346,8 +363,8 @@ class Player extends Object
 
 	function GetHudStatus()
 		self:pushToIvkr()
-		ivkr_call(ivkr_find_method("Player", "GetHudStatus"), 1)
-		return new LotusHudStatus()
+		local nresults = ivkr_call(ivkr_find_method("Player", "GetHudStatus"), 1)
+		return ivkr_pop_optional_userdata(LotusHudStatus, nresults)
 	end
 
 	function CameraControl()
@@ -3017,24 +3034,23 @@ end
 gRegion = {
 	function GetLocalPlayer()
 		ivkr_push_object(get_regionmgr())
-		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetLocalPlayer"), 1)
-		if ivkr_type(-1) > 0 then
-			return new LotusHumanPlayer()
-		end
+		local nresults = ivkr_call(ivkr_find_method("RegionMgrImpl", "GetLocalPlayer"), 1)
+		return ivkr_pop_optional_userdata(LotusHumanPlayer, nresults)
 	end,
 	function GetLocalPlayerAvatar()
 		ivkr_push_object(get_regionmgr())
-		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetLocalPlayerAvatar"), 1)
-		if ivkr_type(-1) > 0 then
-			return ivkr_pop_entity()
+		local nresults = ivkr_call(ivkr_find_method("RegionMgrImpl", "GetLocalPlayerAvatar"), 1)
+		if nresults == 0 then return nil end
+		if nresults ~= 1 then
+			ivkr_pop(nresults)
+			error("optional entity getter returned unexpected value count")
 		end
+		return ivkr_pop_entity()
 	end,
 	function GetGameCamera()
 		ivkr_push_object(get_regionmgr())
-		ivkr_call(ivkr_find_method("RegionMgrImpl", "GetGameCamera"), 1)
-		if ivkr_type(-1) > 0 then
-			return new Entity()
-		end
+		local nresults = ivkr_call(ivkr_find_method("RegionMgrImpl", "GetGameCamera"), 1)
+		return ivkr_pop_optional_userdata(Entity, nresults)
 	end,
 	function GetGameRules()
 		ivkr_push_object(get_regionmgr())

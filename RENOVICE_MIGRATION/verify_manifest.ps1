@@ -6,6 +6,39 @@ $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $manifestPath = Join-Path $PSScriptRoot 'custom_feature_manifest.tsv'
 $targetsPath = Join-Path $PSScriptRoot 'target_requirements.tsv'
 
+$workspaceRoot = $repoRoot
+while (-not (Test-Path -LiteralPath (Join-Path $workspaceRoot 'WORKSPACE.json') -PathType Leaf)) {
+    $parent = Split-Path -Parent $workspaceRoot
+    if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $workspaceRoot) {
+        throw "Unable to locate WORKSPACE.json above $repoRoot"
+    }
+    $workspaceRoot = $parent
+}
+$workspace = Get-Content -LiteralPath (Join-Path $workspaceRoot 'WORKSPACE.json') -Raw |
+    ConvertFrom-Json
+
+function Resolve-ManifestSource([string] $customSource) {
+    $normalized = $customSource -replace '/', '\'
+    if ($normalized -match '^\.\.\\([^\\]+)(?:\\(.*))?$') {
+        $legacyName = $Matches[1]
+        $remainder = $Matches[2]
+        $property = $workspace.legacy_source_roots.PSObject.Properties[$legacyName]
+        if ($null -ne $property) {
+            $base = Join-Path $workspaceRoot ([string]$property.Value)
+            $resolved = if ([string]::IsNullOrWhiteSpace($remainder)) {
+                [System.IO.Path]::GetFullPath($base)
+            } else {
+                [System.IO.Path]::GetFullPath((Join-Path $base $remainder))
+            }
+            if (-not $resolved.StartsWith($workspaceRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Manifest source escaped workspace: $customSource"
+            }
+            return $resolved
+        }
+    }
+    return [System.IO.Path]::GetFullPath((Join-Path $repoRoot $customSource))
+}
+
 $expectedHeader = 'feature_id', 'subsystem', 'feature', 'custom_source',
     'line_anchor', 'stock_equivalent', 'current_state', 'parity_required',
     'runtime_gate', 'migration_target', 'risk', 'parity_test', 'notes'
@@ -48,7 +81,7 @@ foreach ($row in $rows) {
         $failures.Add("$($row.feature_id): empty migration_target")
     }
 
-    $source = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $row.custom_source))
+    $source = Resolve-ManifestSource $row.custom_source
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
         $failures.Add("$($row.feature_id): source does not exist: $source")
         continue

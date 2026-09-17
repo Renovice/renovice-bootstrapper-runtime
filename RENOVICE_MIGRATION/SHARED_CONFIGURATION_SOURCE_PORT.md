@@ -1,5 +1,10 @@
 # RENOVICE shared configuration source port
 
+> **Superseded lifecycle note (2026-09-02):** `AutoSpawn` remains accepted for
+> old configs but is compatibility-only. Event-driven V18 removed the fake
+> bytecode-gap region detector; startup and F9 are the generation-wide paths.
+> `Diagnostics` is now a separate opt-in flag.
+
 ## Scope
 
 This slice ports `CFG-001` and the configuration-reading portion of `CFG-002`

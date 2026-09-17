@@ -1,0 +1,8 @@
+# V76 diagnostic trace registry root
+The V75 live capture from byte `12,879,212` through byte `12,884,710` rejected the hypothesis that unrelated-target preservation alone completed the battle-log transport. Ice Wave activated and its exact `SetBaseAmount` and `DamageDD` callbacks ran, but the first callback reported `trace-field-absent`. The analyzer found zero records and zero transactions.
+
+The second lifetime defect was structural: V75 copied the closure's `luau_TValue` into a C++ map, which does not participate in Luau garbage collection. The field on `_T` was the only real Lua root. If the game replaced or cleared that shared table during the transition into combat, the raw copy could not keep the closure alive. The log proves the callback had no readable cached closure and no current field; the exact game operation that removed or replaced the field is not named by the available records.
+
+V76 uses the DE VM registry as the authoritative lifetime owner. This is the same rooting class already used by RENOVICE addon lifecycle tables and prototype closures. The public `_T.RENOVICE_TRACE` field is still installed, but callback transport no longer depends on that table surviving every menu/game transition. Diagnostics removal clears the reserved registry key, and foreign fields remain untouched.
+
+Verification: migration and dependency gates pass; configuration, full injection core, target-export compilation/roundtrip/semantic/lifecycle checks, replacement core, Scripts UI core, and safe-runtime-tick gates pass. The private x64 build completed with no warnings or errors. Candidate SHA-256 is `A703E0E96523679FC5A3B597AA538E11C50BF2817A761A1CC629688FCF10220D`. Deployment and live acceptance remain pending.

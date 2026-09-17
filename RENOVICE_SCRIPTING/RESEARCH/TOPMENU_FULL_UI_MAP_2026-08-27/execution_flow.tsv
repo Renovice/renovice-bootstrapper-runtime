@@ -1,0 +1,11 @@
+Step	Owner	Action	Next	Evidence
+1	Engine/movie loader	executes module root	ModuleRoot proto 383	exact captured TopMenu bytecode and root prototype
+2	ModuleRoot proto 383	publishes Initialize and MenuItem callbacks	Initialize proto 349	source line 12464 and callback exports near 12901
+3	Initialize proto 349	resets _T.MenuSelectedIndex and invokes captured U14	BuildMenuOptions proto 295	Initialize capture map and source line 12043
+4	BuildMenuOptions proto 295	constructs 62 records and assigns mMenuOptions	Builder captured U58	source lines 4923-9133
+5	Builder U58	filters final option tree by current state	CreateList proto 328	IR instructions 2092-2094 and source lines 9131-9133
+6	Initialize proto 349	invokes captured U17	CreateList proto 328	Initialize capture map and source line 12150
+7	CreateList proto 328	constructs native Flash List bound to MenuItem callbacks	PopulateVisibleRows proto 313	source lines 10043-10124
+8	Transition/timer	calls PopulateVisibleRows	List:AddElement	source call sites near 11043 and 12201
+9	PopulateVisibleRows proto 313	walks selected submenu and creates row DTOs	Native Flash renderer	source lines 9630-9740
+10	EE.Interface.Components.List	AddElement(row, true) renders MenuItem	Visible Orbiter pause menu	source line 9735

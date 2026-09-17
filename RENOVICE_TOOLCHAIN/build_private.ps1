@@ -5,6 +5,14 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot "bootstrap_tools.ps1")
 & (Join-Path $repo "RENOVICE_MIGRATION\verify_dependencies.ps1")
 & (Join-Path $repo "RENOVICE_MIGRATION\verify_manifest.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\build_callback_runtime.ps1") -VerifyOnly
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\build_automatic_damage_runtime.ps1") -VerifyOnly
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_bridge.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_core.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_safe_runtime_tick.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_openwf_game_vm_bridge.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_unified_diagnostics_master.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_generation_ownership.ps1")
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (-not (Test-Path -LiteralPath $vswhere)) {
@@ -38,15 +46,37 @@ $buildLog = Join-Path $evidence "private_msvc_build_output.txt"
 
 Push-Location $repo
 try {
+	# Sun 0.5.0's incremental cache does not track C/C++ header dependencies.
+	# A header-only change can therefore pass the standalone unit tests while the
+	# linked DLL silently reuses an older owning .obj. Private release builds are
+	# correctness artifacts, so invalidate only this repo's explicit `int` cache.
+	$resolvedRepo = (Resolve-Path -LiteralPath $repo).Path
+	$intermediate = Join-Path $resolvedRepo 'int'
+	if (Test-Path -LiteralPath $intermediate -PathType Container) {
+		$resolvedIntermediate = (Resolve-Path -LiteralPath $intermediate).Path
+		if ((Split-Path -Parent $resolvedIntermediate) -ne $resolvedRepo -or
+			(Split-Path -Leaf $resolvedIntermediate) -ne 'int') {
+			throw "Refusing to clean unexpected intermediate path: $resolvedIntermediate"
+		}
+		Remove-Item -LiteralPath $resolvedIntermediate -Recurse -Force
+		Write-Output "PRIVATE BUILD CACHE CLEAN PASS path=$resolvedIntermediate"
+	}
+
     $archiveOutput = @(& $phpExe archive.php 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
-    [System.IO.File]::WriteAllLines($archiveLog, $archiveOutput, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText(
+        $archiveLog,
+        (($archiveOutput -join "`n") + "`n"),
+        [System.Text.UTF8Encoding]::new($false))
     if ($LASTEXITCODE -ne 0) {
         throw "Archive generation failed: $LASTEXITCODE"
     }
     $archiveOutput | Write-Output
 
     $buildOutput = @(& $sunExe _renovice_private_msvc 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
-    [System.IO.File]::WriteAllLines($buildLog, $buildOutput, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText(
+        $buildLog,
+        (($buildOutput -join "`n") + "`n"),
+        [System.Text.UTF8Encoding]::new($false))
     if ($LASTEXITCODE -ne 0) {
         throw "Private build failed: $LASTEXITCODE"
     }

@@ -1,0 +1,7 @@
+Role	GlobalProto	SourceSymbol	SourceStart	SourceEnd	Contract
+BuildMenuOptions	295	vT[144]	4923	9134	0 params; 59 upvalues; constructs 62-option tree; assigns mMenuOptions; invokes U58 filter
+PopulateVisibleRows	313	vT[29]	9630	9740	follows _T.MenuSelectedIndex; creates row DTOs; calls List:AddElement
+CreateList	328	vT[150]	10043	10124	requires EE.Interface.Components.List; CreateList(mMovie, MenuItem); binds input callbacks
+FinishInitialize	347	vT[157] then FinishInitialize	11735	11737	exported finalization entry point
+Initialize	349	vT[157] then Initialize	11736	12464	builds options, creates native list, starts transition, schedules row population
+ModuleRoot	383	root chunk	1	13484	imports modules, initializes state, publishes global callbacks

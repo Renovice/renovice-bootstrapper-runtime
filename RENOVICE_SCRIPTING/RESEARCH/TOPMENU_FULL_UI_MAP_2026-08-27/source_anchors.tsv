@@ -1,0 +1,12 @@
+Event	StartLine	EndLine	Evidence
+Module state and imports	1	124	mMovie, mMenuOptions, imported UI modules and root state
+Recursive ShouldDisplay filter	3879	3914	filters the option tree before materialization
+BuildMenuOptions	4923	9134	constructs the 62-entry option tree
+Publish and filter mMenuOptions	9130	9133	assigns final array then invokes vT[120]
+PopulateVisibleRows	9630	9740	creates visible row DTOs from current submenu
+List:AddElement	9735	9735	hands each row to the native Flash list
+CreateList	10043	10124	requires List module and binds MenuItem callbacks
+Initialize calls builder	12043	12043	vT[144]()
+Initialize creates list	12150	12150	vT[150]()
+Export Initialize	12464	12464	Initialize = vT[157]
+Published MenuItem callbacks	12901	13481	focus, unfocus, press and refresh callbacks exported to movie

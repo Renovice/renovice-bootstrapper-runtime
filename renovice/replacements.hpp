@@ -18,6 +18,8 @@ bool reload();
 bool prepare_reload();
 void commit_prepared_reload();
 void discard_prepared_reload();
-void observe_module_load(void* manager, void* descriptor);
+void begin_module_load(void* manager, void* descriptor, std::uint64_t observed_body_key = 0);
+void complete_module_load(void* manager, void* descriptor);
 bool reexecute_changed_loaded(luau_State* state);
+bool drain_pending_for_vm(luau_State* state);
 }

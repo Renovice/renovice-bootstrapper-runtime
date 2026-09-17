@@ -16,3 +16,20 @@ RENOVICE_MIGRATION/local/
 renovice/generated/
 RENOVICE_TOOLCHAIN/downloads/
 RENOVICE_TOOLCHAIN/bin/
+
+# Local deployment transactions, crash captures, and generated verification
+# work remain on the development machine. The repository carries the current
+# source, deterministic tests, and written findings instead.
+RENOVICE_DEPLOYMENTS/
+work/
+RENOVICE_TOOLCHAIN/runtime/tmp-*/
+*.dmp
+*.obj
+
+# Preserve concise research findings without publishing copied dependency
+# trees, executable probes, raw captures, or large before/after snapshots.
+RESEARCH/**
+!RESEARCH/**/
+!RESEARCH/**/*.md
+RESEARCH/**/tools/**
+RESEARCH/**/source-before/**

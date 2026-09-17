@@ -5,7 +5,21 @@ Linking...
 >>> Now compiling Pluto
 Linking...
 >>> Now compiling wtsapi32
+script_control
+riven
+swf
+replacements
 injection
-main
+config
+engine_damage
+owf_tunables
+owf_web
+owf_scripting
+owf_repo
+owf_overlay
+owf_label_replacements
+owf_hotkeys
+owf_config
 owf_archive_data
+main
 Linking...

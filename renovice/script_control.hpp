@@ -1,0 +1,37 @@
+#pragma once
+
+#include "script_control_core.hpp"
+
+#include <string>
+#include <vector>
+
+namespace renovice::script_control
+{
+struct ScriptInfo
+{
+	std::string id;
+	std::string filename;
+	Kind kind = Kind::OneShot;
+	std::string target;
+	bool enabled = true;
+	bool pending = false;
+	bool valid = true;
+	std::string status;
+};
+
+bool initialise();
+bool prepare_reload();
+void commit_prepared_reload();
+void discard_prepared_reload();
+
+// Scanners use the prepared policy during an F9 transaction and the active
+// policy at startup. An absent entry is enabled for backward compatibility.
+bool candidate_enabled(std::string_view id);
+
+std::vector<ScriptInfo> snapshot();
+bool request_enabled(std::string_view id, bool enabled, std::string& error);
+bool request_enabled_batch(
+	const std::vector<std::pair<std::string, bool>>& requests,
+	std::string& error
+);
+}

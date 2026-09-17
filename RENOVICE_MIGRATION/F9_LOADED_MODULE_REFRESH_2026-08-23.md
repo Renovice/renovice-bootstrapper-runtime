@@ -2,6 +2,19 @@
 
 Date: 2026-08-23
 
+> 2026-08-24 update: the original same-VM implementation described below was
+> insufficient for Arsenal/UI contexts. It has been superseded by the per-VM
+> pending-delivery design in `F9_MULTI_VM_REFRESH_2026-08-24.md`. Historical
+> live findings remain valid, but the old cross-VM deferral behavior is not the
+> current source architecture.
+>
+> **2026-08-24 retraction:** the statement below that the old implementation
+> captured a real module environment was false. Exact-loader disassembly and
+> live counters proved descriptor `+0x58` is not consumed by the current U43
+> loader. The native loader refreshes existing script objects by original
+> descriptor identity. See
+> `evidence/U43_NATIVE_MODULE_REFRESH_DISASSEMBLY_2026-08-24.md`.
+
 ## Outcome
 
 The failed Mallet addon test separated two previously conflated mechanisms.
@@ -39,9 +52,12 @@ surface for this test.
 4. **A managed addon's `_G` is a proven ability-wide event bus. FALSE.** The
    lifecycle tests proved sharing only among injected chunks. `_T` is the
    game-established shared table used by BardMusic and is used instead.
-5. **The new path is ready to call live parity. FALSE.** Offline planner tests,
-   Lua verification, and a warning-free DLL build pass. A live next-cast edit,
-   addon add/remove, and stock-restoration sequence is still required.
+5. **The add, dispatch, and removal path is live-proven. TRUE FOR THIS EVENT.**
+   F9 committed the bare-`_T` addon in the existing process and the next Mallet
+   cast granted exactly 30,000 Overguard. A later F9 committed `addons=0`, and
+   the user confirmed the flat behavior disappeared while the permanent Mallet
+   replacement remained functional. The separate full-replacement constant and
+   stock-restoration sequence remains required.
 
 ## Safety boundary
 

@@ -1,0 +1,14 @@
+-- One-shot OpenWF hotkey utility. This is separate from the raw DE Lua injector.
+-- Uses the same Engine level request as OpenWF's original Simulacrum sample.
+print("RENOVICE F10: script entered.")
+if not gPlayerProfileMgr:IsLoggedIn() then
+    print("RENOVICE F10: log in before entering the Simulacrum.")
+    return
+end
+
+local args = Engine.OpenLevelArgs()
+args:SetLevel("/Lotus/Levels/Tenno/SimulacrumEnemySpawnerC.level")
+args:SetGameRules("/Lotus/Types/GameRules/LotusDangerRoomGameRules")
+print("RENOVICE F10: requesting Simulacrum level.")
+Engine.OpenLevel(args)
+print("RENOVICE F10: level request returned.")

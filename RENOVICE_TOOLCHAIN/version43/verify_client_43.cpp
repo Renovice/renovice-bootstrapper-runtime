@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../../renovice/injection_core.hpp"
+#include "../../renovice/vm_stack_write.hpp"
 #include "../../renovice/riven_core.hpp"
 #include "../../renovice/swf_core.hpp"
 
@@ -151,11 +152,13 @@ std::uint32_t read_u32(const std::vector<std::uint8_t>& data, std::size_t offset
 
 int main(int argc, char** argv)
 {
-	if (argc != 2)
+	if (argc != 4)
 	{
-		std::cerr << "usage: verify_client_43.exe <Warframe.x64.exe>\n";
+		std::cerr << "usage: verify_client_43.exe <Warframe.x64.exe> <undump-raw-hex> <undump-rva-hex>\n";
 		return 2;
 	}
+	const auto expected_undump_raw = static_cast<std::size_t>(std::stoull(argv[2], nullptr, 16));
+	const auto expected_undump_rva = static_cast<std::size_t>(std::stoull(argv[3], nullptr, 16));
 
 	std::ifstream stream(argv[1], std::ios::binary);
 	if (!stream)
@@ -188,8 +191,11 @@ int main(int argc, char** argv)
 	exact("inject getfield", renovice::injection::signature_getfield);
 	exact("inject setfield", renovice::injection::signature_setfield);
 	exact("inject checkstack", renovice::injection::signature_checkstack);
+	exact("U43 native stack GC barrier", renovice::injection::signature_gc_barrierback_u43);
+	exact("U43 native lua_pushvalue", renovice::injection::signature_lua_pushvalue_u43);
 	exact("inject game allocator", renovice::injection::signature_game_allocator);
 	exact("inject protected call", renovice::injection::signature_protected_call);
+	exact("inject Luau VM execute", renovice::injection::signature_vm_execute);
 	exact("SWF Oodle decompressor", renovice::swf::signature_oodle_decompress);
 	exact("SWF parser boundary", renovice::swf::signature_parser);
 	exact("Riven GFx dispatcher", renovice::riven::signature_gfx_dispatch);
@@ -199,11 +205,12 @@ int main(int argc, char** argv)
 	exact("Riven type argument", renovice::riven::signature_type_argument);
 	const auto undump_pattern = parse_pattern("40 53 55 56 57 41 55 41 56 41 57 48 81 EC F0 01 00 00 48 8B 05 ? ? ? ? 48 33");
 	const auto undump_hits = scan(data, undump_pattern);
-	const bool undump_pass = undump_hits.size() == 1 && undump_hits.front() == 0x197d430;
+	const bool undump_pass = undump_hits.size() == 1 && undump_hits.front() == expected_undump_raw;
 	std::cout << (undump_pass ? "PASS" : "FAIL")
 		<< "\tDE Luau undump\tmatches=" << undump_hits.size()
 		<< " raw_offset=0x" << std::hex << (undump_hits.empty() ? 0 : undump_hits.front())
-		<< " expected_rva=0x197e030" << std::dec << '\n';
+		<< " expected_raw=0x" << expected_undump_raw
+		<< " expected_rva=0x" << expected_undump_rva << std::dec << '\n';
 	pass &= undump_pass;
 	exact("pause allowed", "48 89 5C 24 10 48 89 74 24 18 57 48 81 EC 80 00 00 00 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 ? 48 8B D9 E8 ? ? ? ? 48 8B C8");
 
