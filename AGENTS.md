@@ -1,5 +1,26 @@
 # RENOVICE bootstrapper repository instructions
 
+## Universal-loader invariant
+
+No normal addon may require an ability-specific C++ branch, generated base
+script, shim, enabler, or manual bootstrapper edit. Target-specific logic lives
+in the addon and its declarative target data. Shared runtime code supplies only
+generic VM capture, generation ownership, module/prototype/callsite matching,
+native/Lua callback dispatch, lifecycle management, Replacement staging, card
+publication, diagnostics, and retirement.
+
+A new capability is accepted only when the base loader survives its failure,
+an unsupported provider fails locally with a precise reason, all existing
+ordinary-Inject/managed-addon/target-addon/Replacement lanes still pass, and a
+second unrelated fixture proves the primitive is reusable. Mallet and Ice Wave
+are regression fixtures, never loader architecture.
+
+An optional observer or provider hook must be installed after the mandatory
+base path and cleaned up independently. Its create, enable, or runtime failure
+must never destroy the module-loader hook, VM capture, Scripts bridge, Inject,
+or Replacement. V107 is the canonical rejected counterexample; preserve V108's
+capability-local failure boundary.
+
 ## User requirements for the addon API (2026-09-07)
 
 - Build a universal raw DE Luau addon API. An authored standalone addon in
@@ -60,10 +81,12 @@ The OpenWF Pluto VM and the DE gameplay Lua VM are distinct. OpenWF may request
 a reload, but DE bytecode registration and generation commit must run through
 the captured DE VM at a proven safe point.
 
-F9 reload semantics are intentionally simple: when pressed, read the complete
-current Hot directory, stage the complete generation, and atomically commit it
-only if every script succeeds. Do not add continuous directory monitoring or
-filesystem work to the idle gameplay path.
+F9 reload semantics are intentionally simple: when pressed, snapshot the
+complete current root Replacement files, `Inject` files, and
+`ScriptStates.json`; stage one complete generation; validate every member; and
+commit atomically only if the entire transaction succeeds. Deletion is part of
+the snapshot. Do not add continuous directory monitoring or filesystem work to
+the idle gameplay path.
 
 Do not update submodules from branch tips. Their certified pins are in
 `RENOVICE_MIGRATION/upstream_submodules.tsv`; any change requires a new

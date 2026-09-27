@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -58,3 +60,14 @@ inline soup::Mutex hotkeys_mtx;
 inline std::vector<owfHotkey> hotkeys;
 
 void load_hotkeys();
+
+// Capture configured key edges at the process-owned Application frame even
+// when the cached UI VM is temporarily busy. Script creation remains deferred
+// until the existing owner-checked Pluto boundary is available.
+void poll_openwf_hotkey_inputs(bool input_allowed) noexcept;
+bool pop_latched_openwf_hotkey_script(std::string& script) noexcept;
+void note_openwf_hotkey_script_dispatched() noexcept;
+std::uint64_t openwf_hotkey_edges_captured() noexcept;
+std::uint64_t openwf_hotkey_scripts_dispatched() noexcept;
+std::uint64_t openwf_hotkey_edges_dropped() noexcept;
+std::size_t openwf_hotkey_scripts_pending() noexcept;

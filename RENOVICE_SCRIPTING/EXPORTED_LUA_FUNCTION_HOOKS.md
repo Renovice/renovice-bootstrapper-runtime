@@ -7,9 +7,11 @@
 > back. The general template below remains an offline pattern for exports that
 > are demonstrably reachable in the addon environment. It is not live proof for
 > DE hashed exports. For an exact nested function that the runtime can identify,
-> use `hooks.luaCalls[prototype].before/after`; V62 permits bounded scalar
-> argument edits in `before`. V69 appends an optional host-owned diagnostic
-> trace closure after the existing `(prototype, arguments, upvalues)` values.
+> use `hooks.luaCalls[prototype].before`; V107 observes the natural DE CALL
+> boundary and permits bounded scalar argument edits. Lua `after` declarations
+> fail closed until exact return/yield/error/cleanup retirement exists. The
+> optional host-owned diagnostic trace closure follows the existing
+> `(prototype, arguments, upvalues)` values.
 
 Target addons already support additive Lua wrappers around exported functions
 such as `ActivateAbility`. This path uses the target module's exact closure

@@ -2,7 +2,9 @@
 	"min_gv_for_tls": { "$gv": "25.0.0" },
 	"min_gv_for_overlay": { "$gv": "33.0.0" }, // Overlay is not working greatly in U15, U22.13.4.
 	"min_gv_for_scripting": { "$gv": "33.0.0" },
-	"toonew": { "$gv": "44.0.0" },
+	"toonew": { "$gv": "45.0.0" },
+    "supported_builds_44": ["2026.09.24.13.29"],
+    "supported_client_sha256_44": ["45fa6ad0769cc8ca7fa7e0ffdee65c0c0932e11744146781ad18c45b16e4a81c", "87fc60ce65e015c6c8d4be5ac353538c37392efb6793dd17f0a17cf126d3fb5c"],
 	// Version-family boundaries alone cannot distinguish a certified U43 build
 	// from a later U43 hotfix with changed signatures. Keep U43 fail-closed.
 	"supported_builds_43": [

@@ -28,6 +28,29 @@ int main(int argc, char** argv)
 		pass &= result;
 	};
 	{
+        bool bijective = true;
+        for (std::uint8_t op = 0; op < 86; ++op)
+            bijective &= renovice::bytecode::canonical_opcode(renovice::bytecode::u43_to_u44[op], true) == op;
+        check(bijective, "U44 opcode profile is bijective across all 86 instructions");
+        DeLuaCallInstruction decoded;
+        check(decode_de_lua_call_instruction(0x03030547u, decoded, true)
+            && decoded.register_a == 5 && decoded.encoded_arguments_b == 3
+            && decoded.encoded_results_c == 3
+            && !decode_de_lua_call_instruction(0x0303051bu, decoded, true),
+            "U44 CALL operands preserved and U44 RETURN rejected");
+        const std::uint32_t code[] = {0x43u, 0x40u, 0x12345678u, 0x47u, 0x43u};
+        std::uint32_t instruction = 0;
+        check(native_callsite_instruction_from_saved_pc(code, 5, code + 4, instruction, true)
+            && instruction == 1
+            && !native_callsite_instruction_from_saved_pc(code, 5, code + 3, instruction, true),
+            "U44 NAMECALL resolves exact logical callsite and rejects AUX boundary");
+    }
+	check(select_exact_stack_target(0x11, false, 0x22, true) == 0x11
+		&& select_exact_stack_target(0, false, 0x22, true) == 0x22
+		&& select_exact_stack_target(0, false, 0x22, false) == 0
+		&& select_exact_stack_target(0x11, true, 0x22, true) == 0,
+		"native damage target preserves strict identity, admits only exact prototype fallback, and rejects ambiguity");
+	{
 		GenerationDispatchGate gate;
 		auto first = gate.try_dispatch();
 		auto nested = gate.try_dispatch();
@@ -113,6 +136,20 @@ int main(int argc, char** argv)
 			&& native_gray_link_offset_u43(10) == 0x68 && native_gray_link_offset_u43(12) == 0x80
 			&& native_gray_link_offset_u43(9) == -1,
 			"native GC queue tags have exact links and unsupported tags reject");
+	}
+	{
+		int observer_calls = 0;
+		check(preserve_stock_interrupt_result(800000u, [&] { ++observer_calls; }) == 800000u
+			&& observer_calls == 1,
+			"interrupt observer admits the exact stock limit and preserves its result");
+		check(preserve_stock_interrupt_result(800001u, [&] { ++observer_calls; }) == 800001u
+			&& observer_calls == 1,
+			"interrupt observer bypasses before the stock over-limit error path");
+		check(preserve_stock_interrupt_result(42u, [&]() -> void {
+			++observer_calls;
+			throw 1;
+		}) == 42u && observer_calls == 2,
+			"interrupt observer contains C++ failures and preserves the stock result");
 	}
 	{
 		std::uint32_t stock_count = 799999;
@@ -596,13 +633,11 @@ int main(int argc, char** argv)
 		&& !valid_target_closure_environment(true, false, true)
 		&& !valid_target_closure_environment(true, true, false),
 		"target addon requires the exact readable borrowed module closure environment");
-	check(lua_call_after_dispatch_allowed(true, 0, true, false)
-		&& !lua_call_after_dispatch_allowed(true, 0, true, true)
-		&& !lua_call_after_dispatch_allowed(true, 0, false, false)
-		&& !lua_call_after_dispatch_allowed(true, 1, true, false)
-		&& !lua_call_after_dispatch_allowed(true, 2, true, false)
-		&& !lua_call_after_dispatch_allowed(false, 0, true, false),
-		"Lua after hook requires status zero valid CallInfo bounds and a returned target frame");
+	check(lua_call_request_supported(true, false)
+		&& !lua_call_request_supported(true, true)
+		&& !lua_call_request_supported(false, true)
+		&& !lua_call_request_supported(false, false),
+		"nested Lua hook admission supports before-only and rejects after until complete retirement ownership exists");
 	{
 		// MSVC /O2 may pool address-only const scalar fixtures. Distinct elements
 		// of one live array have language-guaranteed distinct addresses.
@@ -832,6 +867,49 @@ int main(int argc, char** argv)
 			&& !instruction_from_saved_pc(0x100002, 981,
 				0x100000 + sizeof(std::uint32_t), instruction),
 			"instruction resolver rejects out-of-range and misaligned program counters");
+	}
+	{
+		constexpr std::uint32_t fixed_call = 0x03030554u; // CALL R5, 2 args, 2 results.
+		DeLuaCallInstruction decoded;
+		check(decode_de_lua_call_instruction(fixed_call, decoded)
+			&& decoded.register_a == 5
+			&& decoded.encoded_arguments_b == 3
+			&& decoded.encoded_results_c == 3,
+			"DE CALL decoder preserves exact A B C operands");
+		check(!decode_de_lua_call_instruction(0x03030529u, decoded),
+			"DE CALL decoder rejects RETURN and every non-CALL opcode");
+
+		DeLuaCallWindow window;
+		check(resolve_de_lua_call_window(
+				fixed_call, 0x1100, 0x1300, 0x1120,
+				0x1000, 0x1400, 0x10, 256, window)
+			&& window.function_slot == 0x1150
+			&& window.argument_base == 0x1160
+			&& window.argument_count == 2,
+			"fixed-arity DE CALL resolves caller base plus A and B minus one arguments");
+
+		constexpr std::uint32_t open_call = 0x01000554u;
+		check(resolve_de_lua_call_window(
+				open_call, 0x1100, 0x1300, 0x11a0,
+				0x1000, 0x1400, 0x10, 256, window)
+			&& window.function_slot == 0x1150
+			&& window.argument_base == 0x1160
+			&& window.argument_count == 4,
+			"B zero DE CALL derives open argument count from the live VM top");
+
+		check(!resolve_de_lua_call_window(
+				0x01000529u, 0x1100, 0x1300, 0x11a0,
+				0x1000, 0x1400, 0x10, 256, window)
+			&& !resolve_de_lua_call_window(
+				open_call, 0x1100, 0x1300, 0x1150,
+				0x1000, 0x1400, 0x10, 256, window)
+			&& !resolve_de_lua_call_window(
+				0x0103ff54u, 0x1100, 0x1300, 0x1120,
+				0x1000, 0x1400, 0x10, 256, window)
+			&& !resolve_de_lua_call_window(
+				fixed_call, 0x1100, 0x1170, 0x1120,
+				0x1000, 0x1400, 0x10, 256, window),
+			"nested CALL window fails closed on opcode top register and frame-boundary mismatches");
 	}
 	{
 		// Logical instruction 1 is a two-word NAMECALL; logical instruction 2

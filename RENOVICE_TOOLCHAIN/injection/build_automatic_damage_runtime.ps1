@@ -38,6 +38,18 @@ for ($i = 0; $i -lt $bytes.Length; $i += 16) {
     $last = [Math]::Min($i + 15, $bytes.Length - 1)
     $lines += ('    ' + (($bytes[$i..$last] | ForEach-Object { '0x{0:x2}' -f $_ }) -join ', ') + ',')
 }
+$lines += '};'
+$u44Bytecode = Join-Path $generated 'automatic_damage_runtime.u44.lua_B'
+& (Join-Path $toolchain 'derecomp.exe') recompile-u44 $source $u44Bytecode (Join-Path $toolchain '..\profiles\u44\name-map.tsv')
+if ($LASTEXITCODE) { throw 'U44 helper compilation failed' }
+& (Join-Path $toolchain 'derecomp.exe') de-roundtrip $u44Bytecode
+if ($LASTEXITCODE) { throw 'U44 helper container roundtrip failed' }
+$u44Bytes = [IO.File]::ReadAllBytes($u44Bytecode)
+$lines += 'inline constexpr unsigned char automatic_damage_runtime_bytecode_u44[]{'
+for ($i = 0; $i -lt $u44Bytes.Length; $i += 16) {
+    $last = [Math]::Min($i + 15, $u44Bytes.Length - 1)
+    $lines += ('    ' + (($u44Bytes[$i..$last] | ForEach-Object { '0x{0:x2}' -f $_ }) -join ', ') + ',')
+}
 $lines += '};', '}'
 $content = ($lines -join "`n") + "`n"
 $header = Join-Path $repo 'renovice\automatic_damage_runtime_bytecode.hpp'

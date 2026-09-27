@@ -1,5 +1,169 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-27 U44 Lua compatibility candidate installed
+
+DLL `86f0efc943b60785b8edecf5e3f921abdf5ee560fe925a203e60469e96b902db` (4,884,480 bytes) is installed in `Warframe 23.09.2026` with all 7 Inject and 9 root replacement files ported to the current stock targets. Shared compiler/runtime build profiles cover U44 native names/opcodes, embedded helpers, verified prototype layout and exact callsite bindings. Universal API and existing ownership/Pluto architecture remain intact. Diagnostics remains false. Build, package, current-client/TopMenu and installed admission checks pass; **fresh-process Scripts menu/cards/effects/F9 gameplay acceptance remains pending**. Original DLL/scripts/state file are retained in rollback.
+
+[Concise evidence, limitations and future update procedure](../../../../work/research/U44-2026-09-27/lua-port/findings.md).
+
+## 2026-09-27 U44 private-client candidate
+
+Exact 2026.09.24.13.29 port was initially installed in `work/staging/warframe-u44-client`, then promoted at the user's request to `C:/Users/Bartek/OneDrive/Dokumenter/Warframe 23.09.2026` with matching executable/DLL/Hotfix hashes. Startup reaches main menu with metadata patches enabled. Native string borrowed ownership changed in U44; the new conditional marker fixes the reproduced startup allocator crash. DLL SHA256 `0eeaa5d9e416a6f9d248e76d8130c85d50a44d9163279143bbf853674b3b4674`. Existing injector/Pluto architecture retained; mission/addon/F9/F10 and long-session acceptance are pending. The usual installed client now runs U44; mods/settings were preserved. [Evidence and remaining gates](../../../../work/research/U44-2026-09-27/findings.md).
+
+The V110 and earlier records below describe the prior installation.
+
+**V110 INSTALLED; OFFLINE BUILD/PACKAGE/INSTALLATION PASS; fresh-process
+gameplay acceptance pending.** V109 live evidence falsified the claim that
+Mallet or its stock damage body was absent: the target addon loaded, and the
+battle observer recorded 1,528 Mallet-body damage records. The actual break was
+earlier in the additive transport. `SetSourceObject` ran, strict
+closure/environment ownership returned no target, and there were zero target
+matches, callback installations, callback entries, or `afterDamage` dispatches.
+V110 preserves strict closure ownership when it matches and adds the same exact
+current-generation prototype plus saved-instruction identity already used by
+the generic native-call bus. Ambiguity, stale prototypes, cross-VM ownership,
+and non-exact saved PCs still reject. There is no Mallet key or ability-specific
+C++ branch. The unified diagnostics master switch is `false`, so ordinary play
+performs no battle-observer callback, JSON, snapshot, or formatting work.
+
+The installed 4,857,856-byte DLL SHA-256 is
+`3319C7372C9756B599F624BA3794B39FEC79AD3FB2A1BDE409E49E2C7365B85C`.
+The finalized package preserves exact V109 rollback
+`45B8BDA11BEF71F2873A1DE1E90837A6AAFE7FE4C157ED16CBEE4D6A719F1C69`.
+Independent installation audit covers 92 files and proves only
+`WTSAPI32.dll` changed; all 41 CustomScripts files are byte-identical. See the
+[V110 evidence record](../RESEARCH/MALLET_EXACT_TARGET_V110_2026-09-20/README.md).
+
+**V109 INSTALLED; OFFLINE BUILD/PACKAGE/INSTALLATION PASS; live acceptance
+pending.** The universal Inject/Replacement loader remains intact and has no
+script-count cutoff; the former 4,096-row SCRIPTS presentation cap is removed.
+V109 routes the existing loader, target-addon, ability-card, SCRIPTS UI,
+callback-runtime, native observer, and F9 refresh operations through DE-owned
+protected VM boundaries so a Lua error cannot strand C++ ownership or a
+half-created UI transaction. The private x64 build passed with zero warnings
+and zero errors. The installed 4,857,344-byte DLL SHA-256 is
+`45B8BDA11BEF71F2873A1DE1E90837A6AAFE7FE4C157ED16CBEE4D6A719F1C69`.
+The finalized package preserves exact V108 rollback
+`82D34D2321667909E11327535A33B1D4E71130F6C9AB31A9C9DB255CAA676227`;
+the post-install audit covers 90 files and proves only `WTSAPI32.dll` changed,
+with all 39 CustomScripts files preserved. Diagnostics, Logging, and Verbose are
+enabled for the fresh-process acceptance run. Read the [V109 authority and UI
+stability record](../RESEARCH/DE_VM_AUTHORITY_V109_2026-09-19/README.md).
+
+**V108 INSTALLED-BYTES AND OFFLINE GATES PASS; live acceptance pending.** V107
+failed before generation 1: its mandatory ordinary detour targeted DE callback
+RVA `0x197EC80`, whose relative `JNS`/`CALL` prologue cannot be copied by Soup's
+trampoline builder. The resulting exception removed the valid base loader and
+VM-execute hooks, so the hidden bridge, `SCRIPTS` row and every Inject target
+addon were absent together. V108 observes the same stock event at the unique
+interrupt-counter leaf RVA `0x1AB150`, executes stock exactly once and preserves
+its result. Counts above the stock `800000` limit bypass addon observation so
+DE's unchanged parent guard raises first; C++ observer failures return the
+stock count through a `noexcept` boundary and scoped VM-stack restoration. Base
+hooks are enabled before this observer; observer detour
+creation/enable failure is capability-local and cannot tear down ordinary
+Inject, replacements or the Scripts bridge. The exact installed 4,790,784-byte
+DLL SHA-256 is
+`82D34D2321667909E11327535A33B1D4E71130F6C9AB31A9C9DB255CAA676227`.
+Pre/post audits cover 89 files and prove only `WTSAPI32.dll` changed; all seven
+Inject and nine root replacement files remain byte-identical and pass their
+focused live-directory admission gates. Read the [V108 root-cause and repair
+record](../RESEARCH/UNIVERSAL_LUA_LOADER_REPAIR_V108_2026-09-19/README.md).
+
+**V107 INSTALLED-BYTES PASS; LIVE REJECTED.** The
+old interpreter-entry `luaCalls` implementation was not universal: DE CALL
+creates and enters nested Lua frames inside one invocation of VM execute. V107
+was intended to observe raw CALL `0x54` at DE's natural interrupt callback
+`0x197EC80`, call the stock interrupt first and exactly once, validate the exact
+Lua frame and prototype code interval, decode the caller's A/B argument window
+and dispatch the existing protected host frame. Its trampoline never installed,
+so none of that path ran live. Before-only callbacks retain no CallInfo
+pointer, argument registry root or after token. Every `luaCalls.after`
+declaration now rejects at staging because exact RETURN/yield/error/cleanup
+retirement is not implemented. The full x64 private build passes with zero
+warnings/errors; this verification build produced candidate DLL
+`C0AA443D4858A205959C57C5CBDD469606A459F4F7E59882EAD0D5ADEC31D2C8`,
+whose hash is build-instance-specific because the normal archive is
+time-versioned, 4,787,712 bytes. The exact previous V106 DLL is preserved as
+rollback. Pre/post installation audits cover 89 files and prove that only
+`WTSAPI32.dll` changed; `OpenWF/Hotfix.owf` and every Pluto script, addon,
+configuration, replacement and metadata file remained byte-identical. Stable
+decompilation of the seven installed Inject bytecode
+files confirms the only Lua-call users are Mallet 18, Survival 64 and
+Interception 35, all before-only. Native after hooks used by Elite Sanctuary
+and Ice Wave are a separate supported bus. Read the
+[exact implementation and acceptance boundary](../../toolchains/native-analysis/RESEARCH/2026-09-19_RUNTIME_SCRIPT_PIPELINE/V107_BEFORE_OBSERVER_IMPLEMENTATION.md).
+
+**V106 INSTALLED-BYTES PASS; fresh F10 acceptance pending.** The V105 session
+successfully requested and connected to the standard Simulacrum once, proving
+that its Pluto script, `Engine.OpenLevelArgs`, level and game-rules paths were
+functional. The remaining source flaw was universal: configured key edges were
+sampled only inside the cached UI VM's owner/thread/idle eligibility gate. A
+press and release during a non-idle interval could disappear. V106 samples
+physical state at the process-owned Application frame, performs no Lua/game-VM
+work there, queues at most 64 configured scripts, and dispatches at most eight
+per safe Pluto tick. Focus, input-filter, modifier and server prohibition rules
+remain enforced. `/status` now distinguishes captured, pending, dispatched and
+dropped edges. All runtime/VM/ownership/diagnostics/hotkey invariants and the
+full private x64 build pass with zero warnings/errors. Pre/post audits pass
+33/33; only the DLL changed. Installed SHA-256
+`2BDF0B9AD026562C1E1EDC369C825CA5209AC5F97C64C2A82F3DC18656D8325D`,
+4,795,392 bytes. Exact V105 rollback retained. Read the [V106
+report](../../../../Documentation/04-Runtime-and-UI/V106-Process-Owned-Hotkey-Latch-2026-09-17.md).
+
+**V105 INSTALLED-BYTES PASS at `2026-09-17T18:56:13.1458780Z`; live
+acceptance is pending.** The latest Arsenal/modding-UI log ends at the same
+`Warframe.x64+0x1834116` assertion as the previously dump-mapped V103
+Railjack-to-hangar crash. Diagnostics were false and the engine heap was not
+exhausted. The mapped path is Pluto GC -> `owfUserdata.__gc` ->
+`ivkr_push_string` -> game `luau_pushstring`: registry cleanup was allocating
+against a cached UI state from the native Application-frame scheduler, outside
+a current game-owned Lua API invocation. V105 preserves the exact cleanup and
+all Pluto features. Root constructors capture their DE global-state owner; the
+finalizer queues only key+owner; a bounded queue drains only from an
+owner-matched real game set-global call with checked stack capacity and stack
+restoration. There is no drain in the Application-frame scheduler, and V104's
+rejected `UpdateFlashMarkers` hook remains absent. Full private x64 build passes
+with zero warnings/errors. Independent installation audit passes 33/33 files:
+only `WTSAPI32.dll` changed. Installed SHA-256
+`F7BB73C6A53718A98E9D7AF87116818D51F57503F0CF65FE0D1954E88D5E60BC`,
+4,791,808 bytes. Exact V103 DLL/config rollback is retained. Read the [V105
+report](../../../../Documentation/04-Runtime-and-UI/V105-Deferred-Registry-Release-2026-09-17.md).
+
+**V103 RESTORED at `2026-09-17T11:26:14.8840390Z`; V104 is LIVE REJECTED.**
+The installed game DLL and the repository root artifact are the exact V103
+bytes, SHA-256
+`738112A1FDE93685B0EBD982243EBBBBBC09E8C29E952FF542CED56BB6EA26BC`.
+The rollback audit passes all 33 baseline files; only `WTSAPI32.dll` changed
+back and the other 32 files remained byte-identical. No Pluto payload, Lua
+addon, replacement, ability card, configuration, metadata patch, server or
+account file changed.
+
+V104 restored Pluto to the `UpdateFlashMarkers` method-table entry and added a
+thread-local ownership scope intended to make RENOVICE dormant during nested
+Pluto bridge calls. F10 worked, proving that Pluto was clocked. Exact `Limbo`
+search then crashed. CDB proves this is the **same null-continuation family as
+V21/V22/V37**: exception `c0000005`, execute address zero, first game return
+`Warframe_x64+0x19815c9`, failure bucket
+`SOFTWARE_NX_FAULT_NULL_INVALID_POINTER_EXECUTE_c0000005_Warframe.x64.exe!Unknown`,
+failure hash `{b2e2f003-f1a9-53a7-3fe6-e89cb3ca4935}`, and the same fourteen
+game-module stack offsets. At `Warframe_x64+0x19815c7`, the VM executes
+`call rax` after loading the callable target from `closure+0x20`; `rax` is
+zero. The activity scope therefore did not make this scheduler boundary safe.
+
+The failed hypothesis was that nested RENOVICE observation was the missing
+difference in V37. V104 bypassed those nested observer calls and rejected the
+outer return as a later RENOVICE safe point, yet it still ran Pluto from inside
+the live DE C/namecall frame. It also could not identify the Pluto-containing
+outer interpreter execution until that execution had already entered the
+RENOVICE VM observer. Direct `UpdateFlashMarkers` scheduling must remain absent
+from the combined runtime. The preserved V104 source, binary, dump, debugger
+reports, deployment receipts and V103 rollback are recorded in the
+[V104 rejected-candidate report](../../../../Documentation/04-Runtime-and-UI/Pluto-RENOVICE-Decoupling-V104-2026-09-17.md).
+
+The V102 and older sections below are dated evidence. They do not override the
+current V103 installed-byte result or the V104 live rejection.
+
 **V102 universal target binding repair INSTALLED
 2026-09-17T07:48:32.1939818Z; fresh live acceptance is pending.** V101 live evidence proves
 exact Ice Wave target `f62b70b45fc7fdf9` and Mallet target
@@ -579,7 +743,7 @@ evidence, not the active architecture.
 |---|---|---|
 | Full replacement | `CustomScripts/<16-hex-key> ... .lua_B` | Replaces the stock module body identified by the original FNV-1a-64 content key. Removal/disable requests stock restoration for captured refreshable contexts. |
 | Managed addon | `CustomScripts/Inject/*.addon.lua_B` | Returns idempotent `activate()` and `cleanup()` lifecycle functions. Its behavior and undo path remain owned by the addon. |
-| Target addon | `CustomScripts/Inject/<16-hex-key>.*.target.addon.lua_B` | Raw DE bytecode loaded in the target module context. It may own a proven reachable exported-function wrapper through lifecycle `activate`/`cleanup`; optional host hooks are `matchesAbility`, `afterAbilityCard`, immediate `afterDamage(sourceAbility, reportedDamage)`, `nativeCalls[method].before/after` with exact prototype/instruction identity, and V62 `luaCalls[prototype].before/after` with one-based argument/capture tables, finite same-tag scalar argument edits during `before`, and coroutine-aware terminal `after` dispatch. No support script or target-specific C++ is required. |
+| Target addon | `CustomScripts/Inject/<16-hex-key>.*.target.addon.lua_B` | Raw DE bytecode loaded in the target module context. It may own a proven reachable exported-function wrapper through lifecycle `activate`/`cleanup`; optional host hooks are `matchesAbility`, `afterAbilityCard`, immediate `afterDamage(sourceAbility, reportedDamage)`, `nativeCalls[method].before/after` with exact prototype/instruction identity, and V107 `luaCalls[prototype].before` with one-based arguments/upvalues and finite same-tag scalar copyback. `luaCalls.after` is rejected until complete RETURN/yield/error/cleanup retirement exists. No support script or target-specific C++ is required. |
 | Ordinary Inject script | `CustomScripts/Inject/*.lua_B` | One-shot execution in the staged generation. It has no automatic undo unless authored as a managed addon. |
 | Internal bridge | `Inject/_RENOVICE_INTERNAL_ScriptsSettingsBridgeV10.lua_B` | Mandatory hidden infrastructure for the pause-menu UI. It must never appear as a player-toggleable script. |
 
@@ -1206,11 +1370,12 @@ export fixture, interception of a native caller that cached the old closure,
 or addressability of unnamed local closures. The current outer `vm_execute`
 detour also does not prove nested Lua prototype entry/return interception.
 
-The preceding paragraph records the V59 boundary. V60 superseded that specific
-limitation with exact closure/prototype entry and return dispatch for
-addon-declared `luaCalls`. Live Survival proved prototype entry dispatch and
-rejected the unconditional post-return rule. V61 retains entry dispatch and
-makes terminal `after` delivery coroutine aware.
+The preceding paragraph records the V59 boundary. V60/V61 are historical:
+they attempted closure/prototype dispatch at VM-entry/outer-return boundaries.
+Survival proved one entry case and rejected unconditional post-return, but the
+2026-09-19 exact interpreter analysis proves that boundary misses nested CALLs.
+V107 supersedes current Lua-call admission with the instruction-level CALL
+observer and disables Lua after dispatch entirely.
 
 ## V60 exact Lua-call target addon
 

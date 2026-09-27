@@ -26,7 +26,7 @@ full Lua replacement and an additive addon.
 |---|---|---|
 | Change an ability's existing local control flow, formula, or unnamed closure | Full `.lua_B` replacement | The original module itself must change. |
 | Run additive behavior before or after an exported function such as `ActivateAbility` | Target `.target.addon.lua_B` with an owned Lua wrapper | The stock closure is called directly and restored by addon cleanup. |
-| Read or change verified captured values when one exact stock Lua prototype runs | Target `.target.addon.lua_B` with `hooks.luaCalls[prototype].before/after` | V69 keeps the stock module, validates exact body/prototype/callback shape and supported copyback types, and appends an optional host diagnostic trace closure. |
+| Read or change verified arguments/upvalues immediately before one exact stock Lua prototype runs | Target `.target.addon.lua_B` with `hooks.luaCalls[prototype].before` | V107 observes the real nested CALL boundary, validates exact body/VM/prototype identity and permits only finite same-tag scalar copyback. Lua `after` declarations fail closed until complete call retirement exists. |
 | Add behavior at an existing RENOVICE hook without recreating the stock ability | Managed `.addon.lua_B` | The stock ability remains authoritative and the addon owns only its addition. |
 | Change an ability name or description | `Label Replacements.cat.txt` | The card paragraph comes from a localization tag, not the ability's numeric-row function. |
 | Add another number to a modified ability card | Generate another native row inside that ability's `GetAbilityUpgradeLevelInfo` | Warframe's existing bottom-row renderer remains authoritative. |
@@ -36,7 +36,7 @@ Prefer an addon when the needed event already exists. Use a full replacement
 when the original control flow itself must be changed or when no trustworthy
 hook exists. Do not invent an event by polling every frame.
 
-Survival timers are the first verified `luaCalls` example. Body
+Survival timers are the first verified before-only `luaCalls` example. Body
 `1e3647332a578b78`, prototype 64, capture 19 (elapsed reward time), capture 22
 (pickup config), and capture 70 (reward config) are locked by the editor and
 runtime. The stock mission module remains loaded, including its keypad/start

@@ -122,6 +122,7 @@ end
 
 class owfUserdata
 	function __construct()
+		self.__ivkr_registry_owner = ivkr_registry_owner()
 		if not ivkr_isuserdata(-1) then
 			ivkr_pop(1)
 			error($"attempt to construct {self.__name} from nil")
@@ -133,9 +134,11 @@ class owfUserdata
 	end
 
 	function __gc()
-		ivkr_push_string(tostring(self))
-		ivkr_push_nil()
-		ivkr_settable(-10002)
+		-- Pluto collection can run from the native Application-frame scheduler,
+		-- where the cached DE UI state is not an owned Lua API call boundary.
+		-- Preserve the strong registry-root cleanup, but let the game VM apply it
+		-- during its next live set-global invocation.
+		ivkr_defer_registry_release(tostring(self), self.__ivkr_registry_owner)
 	end
 
 	function pushToIvkr()
@@ -2833,6 +2836,7 @@ class Engine.OpenLevelArgs extends owfUserdata
 	__name = "Engine.OpenLevelArgs"
 
 	function __construct()
+		self.__ivkr_registry_owner = ivkr_registry_owner()
 		ivkr_push_string(tostring(self))
 		ivkr_call(ivkr_find_ctor("OpenLevelArgs"), 0)
 		ivkr_settable(-10002)
@@ -2871,6 +2875,7 @@ class Engine.DamageData extends owfUserdata
 		if use_parent_constructor then
 			parent:__construct()
 		else
+			self.__ivkr_registry_owner = ivkr_registry_owner()
 			ivkr_push_string(tostring(self))
 			ivkr_call(ivkr_find_ctor("DamageData"), 0)
 			ivkr_settable(-10002)
@@ -3629,15 +3634,17 @@ local t_functions = {
 		ivkr_pop(1)
 		return ret
 	end,
-	ShowNotification = function(...args)
+	ShowNotification = function(text, icon)
 		ivkr_push_global("_T")
 		ivkr_push_string("ShowNotification")
 		ivkr_gettable(-2)
 
-		for args as arg do
-			ivkr_push_any(arg)
+		if icon == nil and OWF_GAME_VERSION >= 430000 then
+			icon = "DroneComplete" -- U43+ requires an icon (upstream 21515855).
 		end
-		ivkr_call2(#args, 0)
+		ivkr_push_any(text)
+		ivkr_push_any(icon)
+		ivkr_call2(2, 0)
 
 		ivkr_pop(1)
 	end,

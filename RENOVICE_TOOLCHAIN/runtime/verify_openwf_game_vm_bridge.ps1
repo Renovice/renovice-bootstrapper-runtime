@@ -12,7 +12,8 @@ foreach ($marker in @(
     'bool initialise_game_vm_stack_bridge() noexcept;',
     'bool reserve_game_vm_stack(luau_State* state, int slots) noexcept;',
     'bool push_game_vm_stack_index(luau_State* state, int index) noexcept;',
-    'bool append_game_vm_stack_value(luau_State* state, luau_TValue value) noexcept;'
+    'bool append_game_vm_stack_value(luau_State* state, luau_TValue value) noexcept;',
+    'bool append_game_vm_stack_value_reserved('
 )) {
     if (-not $header.Contains($marker)) { throw "Public game-VM bridge contract missing: $marker" }
 }
@@ -23,6 +24,9 @@ foreach ($marker in @(
     'signature_lua_pushvalue_u43',
     'game_pushvalue(state, index);',
     'checked_stack_append(*state, value,',
+    'bool append_game_vm_stack_value_reserved(',
+    'state->outtop >= state->stack_last',
+    '*state->outtop++ = value;',
     'if (!initialise_game_vm_stack_bridge()) return false;'
 )) {
     if (-not $injection.Contains($marker)) { throw "Shared game-VM bridge implementation missing: $marker" }
@@ -32,8 +36,11 @@ foreach ($marker in @(
     '#include "renovice/injection.hpp"',
     'push_game_vm_stack_index(',
     'OpenWF.ChatRedux.table.v97',
-    'ChatRedux_global_state == luau_L->global_state',
-    'collectable upvalue assignment is unavailable'
+    'ProtectedGameVmOperationKind::chat_redux',
+    'operation.pointer = ChatRedux_global_state',
+    'state->global_state != operation->pointer',
+    'ProtectedGameVmOperationKind::set_upvalue',
+    'replacement->type != owf_game_tag(LUAU_NUMBER)'
 )) {
     if (-not $scripting.Contains($marker)) { throw "OpenWF bridge integration missing: $marker" }
 }

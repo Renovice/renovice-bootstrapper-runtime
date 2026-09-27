@@ -1,6 +1,8 @@
 #include "riven.hpp"
 
 #include "config.hpp"
+#include <base.hpp>
+#include "../owf_structs.hpp"
 #include "riven_core.hpp"
 
 #include <atomic>
@@ -317,7 +319,7 @@ bool initialise()
 	const auto set_string = resolve_unique<SetStringVariable>(signature_set_string_variable, "SetStringVariable");
 	movie_argument = resolve_unique<MovieArgument>(signature_movie_argument, "movie argument reader");
 	string_argument = resolve_unique<StringArgument>(signature_string_argument, "string argument reader");
-	type_argument = resolve_unique<TypeArgument>(signature_type_argument, "type argument reader");
+	type_argument = resolve_unique<TypeArgument>(game_version >= GV(44, 0, 0) ? signature_type_argument_u44 : signature_type_argument, "type argument reader");
 	if (dispatch == nullptr || set_string == nullptr || movie_argument == nullptr
 		|| string_argument == nullptr || type_argument == nullptr) return false;
 	if (!create_hook(gfx_hook, reinterpret_cast<void*>(dispatch), reinterpret_cast<void*>(&gfx_dispatch_detour), "GFx")

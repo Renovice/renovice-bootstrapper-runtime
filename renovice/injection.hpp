@@ -29,6 +29,11 @@ bool push_game_vm_stack_index(luau_State* state, int index) noexcept;
 // Input is copied before native reservation because reservation may relocate
 // the source stack slot.
 bool append_game_vm_stack_value(luau_State* state, luau_TValue value) noexcept;
+// Append only when the caller has already proved one free stack slot. This
+// path never invokes check_stack and therefore cannot grow the stack or raise
+// a DE Luau error through a native C++ ownership frame.
+bool append_game_vm_stack_value_reserved(
+	luau_State* state, luau_TValue value) noexcept;
 
 // Registers the pending-only RENOVICE transaction callback. A DE interpreter
 // return can still sit inside the native caller that entered it, so periodic

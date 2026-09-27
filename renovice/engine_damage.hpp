@@ -14,11 +14,18 @@ struct Source {
 };
 // An ingress is context only; stock still owns area selection and damage.
 class SourceScope {
-    const Source* previous;
+    Source previous;
+    bool previous_active = false;
 public:
     explicit SourceScope(const Source* source) noexcept;
     ~SourceScope() noexcept;
 };
+// Longjmp-safe source ownership for a stock native call. The active record is
+// copied into process-owned thread-local storage; no pointer to a detour stack
+// frame is retained. Callers that publish explicitly must clear it on normal
+// return and at the exact idle recovery boundary.
+bool publish_source(const Source* source) noexcept;
+void clear_source() noexcept;
 // Call only at the existing accepted startup/F9 transaction boundary.
 // Installed trampolines stay owned for the process lifetime: F9 publishes
 // configuration and resets budgets, never retires an active damage trampoline.

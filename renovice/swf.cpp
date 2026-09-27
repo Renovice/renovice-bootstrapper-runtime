@@ -1,6 +1,8 @@
 #include "swf.hpp"
 
 #include "config.hpp"
+#include <base.hpp>
+#include "../owf_structs.hpp"
 #include "swf_core.hpp"
 
 #include <algorithm>
@@ -364,7 +366,7 @@ InitialiseResult initialise()
 	}
 
 	const auto oodle = resolve_unique<Oodle>(signature_oodle_decompress, "OodleLZ_Decompress");
-	const auto parser = resolve_unique<Parser>(signature_parser, "SWF parser");
+	const auto parser = resolve_unique<Parser>(game_version >= GV(44, 0, 0) ? signature_parser_u44 : signature_parser, "SWF parser");
 	if (oodle == nullptr || parser == nullptr) return InitialiseResult::Failed;
 	if (!create_hook(oodle_hook, reinterpret_cast<void*>(oodle), reinterpret_cast<void*>(&oodle_detour), "Oodle")
 		|| !create_hook(parser_hook, reinterpret_cast<void*>(parser), reinterpret_cast<void*>(&parser_detour), "parser"))

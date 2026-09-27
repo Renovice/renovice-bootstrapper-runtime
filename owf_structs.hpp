@@ -33,7 +33,8 @@ union GameString
 		if (len > sizeof(shrt.data))
 		{
 			lng.ptr = (char*)data;
-			lng.metadata = 0xFF'FFFFFFF'0000000ull | (len & 0xFFFFFFF);
+			// U44 uses zero capacity for borrowed storage; the old sentinel is now owned.
+			lng.metadata = (game_version >= GV(44, 0, 0) ? 0xFF'0000000'0000000ull : 0xFF'FFFFFFF'0000000ull) | (len & 0xFFFFFFF);
 		}
 		else
 		{
@@ -47,7 +48,8 @@ union GameString
 	{
 		if (isLong())
 		{
-			lng.metadata = 0xFF'FFFFFFF'0000000ull | (len & 0xFFFFFFF);
+			// Preserve U44 capacity/ownership when changing only the string length.
+			lng.metadata = (game_version >= GV(44, 0, 0) ? (lng.metadata & ~0xFFFFFFFull) : 0xFF'FFFFFFF'0000000ull) | (len & 0xFFFFFFF);
 		}
 		else
 		{

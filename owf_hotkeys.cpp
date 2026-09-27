@@ -1,5 +1,9 @@
 #include "owf_hotkeys.hpp"
 
+#include <atomic>
+#include <deque>
+#include <mutex>
+
 #include <joaat.hpp>
 #include <json.hpp>
 #include <Key.hpp>
@@ -12,6 +16,16 @@
 #include "owf_scripting.hpp"
 
 using namespace soup;
+
+namespace
+{
+	constexpr std::size_t max_latched_hotkey_scripts = 64;
+	std::mutex latched_hotkey_scripts_mtx;
+	std::deque<std::string> latched_hotkey_scripts;
+	std::atomic<std::uint64_t> latched_hotkey_edges_captured{ 0 };
+	std::atomic<std::uint64_t> latched_hotkey_scripts_dispatched{ 0 };
+	std::atomic<std::uint64_t> latched_hotkey_edges_dropped{ 0 };
+}
 
 void load_hotkeys()
 {
@@ -70,4 +84,78 @@ void load_hotkeys()
 	hotkeys_mtx.lock();
 	hotkeys = std::move(hks);
 	hotkeys_mtx.unlock();
+}
+
+void poll_openwf_hotkey_inputs(bool input_allowed) noexcept
+{
+	if (!hotkeys_mtx.tryLock()) return;
+	try
+	{
+		for (auto& hk : hotkeys)
+		{
+			// Always track the physical release, including while focus/input policy
+			// blocks dispatch. Otherwise a key captured before a menu transition
+			// can remain logically held and suppress the next valid press.
+			const bool pressed = hk.isPressed();
+			const bool just_pressed = pressed && !hk.was_pressed;
+			hk.was_pressed = pressed;
+			if (!input_allowed || !just_pressed) continue;
+			std::lock_guard lock(latched_hotkey_scripts_mtx);
+			if (latched_hotkey_scripts.size() >= max_latched_hotkey_scripts)
+			{
+				latched_hotkey_edges_dropped.fetch_add(1, std::memory_order_relaxed);
+				continue;
+			}
+			latched_hotkey_scripts.emplace_back(hk.script);
+			latched_hotkey_edges_captured.fetch_add(1, std::memory_order_relaxed);
+		}
+	}
+	catch (...)
+	{
+		latched_hotkey_edges_dropped.fetch_add(1, std::memory_order_relaxed);
+	}
+	hotkeys_mtx.unlock();
+}
+
+bool pop_latched_openwf_hotkey_script(std::string& script) noexcept
+{
+	try
+	{
+		std::lock_guard lock(latched_hotkey_scripts_mtx);
+		if (latched_hotkey_scripts.empty()) return false;
+		script = std::move(latched_hotkey_scripts.front());
+		latched_hotkey_scripts.pop_front();
+		return true;
+	}
+	catch (...)
+	{
+		latched_hotkey_edges_dropped.fetch_add(1, std::memory_order_relaxed);
+		return false;
+	}
+}
+
+void note_openwf_hotkey_script_dispatched() noexcept
+{
+	latched_hotkey_scripts_dispatched.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::uint64_t openwf_hotkey_edges_captured() noexcept
+{
+	return latched_hotkey_edges_captured.load(std::memory_order_relaxed);
+}
+
+std::uint64_t openwf_hotkey_scripts_dispatched() noexcept
+{
+	return latched_hotkey_scripts_dispatched.load(std::memory_order_relaxed);
+}
+
+std::uint64_t openwf_hotkey_edges_dropped() noexcept
+{
+	return latched_hotkey_edges_dropped.load(std::memory_order_relaxed);
+}
+
+std::size_t openwf_hotkey_scripts_pending() noexcept
+{
+	std::lock_guard lock(latched_hotkey_scripts_mtx);
+	return latched_hotkey_scripts.size();
 }

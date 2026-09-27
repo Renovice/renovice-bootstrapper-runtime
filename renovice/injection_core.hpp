@@ -7,9 +7,11 @@
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "replacements_core.hpp"
+#include "de_opcode_profile.hpp"
 
 namespace renovice::injection
 {
@@ -48,6 +50,29 @@ inline bool exact_relative_jump_to(
 	return opcode == 0xE9u
 		&& relative_jump_destination(instruction, displacement)
 			== expected_destination;
+}
+
+inline constexpr std::int32_t de_interrupt_limit_u43 = 800000;
+
+template <typename Observer>
+inline std::uint32_t preserve_stock_interrupt_result(
+	std::uint32_t stock_count,
+	Observer&& observer
+) noexcept
+{
+	// The parent DE callback performs a signed `cmp eax, 800000; jg` immediately
+	// after this leaf returns. Never run optional addon code before that stock
+	// failure path, and never let a C++ observer failure escape through DE.
+	if (static_cast<std::int32_t>(stock_count) > de_interrupt_limit_u43)
+		return stock_count;
+	try
+	{
+		std::forward<Observer>(observer)();
+	}
+	catch (...)
+	{
+	}
+	return stock_count;
 }
 
 enum class ScriptKind
@@ -817,20 +842,16 @@ inline bool same_target_hook_module(
 				&& expected_environment == candidate_environment));
 }
 
-inline bool lua_call_after_dispatch_allowed(
-	bool exact_callsite,
-	std::uint8_t state_status,
-	bool active_frame_scan_valid,
-	bool target_frame_still_active
+inline bool lua_call_request_supported(
+	bool before,
+	bool after
 ) noexcept
 {
-	// vm_execute returns both when a Lua invocation completes and when its
-	// coroutine yields or breaks. It can also hand a status-zero frame to native
-	// execution before that Lua call has returned. Calling a new protected Lua
-	// callback at either boundary changes the resume contract. The target frame
-	// must be proven absent from a valid active CallInfo chain.
-	return exact_callsite && state_status == 0
-		&& active_frame_scan_valid && !target_frame_still_active;
+	// Exact CALL admission can run a before provider without retaining any VM
+	// roots or generation state. An after provider needs the complete RETURN,
+	// yield, protected-error, resume-error and record-cleanup retirement map.
+	// Reject it as a declaration until every owner is implemented and tested.
+	return before && !after;
 }
 
 inline bool same_target_root_execution(
@@ -1195,6 +1216,127 @@ inline bool instruction_from_saved_pc(
 	return true;
 }
 
+struct DeLuaCallInstruction
+{
+	std::uint8_t register_a = 0;
+	std::uint8_t encoded_arguments_b = 0;
+	std::uint8_t encoded_results_c = 0;
+};
+
+inline bool decode_de_lua_call_instruction(
+	std::uint32_t raw,
+	DeLuaCallInstruction& decoded,
+	bool u44 = false
+) noexcept
+{
+	decoded = {};
+	if (renovice::bytecode::canonical_opcode(static_cast<std::uint8_t>(raw), u44) != 0x54u) return false;
+	decoded.register_a = static_cast<std::uint8_t>(raw >> 8);
+	decoded.encoded_arguments_b = static_cast<std::uint8_t>(raw >> 16);
+	decoded.encoded_results_c = static_cast<std::uint8_t>(raw >> 24);
+	return true;
+}
+
+struct DeLuaCallWindow
+{
+	std::uintptr_t function_slot = 0;
+	std::uintptr_t argument_base = 0;
+	std::size_t argument_count = 0;
+};
+
+inline bool resolve_de_lua_call_window(
+	std::uint32_t raw,
+	std::uintptr_t frame_base,
+	std::uintptr_t frame_limit,
+	std::uintptr_t live_top,
+	std::uintptr_t stack_begin,
+	std::uintptr_t stack_end,
+	std::size_t value_size,
+	std::size_t maximum_arguments,
+	DeLuaCallWindow& window,
+	bool u44 = false
+) noexcept
+{
+	window = {};
+	DeLuaCallInstruction decoded;
+	if (!decode_de_lua_call_instruction(raw, decoded, u44)
+		|| value_size == 0 || maximum_arguments == 0
+		|| stack_begin == 0 || stack_end <= stack_begin
+		|| frame_base < stack_begin || frame_base >= stack_end
+		|| frame_limit <= frame_base || frame_limit > stack_end
+		|| live_top < frame_base || live_top > frame_limit
+		|| (frame_base - stack_begin) % value_size != 0
+		|| (frame_limit - stack_begin) % value_size != 0
+		|| (live_top - stack_begin) % value_size != 0)
+	{
+		return false;
+	}
+
+	const auto a_bytes = static_cast<std::uintptr_t>(decoded.register_a)
+		* static_cast<std::uintptr_t>(value_size);
+	if (frame_base > (std::numeric_limits<std::uintptr_t>::max)() - a_bytes)
+		return false;
+	window.function_slot = frame_base + a_bytes;
+	if (window.function_slot >= frame_limit
+		|| window.function_slot > (std::numeric_limits<std::uintptr_t>::max)()
+			- static_cast<std::uintptr_t>(value_size))
+	{
+		window = {};
+		return false;
+	}
+	window.argument_base = window.function_slot + value_size;
+
+	std::uintptr_t argument_end = 0;
+	if (decoded.encoded_arguments_b == 0)
+	{
+		if (live_top < window.argument_base)
+		{
+			window = {};
+			return false;
+		}
+		argument_end = live_top;
+	}
+	else
+	{
+		window.argument_count = static_cast<std::size_t>(
+			decoded.encoded_arguments_b - 1u);
+		if (window.argument_count > maximum_arguments
+			|| window.argument_count > (std::numeric_limits<std::uintptr_t>::max)()
+				/ value_size)
+		{
+			window = {};
+			return false;
+		}
+		const auto argument_bytes = static_cast<std::uintptr_t>(
+			window.argument_count * value_size);
+		if (window.argument_base > (std::numeric_limits<std::uintptr_t>::max)()
+			- argument_bytes)
+		{
+			window = {};
+			return false;
+		}
+		argument_end = window.argument_base + argument_bytes;
+	}
+
+	if (argument_end > frame_limit || argument_end > stack_end
+		|| (argument_end - window.argument_base) % value_size != 0)
+	{
+		window = {};
+		return false;
+	}
+	if (decoded.encoded_arguments_b == 0)
+	{
+		window.argument_count = static_cast<std::size_t>(
+			(argument_end - window.argument_base) / value_size);
+		if (window.argument_count > maximum_arguments)
+		{
+			window = {};
+			return false;
+		}
+	}
+	return true;
+}
+
 inline bool de_instruction_has_aux_word(std::uint8_t opcode) noexcept
 {
 	// U43 DE opcode widths, shared with the certified compiler's
@@ -1217,7 +1359,8 @@ inline bool native_callsite_instruction_from_saved_pc(
 	const std::uint32_t* code,
 	std::int32_t raw_word_count,
 	const std::uint32_t* saved_pc,
-	std::uint32_t& instruction
+	std::uint32_t& instruction,
+	bool u44 = false
 ) noexcept
 {
 	instruction = 0;
@@ -1240,7 +1383,7 @@ inline bool native_callsite_instruction_from_saved_pc(
 	{
 		if (raw_word == calling_word)
 		{
-			const auto opcode = static_cast<std::uint8_t>(code[raw_word]);
+			const auto opcode = renovice::bytecode::canonical_opcode(static_cast<std::uint8_t>(code[raw_word]), u44);
 			// The catalog addresses the NAMECALL that names the native method.
 			// At native C-function entry savedpc points immediately after the
 			// following CALL, so map that pair back to the catalog instruction.
@@ -1253,7 +1396,7 @@ inline bool native_callsite_instruction_from_saved_pc(
 			return true;
 		}
 
-		const auto opcode = static_cast<std::uint8_t>(code[raw_word]);
+		const auto opcode = renovice::bytecode::canonical_opcode(static_cast<std::uint8_t>(code[raw_word]), u44);
 		const std::uint32_t width = de_instruction_has_aux_word(opcode) ? 2u : 1u;
 		if (raw_word > static_cast<std::uint32_t>(raw_word_count) - width)
 			return false;
@@ -1302,6 +1445,21 @@ inline bool merge_target_ability_match(
 		return true;
 	}
 	return selected_target_key == candidate_target_key;
+}
+
+inline std::uint64_t select_exact_stack_target(
+	std::uint64_t strict_closure_target,
+	bool strict_closure_ambiguous,
+	std::uint64_t exact_prototype_target,
+	bool exact_prototype_callsite
+) noexcept
+{
+	// Ambiguity always wins. Otherwise preserve the stronger closure/environment
+	// match and admit the prototype route only when the current saved PC proves
+	// one exact current-generation target.
+	if (strict_closure_ambiguous) return 0;
+	if (strict_closure_target != 0) return strict_closure_target;
+	return exact_prototype_callsite ? exact_prototype_target : 0;
 }
 
 inline bool valid_target_call_stack_bounds(

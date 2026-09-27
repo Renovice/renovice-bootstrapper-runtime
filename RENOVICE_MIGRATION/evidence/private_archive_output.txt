@@ -1,3 +1,19 @@
+warning: in the working copy of 'OpenWF/tunables.json', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'OpenWF/vv/game_versions.json', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'OpenWF/vv/off/luau_GlobalState_error_longjump_data.json', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'OpenWF/vv/off/luau_GlobalState_panic_func.json', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'OpenWF/vv/wf_fnv_2_initial.json', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'main.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'owf_structs.hpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'RENOVICE_SCRIPTING/CURRENT_BOOTSTRAPPER_STATE.md', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'RENOVICE_TOOLCHAIN/injection/verify_injection_core.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'renovice/de_proto_graph_u43.hpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'renovice/engine_damage.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'renovice/injection_core.hpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'renovice/riven.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'renovice/riven_core.hpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'renovice/swf.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'renovice/swf_core.hpp', CRLF will be replaced by LF the next time Git touches it
 OpenWF/bgscript.pluto -> OpenWF/bgscript.pluto
 OpenWF/bootstrapper-manual.html -> OpenWF/Reference Manual.html
 OpenWF/Download Latest DLL.ps1 -> OpenWF/Download Latest DLL.ps1 [unchanged]

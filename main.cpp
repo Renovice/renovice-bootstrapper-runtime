@@ -2,6 +2,7 @@
 
 #include "renovice/config.hpp"
 #include "renovice/application_frame_profile.hpp"
+#include "renovice/de_vm_authority.hpp"
 #include "renovice/injection.hpp"
 #include "renovice/replacements.hpp"
 #include "renovice/riven.hpp"
@@ -1501,12 +1502,13 @@ static luau_CFunction lua_FlashMgr_GetConfigBool_og;
 
 static int lua_FlashMgr_GetConfigBool_detour(luau_State* L)
 {
-	SOUP_IF_LIKELY (L->intop[1].type == owf_game_tag(LUAU_STRING))
+    const int argument_index = game_version >= GV(43, 0, 0) ? 0 : 1;
+	SOUP_IF_LIKELY (L->intop[argument_index].type == owf_game_tag(LUAU_STRING))
 	{
 		if (autologin && !did_auto_login)
 		{
 			ObfusString str("Client.AutoLogin");
-			if (strcmp(L->intop[1].getString(), str.c_str()) == 0)
+			if (strcmp(L->intop[argument_index].getString(), str.c_str()) == 0)
 			{
 #if LOGGING
 				conout << "Reporting Client.AutoLogin as true" << std::endl;
@@ -1520,7 +1522,7 @@ static int lua_FlashMgr_GetConfigBool_detour(luau_State* L)
 		if (alternative_loading)
 		{
 			ObfusString str("Server.FastLoad");
-			if (strcmp(L->intop[1].getString(), str.c_str()) == 0)
+			if (strcmp(L->intop[argument_index].getString(), str.c_str()) == 0)
 			{
 #if LOGGING
 				conout << "Reporting Server.FastLoad as true" << std::endl;
@@ -1547,6 +1549,7 @@ static bool did_console_to_overlay_transition = false;
 static std::atomic<luau_State*> openwf_ui_state = nullptr;
 static std::atomic<luau_GlobalState*> openwf_ui_global_state = nullptr;
 static std::atomic<DWORD> openwf_ui_owner_thread = 0;
+static int tick_openwf_scripts_at_native_frame(luau_State* L);
 
 static void capture_openwf_ui_state(luau_State* L, bool available) noexcept
 {
@@ -1653,7 +1656,18 @@ static void lua_set_global_by_hash_detour(luau_State* L, uint32_t hash)
 #endif
 	renovice::injection::maybe_wrap_global(L, hash);
 	handle_set_global(L, hash);
-	return reinterpret_cast<decltype(&lua_set_global_by_hash_detour)>(lua_set_global_by_hash_hook.original)(L, hash);
+	const auto flash_publication = hash == wf_hash("gFlashMgr");
+	const auto published_flash = flash_publication ? flashmgr : nullptr;
+	reinterpret_cast<decltype(&lua_set_global_by_hash_detour)>(
+		lua_set_global_by_hash_hook.original)(L, hash);
+	if (flash_publication)
+	{
+		// Publication becomes authoritative only after the stock setter returns.
+		// The containing FlashMgr::Initialize runs on this same owner thread, so
+		// the Application clock cannot consume the generation mid-initialize.
+		renovice::de_vm_authority::commit_flash_publication(
+			L, published_flash, &tick_openwf_scripts_at_native_frame);
+	}
 }
 
 
@@ -1667,7 +1681,15 @@ static void lua_set_global_detour(luau_State* L, const char* name)
 	const auto hash = wf_hash(name);
 	renovice::injection::maybe_wrap_global(L, hash);
 	handle_set_global(L, hash);
-	return reinterpret_cast<decltype(&lua_set_global_detour)>(lua_set_global_hook.original)(L, name);
+	const auto flash_publication = hash == wf_hash("gFlashMgr");
+	const auto published_flash = flash_publication ? flashmgr : nullptr;
+	reinterpret_cast<decltype(&lua_set_global_detour)>(
+		lua_set_global_hook.original)(L, name);
+	if (flash_publication)
+	{
+		renovice::de_vm_authority::commit_flash_publication(
+			L, published_flash, &tick_openwf_scripts_at_native_frame);
+	}
 }
 
 
@@ -1749,90 +1771,56 @@ static bool openwf_ui_state_is_idle(luau_State* L) noexcept
 // The caller is the pinned native Application frame boundary. No DE Lua frame
 // is active here. The captured UI state must also be at base_ci before any
 // Pluto coroutine may bridge into game APIs.
-static void tick_openwf_scripts_at_native_frame(luau_State* L)
+static int tick_openwf_scripts_at_native_frame(luau_State* L)
 {
+	// Recursive calls of this already-rooted host closure are local DE API
+	// transactions. Dispatch them before profiling, stack guards, locks, Pluto,
+	// or any other C++ object that a DE Luau longjmp could bypass.
+	const int protected_operation_results =
+		dispatch_openwf_protected_game_vm_operation(L);
+	if (protected_operation_results >= 0) return protected_operation_results;
+
 #if PROFILE_SCRIPT_TICKING
 	auto t = soup::time::nanos();
 #endif
 
 	const auto og_outtop = luau_savestack(L, L->outtop);
 	const auto og_intop = luau_savestack(L, L->intop);
-	const auto og_lngjmp = L->global_state->error_longjump_data();
-	const auto og_panic = L->global_state->panic_func();
-	raise_script_error_t og_raise = nullptr;
 	const auto og_luau_L = luau_L;
 	struct VmContextRestore
 	{
 		luau_State* L;
 		ptrdiff_t outtop;
 		ptrdiff_t intop;
-		void* lngjmp;
-		luau_panic_func_t panic;
-		raise_script_error_t raise;
 		luau_State* previous_luau_L;
 
 		~VmContextRestore()
 		{
 			L->outtop = luau_restorestack(L, outtop);
 			L->intop = luau_restorestack(L, intop);
-			L->global_state->error_longjump_data() = lngjmp;
-			L->global_state->panic_func() = panic;
-			if (raise_script_error_fp) *raise_script_error_fp = raise;
 			luau_L = previous_luau_L;
 		}
-	} restore{ L, og_outtop, og_intop, og_lngjmp, og_panic, nullptr, og_luau_L };
+	} restore{ L, og_outtop, og_intop, og_luau_L };
 
 	luau_L = L;
-	if (have_scripting)
-	{
-		L->global_state->error_longjump_data() = nullptr;
-		L->global_state->panic_func() = [](luau_State* L, int)
-		{
-#if LOGGING
-			conout << "LuaU is panicking" << std::endl;
-#endif
-			luau_error_msg = (--L->outtop)->getString();
-#if LOGGING
-			conout << luau_error_msg << std::endl;
-#endif
-			throw 0;
-		};
-	}
-	if (raise_script_error_fp)
-	{
-		og_raise = *raise_script_error_fp;
-		restore.raise = og_raise;
-		*raise_script_error_fp = [](const char** err) -> bool
-		{
-#if LOGGING
-			conout << "raise_script_error called" << std::endl;
-#endif
-			luau_error_msg = *err;
-#if LOGGING
-			conout << luau_error_msg << std::endl;
-#endif
-			throw 0;
-		};
-	}
+	drain_deferred_game_registry_releases(L);
 
 	{
 		std::lock_guard mtx(running_scripts_mtx);
-		if (active_input_filter_allows_hotkeys && !prohibit_scripts)
+		if (!prohibit_scripts)
 		{
-			if (DWORD pid; GetWindowThreadProcessId(GetForegroundWindow(), &pid),
-				pid == GetCurrentProcessId())
+			// Input edges are captured by the process-owned Application frame even
+			// while this UI VM is temporarily non-idle. Consume them only here,
+			// where the existing owner/thread/idle checks authorize Pluto work.
+			std::string latched_hotkey_script;
+			for (unsigned int dispatched = 0; dispatched != 8
+				&& pop_latched_openwf_hotkey_script(latched_hotkey_script);
+				++dispatched)
 			{
-				if (hotkeys_mtx.tryLock())
-				{
-					for (auto& hk : hotkeys)
-					{
-						if (hk.wasJustPressed())
-						{
-							start_script_from_string(hk.script);
-						}
-					}
-					hotkeys_mtx.unlock();
-				}
+				start_script_from_string(latched_hotkey_script);
+				note_openwf_hotkey_script_dispatched();
+				if (!renovice::de_vm_authority::transaction_generation_alive())
+					return 0;
 			}
 		}
 		if (bgscript != nullptr)
@@ -1842,6 +1830,8 @@ static void tick_openwf_scripts_at_native_frame(luau_State* L)
 				delete bgscript;
 				bgscript = nullptr;
 			}
+			if (!renovice::de_vm_authority::transaction_generation_alive())
+				return 0;
 		}
 		bool any_killed = false;
 		for (auto i = running_scripts.begin(); i != running_scripts.end(); )
@@ -1856,6 +1846,11 @@ static void tick_openwf_scripts_at_native_frame(luau_State* L)
 				static_assert(std::is_same_v<decltype(&**i), owfScript*>);
 				i = running_scripts.erase(i);
 				any_killed = true;
+			}
+			if (!renovice::de_vm_authority::transaction_generation_alive())
+			{
+				if (any_killed) broadcast_running_scripts_locked();
+				return 0;
 			}
 		}
 		SOUP_IF_UNLIKELY (any_killed)
@@ -1876,6 +1871,53 @@ static void tick_openwf_scripts_at_native_frame(luau_State* L)
 	conout << "Ticking scripts took "
 		<< (static_cast<double>(t) / 1000000.0) << " ms\n";
 #endif
+	return 0;
+}
+
+struct OpenWfFrameTransaction
+{
+	luau_State* state = nullptr;
+	int protected_status = 2;
+};
+
+static int run_openwf_frame_transaction(luau_State* L, void* context)
+{
+	auto* const result = static_cast<OpenWfFrameTransaction*>(context);
+	if (result == nullptr || !openwf_ui_state_is_idle(L)
+		|| !renovice::de_vm_authority::transaction_active_for(L))
+	{
+		return 0;
+	}
+
+	result->state = L;
+	const auto outtop = luau_savestack(L, L->outtop);
+	const auto intop = luau_savestack(L, L->intop);
+	struct StackRestore
+	{
+		luau_State* state;
+		std::ptrdiff_t outtop;
+		std::ptrdiff_t intop;
+		~StackRestore() noexcept
+		{
+			state->outtop = luau_restorestack(state, outtop);
+			state->intop = luau_restorestack(state, intop);
+		}
+	} restore{L, outtop, intop};
+
+	// Copy the generation's pre-rooted host closure without allocating. DE then
+	// creates and protects its CallInfo while the exact ScriptMgr lock and Flash
+	// generation lease remain owned.
+	if (!renovice::de_vm_authority::push_host_closure(L)) return 0;
+	result->protected_status = renovice::de_vm_authority::protected_call(
+		L, 0, 0, 0);
+	if (result->protected_status != 0)
+	{
+		renovice::config::diagnostic_log(
+			"RENOVICE OPENWF_FRAME protected host call rejected",
+			renovice::config::DiagnosticsMode::errors);
+		return 0;
+	}
+	return 1;
 }
 
 using game_application_frame_t = bool(*)(void* application);
@@ -1891,30 +1933,32 @@ static thread_local bool native_frame_pluto_running = false;
 static bool game_application_frame_detour(void* application)
 {
 	const bool result = game_application_frame_og(application);
+	DWORD foreground_pid = 0;
+	GetWindowThreadProcessId(GetForegroundWindow(), &foreground_pid);
+	poll_openwf_hotkey_inputs(
+		foreground_pid == GetCurrentProcessId()
+		&& active_input_filter_allows_hotkeys
+		&& !prohibit_scripts);
 	if (native_frame_pluto_running) return result;
-
-	const auto L = openwf_ui_state.load(std::memory_order_acquire);
-	const auto owner_thread = openwf_ui_owner_thread.load(std::memory_order_acquire);
-	if (!L || owner_thread == 0 || owner_thread != GetCurrentThreadId()
-		|| !openwf_ui_state_is_idle(L))
-	{
-		return result;
-	}
 
 	native_frame_pluto_running = true;
 	try
 	{
-		tick_openwf_scripts_at_native_frame(L);
-		if (!native_frame_pluto_first_pass_logged.exchange(true,
+		OpenWfFrameTransaction frame;
+		const auto transaction = renovice::de_vm_authority::transact(
+			nullptr, true, &run_openwf_frame_transaction, &frame);
+		if (transaction.executed && frame.protected_status == 0
+			&& !native_frame_pluto_first_pass_logged.exchange(true,
 			std::memory_order_acq_rel))
 		{
 			conout << "OpenWF native-frame Pluto scheduler FIRST PASS"
-				<< " state=" << L
-				<< " vm=" << L->global_state
-				<< " thread=" << static_cast<std::uint32_t>(owner_thread)
+				<< " state=" << frame.state
+				<< " vm=" << (frame.state ? frame.state->global_state : nullptr)
+				<< " thread=" << static_cast<uint32_t>(GetCurrentThreadId())
+				<< " generation=" << transaction.generation
 				<< std::endl;
 			renovice::config::diagnostic_log(
-				"RENOVICE OPENWF_FRAME build=V89 event=FIRST_PASS boundary=native-application-return",
+				"RENOVICE OPENWF_FRAME build=V110 event=FIRST_PASS boundary=locked-protected-application-return",
 				renovice::config::DiagnosticsMode::errors);
 		}
 	}
@@ -2066,29 +2110,53 @@ static bool is_pause_allowed_detour(void* gamerules)
 
 static luau_CFunction lua_OpenWebBrowser_og;
 
+// Finish every owning C++ object before entering DE's Lua API or the stock C
+// closure. DE reports Lua errors with longjmp, so a std::string or lock left on
+// this frame would never be destructed if stock raises.
+static bool make_local_warframe_redirect(
+	const char* input, char* output, std::size_t capacity)
+{
+	if (input == nullptr || output == nullptr || capacity == 0) return false;
+	const char* const host = strstr(input, "warframe.com");
+	if (host == nullptr) return false;
+	const char* const marker = strstr(input, "&redirect=");
+	if (marker == nullptr) return false;
+
+	std::string rewritten = "https://www.warframe.com";
+	rewritten += marker + sizeof("&redirect=") - 1;
+	string::replaceAll(rewritten, "/updates/", "/patch-notes/");
+	if (rewritten.size() >= capacity) return false;
+	std::memcpy(output, rewritten.c_str(), rewritten.size() + 1);
+	return true;
+}
+
 static int lua_OpenWebBrowser_detour(luau_State* L)
 {
-#if LOGGING
-	conout << "lua_OpenWebBrowser: " << L->intop[0].getString() << std::endl;
-#endif
-	ObfusString sub("warframe.com");
-	if (strstr(L->intop[0].getString(), sub.c_str()) != nullptr)
+	if (L == nullptr || L->stack == nullptr || L->stack_last == nullptr
+		|| L->intop == nullptr
+		|| L->outtop == nullptr || L->ci == nullptr || L->ci->top == nullptr
+		|| L->intop < L->stack || L->outtop < L->intop
+		|| L->outtop > L->ci->top || L->ci->top > L->stack_last
+		|| luau_gettop(L) < 1 || lua_OpenWebBrowser_og == nullptr)
 	{
-		// Purchases have a sku; other usages instead have redirect, e.g.:
-		// ...&redirect=/patch-notes/...
-		// ...&redirect=/updates/...
-		ObfusString sub2("&redirect=");
-		if (const auto redirect = strstr(L->intop[0].getString(), sub2.c_str()))
+		return 0;
+	}
+	const char* const input = L->intop[0].getString();
+#if LOGGING
+	conout << "lua_OpenWebBrowser: " << input << std::endl;
+#endif
+	if (input != nullptr && strstr(input, "warframe.com") != nullptr)
+	{
+		char rewritten_url[4096]{};
+		const bool rewritten = make_local_warframe_redirect(
+			input, rewritten_url, std::size(rewritten_url));
+		// make_local_warframe_redirect has returned, so no owning C++ object
+		// remains across string interning or the naked stock closure call.
+		if (rewritten && luau_pushstring != nullptr)
 		{
-			const auto path = redirect + sub2.size();
-			if (luau_pushstring)
-			{
-				std::string new_url = ObfusString("https://www.warframe.com").str() + path;
-				string::replaceAll(new_url, ObfusString("/updates/").str(), ObfusString("/patch-notes/").str()); // The old /updates/ links now 404 instead of just redirecting...
-				L->outtop = &L->intop[0];
-				luau_pushstring(L, new_url.c_str());
-				return lua_OpenWebBrowser_og(L);
-			}
+			L->outtop = &L->intop[0];
+			luau_pushstring(L, rewritten_url);
+			return lua_OpenWebBrowser_og(L);
 		}
 		return 0;
 	}
@@ -2098,9 +2166,67 @@ static int lua_OpenWebBrowser_detour(luau_State* L)
 
 static luau_CFunction lua_FlashInstance_GetStringVariable_og;
 
+struct ChatReduxCaptureContext
+{
+	bool captured = false;
+};
+static_assert(std::is_trivially_copyable_v<ChatReduxCaptureContext>);
+
+static void capture_chat_redux_table_leaf(luau_State* L, void* raw_context)
+{
+	auto* const context = static_cast<ChatReduxCaptureContext*>(raw_context);
+	if (context == nullptr || L == nullptr || L->stack == nullptr
+		|| L->stack_last == nullptr
+		|| L->outtop == nullptr || L->ci == nullptr || L->ci->top == nullptr
+		|| L->outtop < L->stack || L->outtop > L->ci->top
+		|| L->ci->top > L->stack_last || luau_gettable == nullptr
+		|| luau_settable == nullptr || luau_pushstring == nullptr)
+	{
+		return;
+	}
+	const auto available = L->outtop - L->stack;
+	const int maximum_scan = static_cast<int>((std::min)(
+		std::ptrdiff_t{19}, available));
+	for (int distance = 1; distance <= maximum_scan; ++distance)
+	{
+		const int table_index = -distance;
+		if (L->outtop[table_index].type != owf_game_tag(LUAU_TABLE)) continue;
+		if (!renovice::injection::reserve_game_vm_stack(L, 3)) return;
+		luau_pushstring(L, "mPanelList");
+		// The table was at table_index before the key push.
+		if (luau_gettable(L, table_index - 1) > 0)
+		{
+			luau_pushstring(L, "OpenWF.ChatRedux.table.v97");
+			// After result and key pushes, the original table moved two relative
+			// slots farther down the stack.
+			if (renovice::injection::push_game_vm_stack_index(
+					L, table_index - 2))
+			{
+				luau_settable(L, -10000);
+				context->captured = true;
+			}
+			return;
+		}
+		// Pop the nil/non-positive field result before inspecting the next table.
+		if (L->outtop > L->stack) --L->outtop;
+	}
+}
+
 static int lua_FlashInstance_GetStringVariable_detour(luau_State* L)
 {
+	if (L == nullptr || lua_FlashInstance_GetStringVariable_og == nullptr)
+		return 0;
+	// Stock executes naked. Any DE error keeps its original propagation path and
+	// cannot skip an OpenWF lock or owning C++ object on this frame.
 	auto ret = lua_FlashInstance_GetStringVariable_og(L);
+	if (L->stack == nullptr || L->stack_last == nullptr
+		|| L->intop == nullptr || L->outtop == nullptr
+		|| L->ci == nullptr || L->ci->top == nullptr || L->intop < L->stack
+		|| L->outtop <= L->stack || L->outtop > L->ci->top
+		|| L->ci->top > L->stack_last || luau_gettop(L) < 2)
+	{
+		return ret;
+	}
 	//conout << "lua_FlashInstance_GetStringVariable: " << L->intop[1].getString() << " -> " << L->outtop[-1].getString() << std::endl;
 	if (soup::joaat::hash(L->intop[1].getString()) == soup::joaat::compileTimeHash("Window.SendMessageBar.MessageBox"))
 	{
@@ -2129,41 +2255,14 @@ static int lua_FlashInstance_GetStringVariable_detour(luau_State* L)
 			luau_pushstring(L, " ");
 		}
 
-		if (luau_gettable && luau_settable && luau_pushstring)
+		ChatReduxCaptureContext capture{};
+		const auto protected_capture =
+			renovice::de_vm_authority::run_current_vm_protected(
+				L, &capture_chat_redux_table_leaf, &capture);
+		if (protected_capture.admitted && protected_capture.restored
+			&& protected_capture.status == 0 && capture.captured)
 		{
-			int i = 0;
-			while (--i > -20)
-			{
-				if (L->outtop[i].type == owf_game_tag(LUAU_TABLE))
-				{
-					ObfusString name("mPanelList");
-					luau_pushstring(L, name.c_str());
-					if (luau_gettable(L, i - 1) > 0)
-					{
-						static constexpr char registry_key[] =
-							"OpenWF.ChatRedux.table.v97";
-						if (renovice::injection::reserve_game_vm_stack(L, 2))
-						{
-							luau_pushstring(L, registry_key);
-							// The target table was at i-1 before the key push; the
-							// new key shifts that relative index to i-2.
-							if (renovice::injection::push_game_vm_stack_index(
-								L, i - 2))
-							{
-								luau_settable(L, -10002);
-								ChatRedux_global_state = L->global_state;
-							}
-							else
-							{
-								--L->outtop;
-							}
-						}
-						L->outtop--;
-						break;
-					}
-					L->outtop--;
-				}
-			}
+			ChatRedux_global_state = L->global_state;
 		}
 	}
 	return ret;
@@ -2880,6 +2979,10 @@ void populate_full_status(JsonObject& obj)
 		? "current-u43" : frame_profile == renovice::application_frame::Profile::legacy ? "legacy" : "rejected"));
 	obj.add("openwf_native_frame_first_pass", native_frame_pluto_first_pass_logged.load(std::memory_order_acquire));
 	obj.add("openwf_input_allows_hotkeys", active_input_filter_allows_hotkeys);
+	obj.add("openwf_hotkey_edges_captured", static_cast<int64_t>(openwf_hotkey_edges_captured()));
+	obj.add("openwf_hotkey_scripts_dispatched", static_cast<int64_t>(openwf_hotkey_scripts_dispatched()));
+	obj.add("openwf_hotkey_edges_dropped", static_cast<int64_t>(openwf_hotkey_edges_dropped()));
+	obj.add("openwf_hotkey_scripts_pending", static_cast<int64_t>(openwf_hotkey_scripts_pending()));
 	obj.add(ObfusString("server_host"), server_host);
 
 	obj.add(ObfusString("high_damage_numbers_patch"), high_damage_numbers_patch);
@@ -3234,6 +3337,14 @@ static SOUP_FORCEINLINE void create_all_hooks()
 
 	if (have_scripting)
 	{
+		const bool de_authority_ready =
+			renovice::de_vm_authority::initialise(
+				owf_current_luau_type_layout.load(std::memory_order_acquire));
+		if (!de_authority_ready)
+		{
+			conout << "OpenWF DE-VM authority unavailable; Pluto-to-game bridge remains dormant"
+				<< std::endl;
+		}
 		// Pinned U43 Application main-loop boundary. The exact executable has one
 		// match, and the indirect vtable[2] call contains the entire UI/Lua frame.
 		// Pluto runs after that call returns; no Lua native method is replaced.
@@ -3260,7 +3371,7 @@ static SOUP_FORCEINLINE void create_all_hooks()
 		conout << "application_frame_loop = "
 			<< application_frame_loop.as<void*>() << std::endl;
 #endif
-		SOUP_IF_LIKELY (should_setup_optional_conditional_feature(
+		SOUP_IF_LIKELY (de_authority_ready && should_setup_optional_conditional_feature(
 			application_frame_loop.as<void*>()))
 		{
 			game_application_storage = application_frame_loop.add(3).rip().as<void**>();
@@ -3478,7 +3589,9 @@ static SOUP_FORCEINLINE void create_all_hooks()
 		}
 
 		{
-			SIG_INST("48 8B C4 48 89 50 10 53 55 41 56 48 83 EC 50 48 89 70 18"); // 38.5.3
+			const soup::Pattern sig_inst(game_version >= GV(44, 0, 0)
+                ? "48 8B C4 48 89 50 10 53 41 56 48 83 EC 58 48 89 68 18 48 8B D9 48 8B 09 4C 8B F2"
+                : "48 8B C4 48 89 50 10 53 55 41 56 48 83 EC 50 48 89 70 18");
 			auto encstr_discharge = Module(nullptr).range.scan(sig_inst).as<void*>();
 #if LOGGING
 			conout << "encstr_discharge = " << encstr_discharge << std::endl;
@@ -5169,7 +5282,12 @@ static SOUP_FORCEINLINE void do_pointer_scans()
 
 	if (have_scripting)
 	{
-		if (game_version >= GV(39, 0, 0))
+		if (game_version >= GV(43, 0, 0))
+        {
+            SIG_INST("48 89 5C 24 18 57 48 83 EC 20 0F B7 41 50 48 8B D9 66 FF C0 49 63 F8");
+            luauD_call = Module(nullptr).range.scan(sig_inst).as<luauD_call_t>();
+        }
+        else if (game_version >= GV(39, 0, 0))
 		{
 			SIG_INST("40 53 57 48 83 EC 28 0F B7 41 50 48 8B D9 66 FF C0 49 63 F8");
 			luauD_call = Module(nullptr).range.scan(sig_inst).as<luauD_call_t>();
@@ -5533,10 +5651,10 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		bool supported_build_label_43 = true;
 		bool supported_executable_hash_43 = true;
 		std::string executable_sha256_hex;
-		if (game_version >= GV(43, 0, 0) && game_version < GV(44, 0, 0))
+		if (game_version >= GV(43, 0, 0) && game_version < GV(45, 0, 0))
 		{
 			supported_build_label_43 = g_client_tunables.isStringInArray(
-				joaat::compileTimeHash("supported_builds_43"),
+				game_version >= GV(44, 0, 0) ? joaat::compileTimeHash("supported_builds_44") : joaat::compileTimeHash("supported_builds_43"),
 				joaat::hashRange(build_version, 16));
 			try
 			{
@@ -5551,7 +5669,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 						sha256::hash(executable_reader));
 					supported_executable_hash_43 =
 						g_client_tunables.isStringInArray(
-							joaat::compileTimeHash("supported_client_sha256_43"),
+							game_version >= GV(44, 0, 0) ? joaat::compileTimeHash("supported_client_sha256_44") : joaat::compileTimeHash("supported_client_sha256_43"),
 							joaat::hash(executable_sha256_hex));
 				}
 			}
@@ -5567,7 +5685,7 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 		const bool unsupported_build_43 =
 			!supported_build_label_43 || !supported_executable_hash_43;
 		owf_select_current_luau_type_layout(
-            game_version >= GV(43, 0, 0) && game_version < GV(44, 0, 0)
+            game_version >= GV(43, 0, 0) && game_version < GV(45, 0, 0)
             && !unsupported_build_43);
 		if (unsupported_build_43 || game_version >= g_client_tunables.getInt(joaat::compileTimeHash("toonew")))
 		{

@@ -44,7 +44,8 @@ std::atomic<std::uint64_t> sequence = 0, generation = 0;
 std::atomic_bool budget_reported = false, failure_reported = false;
 bool installed = false;
 std::atomic<TypeResolver> type_resolver = nullptr;
-thread_local const Source* active_source = nullptr;
+thread_local Source active_source;
+thread_local bool active_source_present = false;
 struct Frame { void* control; void* packet; std::uint64_t id; Frame* previous; };
 thread_local Frame* active_frame = nullptr;
 
@@ -176,7 +177,8 @@ void adapter(std::size_t slot, void* control_pointer, void* packet_pointer, bool
     }
     const auto control = reinterpret_cast<std::uintptr_t>(control_pointer);
     const auto packet = reinterpret_cast<std::uintptr_t>(packet_pointer);
-    const Source source = active_source ? *active_source : Source{};
+    const Source empty_source{};
+    const Source& source = active_source_present ? active_source : empty_source;
     std::uintptr_t target = 0;
     read(control + 0x28, target);
     std::string target_type;
@@ -255,11 +257,16 @@ bool install() {
     wchar_t image_path[32768]{};
     if (!GetModuleFileNameW(nullptr, image_path, 32768)) return false;
     soup::FileReader image{std::filesystem::path(image_path)};
-    if (!image.s || soup::string::bin2hexLower(soup::sha256::hash(image))
-        != "cca46d604a498cd95f0d28e3e8f3eee8833f5d362666a8e5c820c535f7c2af93") return false;
+    if (!image.s) return false;
+    const auto digest = soup::string::bin2hexLower(soup::sha256::hash(image));
+    const bool current_u44 = digest == "45fa6ad0769cc8ca7fa7e0ffdee65c0c0932e11744146781ad18c45b16e4a81c"
+        || digest == "87fc60ce65e015c6c8d4be5ac353538c37392efb6793dd17f0a17cf126d3fb5c"; // Sideloadify 1.1.0; identical executable code.
+    if (!current_u44 && digest != "cca46d604a498cd95f0d28e3e8f3eee8833f5d362666a8e5c820c535f7c2af93") return false;
     const auto range = soup::Module(nullptr).range;
     std::array<void*, 3> targets{};
-    constexpr std::array<std::uintptr_t, 3> registered_rvas{0x1ee140, 0xc60240, 0xa255b0};
+    const std::array<std::uintptr_t, 3> registered_rvas = current_u44
+        ? std::array<std::uintptr_t, 3>{0xd2cb0, 0xa10cf0, 0x7088a0}
+        : std::array<std::uintptr_t, 3>{0x1ee140, 0xc60240, 0xa255b0};
     const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     for (std::size_t i = 0; i < patterns.size(); ++i) {
         soup::Pointer hits[2]{};
@@ -308,8 +315,52 @@ bool install() {
 #endif
 }
 }
-SourceScope::SourceScope(const Source* source) noexcept : previous(active_source) { active_source = source; }
-SourceScope::~SourceScope() noexcept { active_source = previous; }
+namespace {
+void clear_source_storage() noexcept {
+    active_source.body = 0;
+    active_source.caster_snapshot = 0;
+    active_source.prototype = -1;
+    active_source.instruction = 0;
+    active_source.vm = nullptr;
+    active_source.path.clear();
+    active_source.name.clear();
+    active_source.method.clear();
+    active_source_present = false;
+}
+}
+
+bool publish_source(const Source* source) noexcept {
+    if (source == nullptr) {
+        clear_source_storage();
+        return true;
+    }
+    try {
+        active_source = *source;
+        active_source_present = true;
+        return true;
+    } catch (...) {
+        clear_source_storage();
+        return false;
+    }
+}
+
+void clear_source() noexcept { clear_source_storage(); }
+
+SourceScope::SourceScope(const Source* source) noexcept {
+    if (active_source_present) {
+        try {
+            previous = active_source;
+            previous_active = true;
+        } catch (...) {
+            previous_active = false;
+        }
+    }
+    publish_source(source);
+}
+SourceScope::~SourceScope() noexcept {
+    if (previous_active) publish_source(&previous);
+    else clear_source_storage();
+}
 void reset_budget() noexcept { sequence.store(0); generation.fetch_add(1); budget_reported.store(false); failure_reported.store(false); }
 bool reconcile(const config::Flags& flags) {
     const auto current = configuration.load(std::memory_order_acquire);

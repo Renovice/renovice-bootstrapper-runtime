@@ -9,6 +9,9 @@ namespace renovice::injection
 {
 // U43 executable CCA46D604A498CD95F0D28E3E8F3EEE8833F5D362666A8E5C820C535F7C2AF93.
 // Read-only evidence: UNIVERSAL_ADDON_API_REQUIREMENTS_2026-09-07.md.
+// U44 2026.09.24.13.29 has the same code/children/count/id layout: native
+// undump writes +0x10,+0x18,+0x88,+0x8c,+0xa8 at RVAs 191aee9,191b608,
+// 191aef0,191b60f,191acd4. Exact executable gate remains owned by main.cpp.
 struct TargetProtoRecord
 {
 	std::uintptr_t address = 0, parent = 0, code = 0;

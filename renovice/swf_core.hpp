@@ -13,6 +13,7 @@ namespace renovice::swf
 inline constexpr char signature_oodle_decompress[] =
 	"40 55 53 56 57 41 54 41 55 41 56 41 57 48 81 EC C8 00 00 00 "
 	"48 8D 6C 24 60 48 C7 45 40 FE FF FF FF 48 8B 05";
+inline constexpr char signature_parser_u44[] = "48 89 5C 24 18 55 56 57 48 81 EC 80 00 00 00 48 89 91 68 01 00 00 48 8B F9 48 8B 42 30";
 inline constexpr char signature_parser[] =
 	"48 89 5C 24 20 55 56 57 48 81 EC 90 00 00 00 48 8B 05 ? ? ? ? "
 	"48 33 C4 48 89 84 24 88 00 00 00 48 89 91 68 01 00 00 48 8B F9 "

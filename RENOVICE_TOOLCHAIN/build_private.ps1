@@ -5,14 +5,26 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot "bootstrap_tools.ps1")
 & (Join-Path $repo "RENOVICE_MIGRATION\verify_dependencies.ps1")
 & (Join-Path $repo "RENOVICE_MIGRATION\verify_manifest.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\version44\verify_game_string.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\build_callback_runtime.ps1") -VerifyOnly
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\build_automatic_damage_runtime.ps1") -VerifyOnly
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_bridge.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_core.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_safe_runtime_tick.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_detour_relocatability.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_openwf_game_vm_bridge.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_unified_diagnostics_master.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_generation_ownership.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_stock_longjmp_boundaries.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_shared_callback_raw_protection.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_ui_vm_raw_protection.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_stock_loader_protection.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_addon_lifecycle_raw_protection.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_deferred_registry_release.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_hotkey_latching.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_de_vm_authority.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_protected_game_vm_operations.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_openwf_bridge_bounds.ps1")
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (-not (Test-Path -LiteralPath $vswhere)) {
@@ -63,22 +75,24 @@ try {
 	}
 
     $archiveOutput = @(& $phpExe archive.php 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    $archiveExitCode = $LASTEXITCODE
     [System.IO.File]::WriteAllText(
         $archiveLog,
         (($archiveOutput -join "`n") + "`n"),
         [System.Text.UTF8Encoding]::new($false))
-    if ($LASTEXITCODE -ne 0) {
-        throw "Archive generation failed: $LASTEXITCODE"
+    if ($archiveExitCode -ne 0) {
+        throw "Archive generation failed: $archiveExitCode"
     }
     $archiveOutput | Write-Output
 
     $buildOutput = @(& $sunExe _renovice_private_msvc 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    $buildExitCode = $LASTEXITCODE
     [System.IO.File]::WriteAllText(
         $buildLog,
         (($buildOutput -join "`n") + "`n"),
         [System.Text.UTF8Encoding]::new($false))
-    if ($LASTEXITCODE -ne 0) {
-        throw "Private build failed: $LASTEXITCODE"
+    if ($buildExitCode -ne 0) {
+        throw "Private build failed: $buildExitCode"
     }
     $buildOutput | Write-Output
 }
@@ -87,8 +101,17 @@ finally {
 }
 
 $patterns = "(?i)(^|\s)(warning|deprecated|error|fatal):|failed to find program|errors? generated"
-$archiveIssues = @(Select-String -LiteralPath $archiveLog -Pattern $patterns -CaseSensitive:$false)
-$buildIssues = @(Select-String -LiteralPath $buildLog -Pattern $patterns -CaseSensitive:$false)
+$gitEolNoticePattern = "(?i)^warning: in the working copy of '.+', (LF will be replaced by CRLF|CRLF will be replaced by LF) the next time Git touches it$"
+$archiveMatches = @(Select-String -LiteralPath $archiveLog -Pattern $patterns -CaseSensitive:$false)
+$archiveGitEolNotices = @($archiveMatches | Where-Object { $_.Line -match $gitEolNoticePattern })
+$archiveIssues = @($archiveMatches | Where-Object { $_.Line -notmatch $gitEolNoticePattern })
+$buildMatches = @(Select-String -LiteralPath $buildLog -Pattern $patterns -CaseSensitive:$false)
+$buildGitEolNotices = @($buildMatches | Where-Object { $_.Line -match $gitEolNoticePattern })
+$buildIssues = @($buildMatches | Where-Object { $_.Line -notmatch $gitEolNoticePattern })
+$gitEolNoticeCount = $archiveGitEolNotices.Count + $buildGitEolNotices.Count
+if ($gitEolNoticeCount -ne 0) {
+    Write-Host "GIT EOL NOTICE count=$gitEolNoticeCount archive=$($archiveGitEolNotices.Count) build=$($buildGitEolNotices.Count) retained_in_evidence=yes fatal=no"
+}
 if ($archiveIssues.Count -ne 0 -or $buildIssues.Count -ne 0) {
     $archiveIssues | ForEach-Object { Write-Error $_.Line }
     $buildIssues | ForEach-Object { Write-Error $_.Line }

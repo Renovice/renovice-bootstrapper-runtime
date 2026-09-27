@@ -125,7 +125,9 @@ struct luau_CallInfo
 // is the packed nresults/flags tail. Keep every used field pinned so an ABI
 // drift fails at compile time instead of silently losing exact callsites.
 static_assert(sizeof(luau_CallInfo) == 0x28);
+static_assert(offsetof(luau_CallInfo, base) == 0x00);
 static_assert(offsetof(luau_CallInfo, func) == 0x08);
+static_assert(offsetof(luau_CallInfo, top) == 0x10);
 static_assert(offsetof(luau_CallInfo, savedpc) == 0x18);
 static_assert(offsetof(luau_CallInfo, nresults) == 0x20);
 static_assert(offsetof(luau_CallInfo, flags) == 0x24);
@@ -162,6 +164,12 @@ struct luau_State
 static_assert(sizeof(luau_State) == 0x90);
 static_assert(offsetof(luau_State, status) == 0x03);
 static_assert(offsetof(luau_State, outtop) == 0x08);
+static_assert(offsetof(luau_State, intop) == 0x10);
+static_assert(offsetof(luau_State, global_state) == 0x18);
+static_assert(offsetof(luau_State, ci) == 0x20);
+static_assert(offsetof(luau_State, stack_last) == 0x28);
+static_assert(offsetof(luau_State, stack) == 0x30);
+static_assert(offsetof(luau_State, base_ci) == 0x40);
 static_assert(offsetof(luau_State, interrupt_count) == 0x88);
 static_assert(offsetof(luau_State, gclist) == 0x68);
 #endif
@@ -279,7 +287,7 @@ inline luau_createtable_t luau_createtable = nullptr;
 using luau_settable_t = void(*)(luau_State*, int);
 inline luau_settable_t luau_settable = nullptr;
 
-using luauD_call_t = int(*)(luau_State* L, luau_TValue* func, int nresults);
+using luauD_call_t = void(*)(luau_State* L, luau_TValue* func, int nresults);
 inline luauD_call_t luauD_call = nullptr;
 
 inline luau_State* luau_L = nullptr;

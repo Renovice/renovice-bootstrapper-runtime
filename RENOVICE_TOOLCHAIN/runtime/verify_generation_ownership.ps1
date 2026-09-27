@@ -27,7 +27,7 @@ Require-Match $source 'std::atomic<std::shared_ptr<const TargetExecutionSnapshot
 Require-Match $source 'result\.dispatch\s*=\s*generation_dispatch_gate\.try_dispatch\(\)' 'snapshot reads do not borrow a generation'
 Require-Match $source 'auto\s+generation_mutation\s*=\s*generation_dispatch_gate\.begin_mutation' 'reload does not close and drain handler admission'
 
-$fullEntryPoints = @(
+$phasedEntryPoints = @(
     'target_hook_registry_dispatcher',
     'ability_card_wrapper',
     'addon_damage_callback_wrapper',
@@ -37,12 +37,12 @@ $fullEntryPoints = @(
     'push_float_arg_adapter',
     'run_script_observer_adapter'
 )
-foreach ($name in $fullEntryPoints) {
+foreach ($name in $phasedEntryPoints) {
     $pattern = '(?s)(?:int|bool|void)\s+' + [regex]::Escape($name) + '\s*\([^)]*\)\s*\{.{0,1800}?generation_dispatch_gate\.try_dispatch\(\)'
-    Require-Match $source $pattern "$name does not retain one generation for its complete handler call"
+    Require-Match $source $pattern "$name has no generation borrow for its RENOVICE phase"
 }
 Require-Match $source '(?s)void\s+vm_execute_detour\s*\([^)]*\)\s*\{.{0,1200}?generation_dispatch_gate\.try_dispatch\(\)' 'VM before/after handler phases do not share one generation'
-Require-Match $source 'generation_dispatch\s*=\s*\{\};\s*\r?\n\s*if\s*\(target_addon_refresh_pending' 'deferred target binding does not wait for the VM generation borrow to end'
+Require-Match $source '(?s)No generation lease, mutex, TLS marker, vector, or scoped cleanup may.+?\}\s*if\s*\(pause_root\.valid\).+?This call is intentionally naked.+?if\s*\(target_addon_refresh_pending' 'VM stock execution or deferred binding still crosses generation ownership'
 Require-Match $source 'target_addon_action_requires_exclusive_mutation' 'target binding does not classify root-preserving versus destructive generation changes'
 Require-Match $source 'reason=destructive-generation-replacement' 'destructive target replacement is not deferred until callback release'
 Require-Match $source 'reason=destructive-generation-removal' 'destructive target removal is not deferred until callback release'
@@ -61,4 +61,4 @@ Require-Match $source 'clear_automatic_damage_runtime' 'diagnostics-off cannot r
 Require-Match $source 'clear_diagnostic_module_roots_for_vm' 'diagnostics-off cannot release diagnostic prototype registry roots'
 Require-Match $source 'diagnostics_claims_native_method' 'installed diagnostic detours cannot pass directly to stock while disabled'
 
-Write-Host ('GENERATION OWNERSHIP PASS entrypoints={0} snapshot=leased native_hooks=process-owned diagnostics_off=unregistered' -f ($fullEntryPoints.Count + 1))
+Write-Host ('GENERATION OWNERSHIP PASS entrypoints={0} snapshot=leased stock_calls=naked native_hooks=process-owned diagnostics_off=unregistered' -f ($phasedEntryPoints.Count + 1))

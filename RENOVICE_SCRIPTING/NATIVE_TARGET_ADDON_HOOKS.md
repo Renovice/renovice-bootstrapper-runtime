@@ -1,32 +1,42 @@
-> **CURRENT V69 CONTRACT (2026-09-13):** The V49 generic
-> `hooks.nativeCalls[method].before/after` contract remains current. V60 adds
-> `hooks.luaCalls[prototype].before/after` for an exact prototype in the
+> **CURRENT V110 DAMAGE-TARGET CONTRACT (2026-09-20):** Target ownership at
+> `SetSourceObject` first requires the strict live closure, environment, VM, and
+> current-generation prototype identity. DE can execute the same published
+> prototype through a different closure environment; V109 then rejected a real
+> Mallet call even though the exact prototype and saved instruction were already
+> known to the native-call bus. V110 admits that existing exact callsite proof as
+> a fallback. Ambiguity always rejects, and no non-exact, stale, cross-VM, or
+> foreign prototype can attach a callback. The rule is universal and contains
+> no ability body key. Once associated, the existing callback composer installs
+> `SetDamageCallback` on the exact `RadialDamageData` packet and dispatches each
+> positive engine result immediately to `afterDamage`; there is no radial
+> batching, polling, queue, or per-frame enforcement.
+>
+> **CURRENT V107 LUA-CALL CONTRACT (2026-09-19):** The V49 generic
+> `hooks.nativeCalls[method].before/after` contract remains current. V107 exposes
+> `hooks.luaCalls[prototype].before` for an exact prototype in the
 > body-keyed target module. The host rejects missing or duplicate prototype
 > matches before committing the addon generation. The callback receives
 > `(prototype, arguments, upvalues, hostTrace)`. In V62, a successful `before` callback may
 > replace an argument only with a finite number when the original is a number,
-> or a boolean when the original is a boolean. `after` argument edits are
-> rejected. Referenced table/object upvalues stay live, and the host copies back
+> or a boolean when the original is a boolean. Referenced table/object upvalues stay live, and the host copies back
 > only same-type finite number or boolean upvalues. GC identity replacement is
-> rejected. V59 log/dump folder
-> ownership and V58 bounded `off/errors/trace` behavior are preserved. V61
-> corrects the post-return boundary: `before` runs for each exact prototype
-> entry/resume, while `after` requires status zero, valid active CallInfo bounds,
-> and proof that the exact target closure left the active frame chain. Yield,
-> break, error, invalid-frame, and still-active-frame returns skip `after` and
-> preserve the stock coroutine. V69 appends the runtime-owned diagnostic trace
+> rejected. V107 observes DE raw CALL `0x54` through an original-first detour of
+> callback `0x197EC80`; it no longer infers nested calls from VM entry. Every
+> `luaCalls.after` declaration rejects because complete return/yield/error and
+> record-cleanup retirement is not yet implemented. V69 appends the runtime-owned diagnostic trace
 > closure to Lua and native callbacks. It is nil when trace diagnostics do not
 > select this target. Existing callbacks remain compatible because Lua ignores
 > extra final arguments.
 > V60 is rejected live because it dispatched `after` on suspended Survival
-> prototype 64 and the later resume crashed. V61's build, package, deployment,
-> and before-only Survival addon gates passed. V62 preserves that terminal-frame
-> guard and adds generic Lua-entry argument copyback. Its first user is the
+> prototype 64 and the later resume crashed. V61/V62 retained before-only
+> source compatibility but still observed VM entry rather than every nested
+> CALL. V107 replaces that admission boundary and retains no per-call root. Its
+> first scalar-copyback user is the
 > Mallet addon: `luaCalls[18].before` changes argument 3 to `5`, leaving the
-> stock `SetThreatLevel` Lua body and its native call authoritative. V62 package
-> and deployment hashes pass; live Mallet gameplay remains the acceptance gate.
+> stock `SetThreatLevel` Lua body and its native call authoritative. V107 is an
+> offline candidate; live Mallet/Survival/Interception acceptance remains open.
 
-## V60 exact Lua prototype calls
+## Current exact Lua prototype before calls
 
 A standalone target addon may declare:
 
@@ -38,7 +48,6 @@ return {
         luaCalls = {
             [64] = {
                 before = function(prototype, arguments, upvalues, hostTrace) end,
-                after = function(prototype, arguments, upvalues, hostTrace) end,
             },
         },
     },
@@ -49,14 +58,15 @@ The numeric key is the exact zero-based prototype identity in the target
 module's verified prototype graph. Each declaration must have at least one
 callable `before` or `after` member. Duplicate keys, nonnumeric keys,
 out-of-range keys, malformed phase values, a missing prototype, or more than one
-matching prototype reject the staged addon generation before commit.
+matching prototype, a missing `before`, or any `after` member reject the staged
+addon generation before commit.
 
 The callback arguments are:
 
 | Value | Contract |
 |---|---|
 | `prototype` | Exact numeric prototype ID that matched the declaration. |
-| `arguments` | One-based current arguments. In `before` only, finite same-tag number or boolean replacements are copied to the running call after the callback succeeds. Every other replacement is rejected and the stock value remains. `after` receives an observational table and cannot rewrite arguments. |
+| `arguments` | One-based current arguments. Finite same-tag number or boolean replacements are copied to the running call after the callback succeeds. Every other replacement is rejected and the stock value remains. |
 | `upvalues` | One-based view of the exact closure captures. Referenced tables and userdata retain their native identity, so ordinary field edits affect the original object. |
 | `hostTrace` | Optional host-owned bounded diagnostic closure. V69 passes it directly because a borrowed module environment may not resolve `_T`; nil means diagnostics are dormant. |
 
@@ -72,17 +82,14 @@ candidate mutation before changing any argument, so a malformed callback cannot
 partially rewrite a call.
 
 Callbacks run under the target generation, Lua mutex, exact VM/owner-thread,
-and recursion-depth guards. `before` runs immediately before each stock closure
-entry or coroutine resume. `after` runs only when that interpreter invocation
-returns with Luau state status zero, valid CallInfo bounds, and no active frame
-whose closure is the exact target. This rejects ordinary yield/break/error
-returns and status-zero native/JIT handoffs that still own the target frame.
-V61 logs `luaCalls.<prototype>.after.skipped` with the rejection reason and leaves
-the stock resume state untouched. If the coroutine later resumes and completes,
-that terminal execution may receive `after`. The runtime contains no
+and recursion-depth guards. `before` runs at the exact DE CALL instruction,
+before stock creates/enters the child frame. The host derives the function and
+argument window from the caller's A/B operands. It retains no CallInfo token or
+argument registry root after the callback returns. The runtime contains no
 per-ability logic: body-key filename, prototype declaration, validation, and
-addon Lua own the behavior. F9 can replace an addon generation once V61 is
-loaded; installing a new DLL version still requires a process restart.
+addon Lua own the behavior. F9 may publish a new generation for later calls;
+installing a new DLL version still requires a process restart. Lua `after`
+remains unavailable until every natural retirement owner is implemented.
 >
 > **V49 EXECUTION CONTRACT (2026-09-07):** `afterDamage` now dispatches every
 > positive engine-reported damage result directly from the installed source

@@ -320,8 +320,8 @@ Therefore:
 
 - a cross-VM/global addon registry is not the ability-card architecture;
 - `AbilityCards.addon.luau` is rejected evidence, not a production API;
-- direct insertion in the ability's `GetAbilityUpgradeLevelInfo` remains the
-  currently live-proven path;
+- at the time of this August experiment, direct insertion in the ability's
+  `GetAbilityUpgradeLevelInfo` was the only live-proven path;
 - this failure does **not** prove that addon-owned rows are impossible;
 - the actual central builder calls `avatar:RunScript(script,
   GetAbilityUpgradeLevelInfo, true)` twice and immediately reads
@@ -332,8 +332,11 @@ Therefore:
 - the provider must emit identical row IDs/order for base and modded queries;
 - the bridge must commit/remove providers transactionally on F9, preserve the
   stock result on any failure, and perform no polling or instance scanning;
-- this corrected bridge is an audited proposal, not an implemented or live-
-  certified feature. Direct native projection remains the compatibility path.
+- **Historical August status:** the corrected bridge was then only an audited
+  proposal and direct native projection was the compatibility path. This is
+  superseded by the current production contract at the top of this file: the
+  same-VM RunScript result adapter is implemented, Mallet is live-proven on it,
+  and Ice Wave uses the same mechanism with fresh rendering tracked separately.
 
 ## Description remains separate
 

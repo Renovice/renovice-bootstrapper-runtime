@@ -2,6 +2,7 @@
 
 #include "addon_transaction.hpp"
 #include "config.hpp"
+#include "de_vm_authority.hpp"
 #include "injection_core.hpp"
 #include "de_proto_graph_u43.hpp"
 #include "callback_runtime_bytecode.hpp"
@@ -23,6 +24,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <csetjmp>
 #include <cstdint>
 #include <cstring>
@@ -36,6 +38,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -66,6 +69,7 @@ using KeyBuilder = char*(*)(char* output, long long capacity, void* handle_pair)
 using FieldFunction = void(*)(luau_State* state, int index, const char* key);
 using ProtectedCall = int(*)(luau_State* state, int arguments, int results, int error_function);
 using VmExecute = void(*)(luau_State* state);
+using DeLuauInterruptIncrement = std::uint32_t(*)(luau_State* state);
 using CheckStack = int(*)(luau_State* state, int slots);
 using GcBarrierBack = void(*)(luau_State*, luau_GCObject*, luau_GCObject**);
 using GamePushValue = void(*)(luau_State* state, int index);
@@ -317,6 +321,7 @@ struct TargetExecutionSnapshot
 		const luau_GlobalState* vm;
 		std::vector<AddonRecord> addons;
 		std::vector<std::string> native_methods;
+		std::vector<std::int32_t> lua_before_prototypes;
 		bool native_damage = false;
 		bool native_callsite = false;
 	};
@@ -335,11 +340,19 @@ struct TargetScriptBinding
 struct ActiveRunScriptBoundary
 {
 	bool active = false;
+	luau_State* state = nullptr;
 	void* global_state = nullptr;
+	luau_CallInfo* owner_call_info = nullptr;
+	std::uint32_t owner_function_tag = LUAU_NIL;
+	std::uintptr_t owner_function_identity = 0;
 	std::uintptr_t script_resource_identity = 0;
 	std::uintptr_t ability_identity = 0;
 	std::uint32_t owner_thread = 0;
+	std::uint64_t generation = 0;
+	std::uint64_t token = 0;
 };
+
+static_assert(std::is_trivially_copyable_v<ActiveRunScriptBoundary>);
 
 struct ActivePauseLoadBoundary
 {
@@ -374,6 +387,8 @@ struct RunResult
 	void* fault_address = nullptr;
 };
 
+static_assert(std::is_trivially_copyable_v<RunResult>);
+
 struct GuardState
 {
 	std::jmp_buf jump;
@@ -381,13 +396,14 @@ struct GuardState
 	DWORD thread_id = 0;
 	PVOID handler = nullptr;
 	luau_State* state = nullptr;
+	void** outer_error_jump_slot = nullptr;
+	void* outer_error_jump = nullptr;
 	std::ptrdiff_t base_offset = 0;
 	luau_TValue borrowed_original{};
 	FieldFunction setfield = nullptr;
 	char key[0x110]{};
 	bool registry_may_be_shadowed = false;
 	bool original_rooted = false;
-	bool cleanup_attempted = false;
 	int stage = 0;
 	int fault_stage = 0;
 	unsigned long fault_code = 0;
@@ -396,65 +412,14 @@ struct GuardState
 
 soup::DetourHook loader_hook;
 soup::DetourHook vm_execute_hook;
+soup::DetourHook de_luau_interrupt_hook;
 KeyBuilder key_builder = nullptr;
 FieldFunction getfield = nullptr;
 FieldFunction setfield = nullptr;
 ProtectedCall protected_call = nullptr;
 bool injected_interrupt_contract_ready = false;
+std::atomic<bool> lua_before_observer_ready = false;
 bool memory_evidence_layout_ready = false;
-int protected_callback_call(luau_State* state, int arguments, int results, int error_handler, const char* label)
-{
-	if (!injected_interrupt_contract_ready || state == nullptr || protected_call == nullptr)
-		return 2;
-	// Keep the existing bounded watchdog. Inserted callbacks must not spend the
-	// suspended stock coroutine's allowance on diagnostic or addon instructions.
-	ScopedInjectedInterruptBudget budget(state->interrupt_count);
-    // Read-only native accounting; bounded C++ reporting allocates no DE-Lua
-    // objects and does not step/stop/restart the collector.
-    struct MemoryObservation {
-        luau_State* state;
-        const char* label;
-        bool enabled;
-        std::uint64_t before = 0;
-        static std::uint64_t total(luau_State* value) noexcept {
-            std::uint64_t result = 0;
-            std::memcpy(&result, reinterpret_cast<const char*>(value->global_state) + 0x48, sizeof(result));
-            return result;
-        }
-        MemoryObservation(luau_State* value, const char* name)
-            : state(value), label(name), enabled(value->global_state != nullptr
-                && diagnostic_bridge_may_format(config::diagnostics_mode())) {
-            if (enabled) before = total(state);
-        }
-        ~MemoryObservation() noexcept {
-            if (!enabled) return;
-            try {
-                static std::atomic<std::uint64_t> counts[4]{};
-                static std::atomic<std::uint64_t> positive_net[4]{};
-                static std::atomic<std::uint64_t> negative_net[4]{};
-                const std::string_view name = label == nullptr ? "unknown" : label;
-                const unsigned lane = name == "casterStats.before" ? 0
-                    : name == "casterAfter" ? 1
-                    : name.starts_with("automaticDamage") ? 2 : 3;
-                const auto after = total(state);
-                const auto positive = after >= before ? after - before : 0;
-                const auto negative = before > after ? before - after : 0;
-                const auto positive_sum = positive_net[lane].fetch_add(positive) + positive;
-                const auto negative_sum = negative_net[lane].fetch_add(negative) + negative;
-                const auto count = counts[lane].fetch_add(1) + 1;
-                if (count > 8 && (count & (count - 1)) != 0) return;
-                std::ostringstream out;
-                out << "RENOVICE VM_MEMORY build=V94 pid=" << GetCurrentProcessId()
-                    << " vm=" << state->global_state << " tick_ms=" << GetTickCount64()
-                    << " lane=" << lane << " label=" << name << " calls=" << count
-                    << " lua_before=" << before << " lua_after=" << after
-                    << " positive_net_sum=" << positive_sum << " negative_net_sum=" << negative_sum;
-                config::diagnostic_log(out.str(),config::DiagnosticsMode::battle);
-            } catch (...) { /* Read-only evidence cannot alter callback unwind. */ }
-        }
-    } memory(state,label);
-	return protected_call(state, arguments, results, error_handler);
-}
 CheckStack check_stack = nullptr;
 GcBarrierBack gc_barrierback = nullptr;
 GamePushValue game_pushvalue = nullptr;
@@ -531,6 +496,10 @@ std::atomic_bool startup_pending = false;
 std::atomic_bool f9_pending = false;
 std::atomic_bool execution_running = false;
 std::atomic_bool observe_target_addons = false;
+// The DE interrupt leaf is process-wide, while luaCalls.before is optional.
+// Keep the leaf's common path stock-only until an exact, published provider
+// and target-module identity can possibly accept a call.
+std::atomic_bool lua_before_provider_fast_gate = false;
 std::atomic_bool scripts_ui_enabled = false;
 // Preserved for negative-evidence archaeology only. Live testing disproved the
 // cached module-export attachment model; keep its code available but prevent it
@@ -544,9 +513,6 @@ std::uint64_t active_generation = 0;
 GuardState guard;
 std::recursive_mutex lua_execution_mutex;
 thread_local std::size_t lua_execution_depth = 0;
-thread_local std::size_t vm_execution_depth = 0;
-thread_local std::uint64_t active_target_execution_key = 0;
-thread_local luau_GlobalState* active_target_execution_global_state = nullptr;
 thread_local bool float_argument_transform_running = false;
 thread_local bool native_call_hook_running = false;
 thread_local bool automatic_damage_runtime_running = false;
@@ -1219,40 +1185,539 @@ bool diagnostic_snapshot_capacity_available(const config::Flags& flags) noexcept
 }
 std::atomic_bool pause_menu_body_dumped = false;
 bool run_script_binding_failure_logged = false;
-thread_local bool run_script_observer_active = false;
 thread_local ActiveRunScriptBoundary active_run_script_boundary;
+thread_local std::uint64_t next_run_script_boundary_token = 1;
 thread_local ActivePauseLoadBoundary active_pause_load_boundary;
 
-struct ScopedRunScriptBoundary
+void clear_active_run_script_boundary() noexcept
 {
-	bool previous_observer_active = false;
-	ActiveRunScriptBoundary previous_boundary;
+	active_run_script_boundary = {};
+}
 
-	ScopedRunScriptBoundary(
-		void* global_state,
-		std::uintptr_t script_resource_identity,
-		std::uintptr_t ability_identity,
-		std::uint32_t owner_thread
-	) noexcept
-		: previous_observer_active(run_script_observer_active),
-		previous_boundary(active_run_script_boundary)
+bool run_script_boundary_is_live(
+	const ActiveRunScriptBoundary& boundary,
+	const luau_State* state
+) noexcept
+
+{
+	constexpr std::size_t maximum_total_frames = 4096;
+	if (!boundary.active || boundary.token == 0 || boundary.generation == 0
+		|| state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| boundary.state != state
+		|| boundary.global_state == nullptr
+		|| boundary.global_state != state->global_state
+		|| boundary.owner_thread == 0
+		|| boundary.owner_thread != static_cast<std::uint32_t>(GetCurrentThreadId())
+		|| boundary.owner_call_info == nullptr
+		|| state->base_ci == nullptr || state->ci == nullptr || state->end_ci == nullptr)
 	{
-		run_script_observer_active = true;
-		active_run_script_boundary = {
-			true,
-			global_state,
-			script_resource_identity,
-			ability_identity,
-			owner_thread,
-		};
+		return false;
 	}
 
-	~ScopedRunScriptBoundary()
+	const auto base = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto current = reinterpret_cast<std::uintptr_t>(state->ci);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	const auto owner = reinterpret_cast<std::uintptr_t>(boundary.owner_call_info);
+	if (!valid_target_call_stack_bounds(
+			current, base, sizeof(luau_CallInfo), maximum_total_frames)
+		|| end < base || current >= end
+		|| sizeof(luau_CallInfo) > end - current
+		|| owner < base || owner > current
+		|| (owner - base) % sizeof(luau_CallInfo) != 0
+		|| sizeof(luau_CallInfo) > end - owner
+		|| diagnostics::bad_read_ptr(
+			boundary.owner_call_info, sizeof(luau_CallInfo))
+		|| boundary.owner_call_info->func == nullptr
+		|| diagnostics::bad_read_ptr(
+			boundary.owner_call_info->func, sizeof(luau_TValue)))
 	{
-		active_run_script_boundary = previous_boundary;
-		run_script_observer_active = previous_observer_active;
+		return false;
 	}
+
+	const auto& function = *boundary.owner_call_info->func;
+	return function.type == boundary.owner_function_tag
+		&& function.value.as_uintptr == boundary.owner_function_identity;
+}
+
+// A new detour entry at the exact saved CallInfo cannot be a still-active
+// nested invocation. It is the same frame slot reused after a stock longjmp;
+// retire it before classifying this entry. Genuine recursion has a deeper
+// CallInfo and remains reentrant.
+bool prepare_run_script_boundary_entry(luau_State* state) noexcept
+{
+	if (!active_run_script_boundary.active) return false;
+	const bool live = run_script_boundary_is_live(
+		active_run_script_boundary, state);
+	if (!live || active_run_script_boundary.owner_call_info == state->ci)
+	{
+		clear_active_run_script_boundary();
+		return false;
+	}
+	return true;
+}
+
+ActiveRunScriptBoundary make_run_script_boundary(
+	luau_State* state,
+	std::uintptr_t script_resource_identity,
+	std::uintptr_t ability_identity,
+	std::uint64_t generation
+) noexcept
+{
+	ActiveRunScriptBoundary boundary;
+	if (state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| state->global_state == nullptr
+		|| state->ci == nullptr || state->base_ci == nullptr
+		|| state->end_ci == nullptr
+		|| diagnostics::bad_read_ptr(state->ci, sizeof(luau_CallInfo))
+		|| state->ci->func == nullptr
+		|| diagnostics::bad_read_ptr(state->ci->func, sizeof(luau_TValue))
+		|| script_resource_identity == 0 || generation == 0)
+	{
+		return boundary;
+	}
+
+	const auto base = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto current = reinterpret_cast<std::uintptr_t>(state->ci);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	if (!valid_target_call_stack_bounds(
+			current, base, sizeof(luau_CallInfo), 4096)
+		|| end < base || current >= end
+		|| sizeof(luau_CallInfo) > end - current)
+	{
+		return boundary;
+	}
+
+	auto token = next_run_script_boundary_token++;
+	if (token == 0) token = next_run_script_boundary_token++;
+	boundary.active = true;
+	boundary.state = state;
+	boundary.global_state = state->global_state;
+	boundary.owner_call_info = state->ci;
+	boundary.owner_function_tag = state->ci->func->type;
+	boundary.owner_function_identity = state->ci->func->value.as_uintptr;
+	boundary.script_resource_identity = script_resource_identity;
+	boundary.ability_identity = ability_identity;
+	boundary.owner_thread = static_cast<std::uint32_t>(GetCurrentThreadId());
+	boundary.generation = generation;
+	boundary.token = token;
+	return boundary;
+}
+
+void finish_run_script_boundary(
+	std::uint64_t token,
+	const ActiveRunScriptBoundary& previous,
+	luau_State* state
+) noexcept
+{
+	if (active_run_script_boundary.token == token
+		|| !run_script_boundary_is_live(active_run_script_boundary, state))
+	{
+		clear_active_run_script_boundary();
+	}
+	if (run_script_boundary_is_live(previous, state))
+	{
+		active_run_script_boundary = previous;
+	}
+}
+
+void clear_run_script_boundary_at_exact_idle(luau_State* state) noexcept
+{
+	if (state != nullptr && active_run_script_boundary.active
+		&& active_run_script_boundary.state == state
+		&& active_run_script_boundary.owner_thread
+			== static_cast<std::uint32_t>(GetCurrentThreadId()))
+	{
+		clear_active_run_script_boundary();
+	}
+}
+
+enum class StockNativeFinalizeKind : std::uint8_t
+{
+	none,
+	set_source_object,
+	set_damage_callback,
 };
+
+struct ActiveStockNativeFinalize
+{
+	bool active = false;
+	StockNativeFinalizeKind kind = StockNativeFinalizeKind::none;
+	luau_State* state = nullptr;
+	void* global_state = nullptr;
+	luau_CallInfo* owner_call_info = nullptr;
+	std::uint32_t owner_function_tag = LUAU_NIL;
+	std::uintptr_t owner_function_identity = 0;
+	std::ptrdiff_t argument_base_offset = -1;
+	std::uint32_t argument_tags[2]{};
+	std::uintptr_t argument_values[2]{};
+	std::uint64_t target_key = 0;
+	std::uint64_t trace_attempt = 0;
+	std::uint64_t generation = 0;
+	std::uint64_t token = 0;
+	std::uint32_t owner_thread = 0;
+	bool detailed_trace = false;
+};
+
+static_assert(std::is_trivially_copyable_v<ActiveStockNativeFinalize>);
+
+thread_local ActiveStockNativeFinalize active_stock_native_finalize;
+thread_local std::uint64_t next_stock_native_finalize_token = 1;
+
+void clear_active_stock_native_finalize() noexcept
+{
+	active_stock_native_finalize = {};
+}
+
+bool stock_native_finalize_is_live(
+	const ActiveStockNativeFinalize& boundary,
+	const luau_State* state
+) noexcept
+{
+	constexpr std::size_t maximum_total_frames = 4096;
+	if (!boundary.active || boundary.kind == StockNativeFinalizeKind::none
+		|| boundary.token == 0 || boundary.generation == 0
+		|| state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| boundary.state != state || boundary.global_state == nullptr
+		|| boundary.global_state != state->global_state
+		|| boundary.owner_thread == 0
+		|| boundary.owner_thread != static_cast<std::uint32_t>(GetCurrentThreadId())
+		|| boundary.owner_call_info == nullptr
+		|| state->base_ci == nullptr || state->ci == nullptr || state->end_ci == nullptr)
+	{
+		return false;
+	}
+
+	const auto base = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto current = reinterpret_cast<std::uintptr_t>(state->ci);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	const auto owner = reinterpret_cast<std::uintptr_t>(boundary.owner_call_info);
+	if (!valid_target_call_stack_bounds(
+			current, base, sizeof(luau_CallInfo), maximum_total_frames)
+		|| end < base || current >= end
+		|| sizeof(luau_CallInfo) > end - current
+		|| owner < base || owner > current
+		|| (owner - base) % sizeof(luau_CallInfo) != 0
+		|| sizeof(luau_CallInfo) > end - owner
+		|| diagnostics::bad_read_ptr(
+			boundary.owner_call_info, sizeof(luau_CallInfo))
+		|| boundary.owner_call_info->func == nullptr
+		|| diagnostics::bad_read_ptr(
+			boundary.owner_call_info->func, sizeof(luau_TValue)))
+	{
+		return false;
+	}
+
+	const auto& function = *boundary.owner_call_info->func;
+	return function.type == boundary.owner_function_tag
+		&& function.value.as_uintptr == boundary.owner_function_identity;
+}
+
+void prepare_stock_native_finalize_entry(luau_State* state) noexcept
+{
+	if (!active_stock_native_finalize.active) return;
+	const bool live = stock_native_finalize_is_live(
+		active_stock_native_finalize, state);
+	if (!live || active_stock_native_finalize.owner_call_info == state->ci)
+	{
+		clear_active_stock_native_finalize();
+	}
+}
+
+ActiveStockNativeFinalize make_stock_native_finalize(
+	StockNativeFinalizeKind kind,
+	luau_State* state,
+	std::uint64_t generation,
+	std::uint64_t target_key,
+	std::uint64_t trace_attempt,
+	bool detailed_trace
+) noexcept
+{
+	ActiveStockNativeFinalize boundary;
+	if (kind == StockNativeFinalizeKind::none || state == nullptr
+		|| diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| state->global_state == nullptr || state->intop == nullptr
+		|| state->stack == nullptr || state->stack_last == nullptr
+		|| state->ci == nullptr || state->base_ci == nullptr
+		|| state->end_ci == nullptr
+		|| diagnostics::bad_read_ptr(state->ci, sizeof(luau_CallInfo))
+		|| state->ci->func == nullptr
+		|| diagnostics::bad_read_ptr(state->ci->func, sizeof(luau_TValue))
+		|| luau_gettop(state) < 2 || generation == 0)
+	{
+		return boundary;
+	}
+
+	const auto base = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto current = reinterpret_cast<std::uintptr_t>(state->ci);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	if (!valid_target_call_stack_bounds(
+			current, base, sizeof(luau_CallInfo), 4096)
+		|| end < base || current >= end
+		|| sizeof(luau_CallInfo) > end - current)
+	{
+		return boundary;
+	}
+
+	auto token = next_stock_native_finalize_token++;
+	if (token == 0) token = next_stock_native_finalize_token++;
+	boundary.active = true;
+	boundary.kind = kind;
+	boundary.state = state;
+	boundary.global_state = state->global_state;
+	boundary.owner_call_info = state->ci;
+	boundary.owner_function_tag = state->ci->func->type;
+	boundary.owner_function_identity = state->ci->func->value.as_uintptr;
+	boundary.argument_base_offset = luau_savestack(state, state->intop);
+	for (std::size_t index = 0; index != 2; ++index)
+	{
+		boundary.argument_tags[index] = state->intop[index].type;
+		boundary.argument_values[index] = state->intop[index].value.as_uintptr;
+	}
+	boundary.target_key = target_key;
+	boundary.trace_attempt = trace_attempt;
+	boundary.generation = generation;
+	boundary.token = token;
+	boundary.owner_thread = static_cast<std::uint32_t>(GetCurrentThreadId());
+	boundary.detailed_trace = detailed_trace;
+	return boundary;
+}
+
+void finish_stock_native_finalize(
+	std::uint64_t token,
+	const ActiveStockNativeFinalize& previous,
+	luau_State* state
+) noexcept
+{
+	if (active_stock_native_finalize.token == token
+		|| !stock_native_finalize_is_live(active_stock_native_finalize, state))
+	{
+		clear_active_stock_native_finalize();
+	}
+	if (stock_native_finalize_is_live(previous, state))
+	{
+		active_stock_native_finalize = previous;
+	}
+}
+
+bool stock_native_finalize_arguments(
+	const ActiveStockNativeFinalize& boundary,
+	luau_State* state,
+	luau_TValue (&arguments)[2]
+) noexcept
+{
+	if (!stock_native_finalize_is_live(boundary, state)
+		|| boundary.argument_base_offset < 0 || state->stack == nullptr
+		|| state->stack_last == nullptr
+		|| state->intop == nullptr
+		|| luau_savestack(state, state->intop) != boundary.argument_base_offset)
+	{
+		return false;
+	}
+	const auto stack_begin = reinterpret_cast<std::uintptr_t>(state->stack);
+	const auto stack_end = reinterpret_cast<std::uintptr_t>(state->stack_last);
+	const auto byte_offset = static_cast<std::uintptr_t>(
+		boundary.argument_base_offset);
+	if (stack_end < stack_begin || byte_offset > stack_end - stack_begin
+		|| byte_offset % alignof(luau_TValue) != 0
+		|| 2 * sizeof(luau_TValue) > stack_end - stack_begin - byte_offset)
+	{
+		return false;
+	}
+	auto* const base = luau_restorestack(state, boundary.argument_base_offset);
+	if (diagnostics::bad_read_ptr(base, 2 * sizeof(luau_TValue))) return false;
+	for (std::size_t index = 0; index != 2; ++index)
+	{
+		if (base[index].type != boundary.argument_tags[index]
+			|| base[index].value.as_uintptr != boundary.argument_values[index])
+		{
+			return false;
+		}
+		arguments[index] = base[index];
+	}
+	return true;
+}
+
+void clear_stock_native_finalize_at_exact_idle(luau_State* state) noexcept
+{
+	if (state != nullptr && active_stock_native_finalize.active
+		&& active_stock_native_finalize.state == state
+		&& active_stock_native_finalize.owner_thread
+			== static_cast<std::uint32_t>(GetCurrentThreadId()))
+	{
+		clear_active_stock_native_finalize();
+	}
+}
+
+// The generic native-call detour is process-owned, while every provider and
+// observer is generation-owned.  Only this scalar frame fingerprint may span
+// the stock C callback: DE can longjmp out of that callback without running a
+// C++ destructor.  The argument values themselves remain rooted in DE's
+// native-call frame and are re-read only after the exact frame is proven live.
+struct ActiveNativeCallBoundary
+{
+	bool active = false;
+	bool engine_source_published = false;
+	luau_State* state = nullptr;
+	void* global_state = nullptr;
+	luau_CallInfo* owner_call_info = nullptr;
+	std::uint32_t owner_function_tag = LUAU_NIL;
+	std::uintptr_t owner_function_identity = 0;
+	std::uint64_t generation = 0;
+	std::uint64_t token = 0;
+	std::uint32_t owner_thread = 0;
+};
+static_assert(std::is_trivially_copyable_v<ActiveNativeCallBoundary>);
+
+thread_local ActiveNativeCallBoundary active_native_call_boundary;
+thread_local std::uint64_t next_native_call_boundary_token = 1;
+
+void clear_active_native_call_boundary() noexcept
+{
+	if (active_native_call_boundary.engine_source_published)
+		engine_damage::clear_source();
+	active_native_call_boundary = {};
+	native_call_hook_running = false;
+}
+
+bool native_call_boundary_is_live(
+	const ActiveNativeCallBoundary& boundary,
+	const luau_State* state
+) noexcept
+{
+	constexpr std::size_t maximum_total_frames = 4096;
+	if (!boundary.active || boundary.token == 0 || boundary.generation == 0
+		|| state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| boundary.state != state || boundary.global_state == nullptr
+		|| boundary.global_state != state->global_state
+		|| boundary.owner_thread == 0
+		|| boundary.owner_thread != static_cast<std::uint32_t>(GetCurrentThreadId())
+		|| boundary.owner_call_info == nullptr
+		|| state->base_ci == nullptr || state->ci == nullptr || state->end_ci == nullptr)
+	{
+		return false;
+	}
+	const auto base = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto current = reinterpret_cast<std::uintptr_t>(state->ci);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	const auto owner = reinterpret_cast<std::uintptr_t>(boundary.owner_call_info);
+	if (!valid_target_call_stack_bounds(
+			current, base, sizeof(luau_CallInfo), maximum_total_frames)
+		|| end < base || current >= end
+		|| sizeof(luau_CallInfo) > end - current
+		|| owner < base || owner > current
+		|| (owner - base) % sizeof(luau_CallInfo) != 0
+		|| sizeof(luau_CallInfo) > end - owner
+		|| diagnostics::bad_read_ptr(
+			boundary.owner_call_info, sizeof(luau_CallInfo))
+		|| boundary.owner_call_info->func == nullptr
+		|| diagnostics::bad_read_ptr(
+			boundary.owner_call_info->func, sizeof(luau_TValue)))
+	{
+		return false;
+	}
+	const auto& function = *boundary.owner_call_info->func;
+	return function.type == boundary.owner_function_tag
+		&& function.value.as_uintptr == boundary.owner_function_identity;
+}
+
+// Returns true only for a genuine nested call below the still-live owner.
+// Reuse of the saved CallInfo after a DE longjmp is a stale boundary and is
+// retired, including its explicitly published engine-damage source.
+bool prepare_native_call_boundary_entry(luau_State* state) noexcept
+{
+	if (!active_native_call_boundary.active)
+	{
+		native_call_hook_running = false;
+		return false;
+	}
+	const bool live = native_call_boundary_is_live(
+		active_native_call_boundary, state);
+	if (!live || (state != nullptr
+		&& active_native_call_boundary.owner_call_info == state->ci))
+	{
+		clear_active_native_call_boundary();
+		return false;
+	}
+	native_call_hook_running = true;
+	return true;
+}
+
+ActiveNativeCallBoundary make_native_call_boundary(
+	luau_State* state,
+	std::uint64_t generation
+) noexcept
+{
+	ActiveNativeCallBoundary boundary;
+	if (state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| state->global_state == nullptr
+		|| state->ci == nullptr || state->base_ci == nullptr
+		|| state->end_ci == nullptr
+		|| diagnostics::bad_read_ptr(state->ci, sizeof(luau_CallInfo))
+		|| state->ci->func == nullptr
+		|| diagnostics::bad_read_ptr(state->ci->func, sizeof(luau_TValue))
+		|| generation == 0)
+	{
+		return boundary;
+	}
+	const auto base = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto current = reinterpret_cast<std::uintptr_t>(state->ci);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	if (!valid_target_call_stack_bounds(
+			current, base, sizeof(luau_CallInfo), 4096)
+		|| end < base || current >= end
+		|| sizeof(luau_CallInfo) > end - current)
+	{
+		return boundary;
+	}
+	auto token = next_native_call_boundary_token++;
+	if (token == 0) token = next_native_call_boundary_token++;
+	boundary.active = true;
+	boundary.state = state;
+	boundary.global_state = state->global_state;
+	boundary.owner_call_info = state->ci;
+	boundary.owner_function_tag = state->ci->func->type;
+	boundary.owner_function_identity = state->ci->func->value.as_uintptr;
+	boundary.generation = generation;
+	boundary.token = token;
+	boundary.owner_thread = static_cast<std::uint32_t>(GetCurrentThreadId());
+	return boundary;
+}
+
+void finish_native_call_boundary(
+	std::uint64_t token,
+	const ActiveNativeCallBoundary& previous,
+	luau_State* state
+) noexcept
+{
+	if (active_native_call_boundary.token == token
+		|| !native_call_boundary_is_live(active_native_call_boundary, state))
+	{
+		clear_active_native_call_boundary();
+	}
+	if (native_call_boundary_is_live(previous, state))
+	{
+		active_native_call_boundary = previous;
+		native_call_hook_running = true;
+	}
+}
+
+void clear_native_call_boundary_at_exact_idle(luau_State* state) noexcept
+{
+	if (state != nullptr && active_native_call_boundary.active
+		&& active_native_call_boundary.state == state
+		&& active_native_call_boundary.owner_thread
+			== static_cast<std::uint32_t>(GetCurrentThreadId()))
+	{
+		clear_active_native_call_boundary();
+	}
+	else if (state != nullptr && !active_native_call_boundary.active)
+	{
+		// Self-heal the legacy scalar guard as well. Exact idle cannot be inside
+		// a genuine native callback, so a set flag without a live POD owner is
+		// stale evidence from an older unwind.
+		native_call_hook_running = false;
+	}
+}
 
 struct ScopedPauseLoadBoundary
 {
@@ -1286,6 +1751,7 @@ struct ScopedPauseLoadBoundary
 int ability_card_wrapper(luau_State* state);
 int set_damage_callback_adapter(luau_State* state);
 int set_source_object_adapter(luau_State* state);
+TargetCallsite target_callsite_for_active_call_stack(luau_State* state);
 int push_float_arg_adapter(luau_State* state);
 int addon_damage_callback_wrapper(luau_State* state);
 int run_script_observer_adapter(luau_State* state);
@@ -1307,6 +1773,11 @@ void remember_target_script_binding(
 	std::uint64_t target_key,
 	luau_State* state
 );
+void remember_target_script_binding_from_boundary(
+	std::uint64_t target_key,
+	luau_State* state,
+	const ActiveRunScriptBoundary& boundary
+);
 void remember_pause_menu_identity(
 	std::uint64_t body_key,
 	luau_State* state,
@@ -1318,6 +1789,8 @@ std::uint64_t target_key_for_script_resource(
 	std::uintptr_t script_resource_identity
 ) noexcept;
 void vm_execute_detour(luau_State* state);
+std::uint32_t de_luau_interrupt_increment_detour(luau_State* state);
+void clear_callback_runtime_result_root_at_exact_idle(luau_State* state) noexcept;
 void maybe_poll_runtime_controls() noexcept;
 void maybe_run_safe_runtime_tick(luau_State* state) noexcept;
 bool drain_pending_target_addons_for_vm(luau_State* state);
@@ -1347,39 +1820,6 @@ struct ScopedExecutionDepth
 	~ScopedExecutionDepth() noexcept
 	{
 		if (lua_execution_depth != 0) --lua_execution_depth;
-	}
-};
-
-struct ScopedVmExecutionDepth
-{
-	ScopedVmExecutionDepth() noexcept { ++vm_execution_depth; }
-	~ScopedVmExecutionDepth() noexcept
-	{
-		if (vm_execution_depth != 0) --vm_execution_depth;
-	}
-};
-
-struct ScopedTargetExecution
-{
-	std::uint64_t previous_key = 0;
-	luau_GlobalState* previous_global_state = nullptr;
-
-	ScopedTargetExecution(
-		std::uint64_t target_key,
-		luau_GlobalState* global_state
-	) noexcept
-		: previous_key(active_target_execution_key),
-		previous_global_state(active_target_execution_global_state)
-	{
-		active_target_execution_key = target_key;
-		active_target_execution_global_state = target_key != 0
-			? global_state : nullptr;
-	}
-
-	~ScopedTargetExecution() noexcept
-	{
-		active_target_execution_key = previous_key;
-		active_target_execution_global_state = previous_global_state;
 	}
 };
 
@@ -2145,6 +2585,20 @@ bool read_lua_call_requests(
 			state->outtop = base;
 			return false;
 		}
+		if (!lua_call_request_supported(before, after))
+		{
+			error = "luaCalls-after-retirement-not-implemented:"
+				+ std::to_string(prototype);
+			state->outtop = base;
+			return false;
+		}
+		if (before && !lua_before_observer_ready.load(std::memory_order_acquire))
+		{
+			error = "luaCalls-before-observer-unavailable:"
+				+ std::to_string(prototype);
+			state->outtop = base;
+			return false;
+		}
 		if (std::any_of(requests.begin(), requests.end(), [&](const auto& request)
 			{ return request.prototype == prototype; }))
 		{
@@ -2261,7 +2715,7 @@ void publish_target_execution_snapshot_locked()
 		{
 			snapshot->providers.push_back({addon.target_key,
 				static_cast<const luau_GlobalState*>(addon.global_state),
-				{addon.addon}, {}, addon.requires_native_damage_adapters,
+				{addon.addon}, {}, {}, addon.requires_native_damage_adapters,
 				addon.requires_native_callsite_adapters});
 		}
 		else
@@ -2276,6 +2730,9 @@ void publish_target_execution_snapshot_locked()
 			[&](const auto& p) { return p.key == addon.target_key && p.vm == addon.global_state; });
 		for (const auto& request : addon.native_call_requests)
 			entry->native_methods.push_back(request.name);
+		for (const auto& request : addon.lua_call_requests)
+			if (request.before)
+				entry->lua_before_prototypes.push_back(request.prototype);
 	}
 	for (auto& entry : snapshot->providers)
 	{
@@ -2285,6 +2742,12 @@ void publish_target_execution_snapshot_locked()
 		entry.native_methods.erase(std::unique(
 			entry.native_methods.begin(), entry.native_methods.end()),
 			entry.native_methods.end());
+		std::sort(entry.lua_before_prototypes.begin(),
+			entry.lua_before_prototypes.end());
+		entry.lua_before_prototypes.erase(std::unique(
+			entry.lua_before_prototypes.begin(),
+			entry.lua_before_prototypes.end()),
+			entry.lua_before_prototypes.end());
 	}
 	for (const auto& identity : target_module_identities)
 	{
@@ -2313,9 +2776,36 @@ void publish_target_execution_snapshot_locked()
 			[](const auto& lhs, const auto& rhs) { return lhs.address < rhs.address; });
 		snapshot->identities.push_back(std::move(published_identity));
 	}
+	const bool has_admitted_lua_before_provider = std::any_of(
+		snapshot->providers.begin(), snapshot->providers.end(),
+		[&](const TargetExecutionSnapshot::Providers& provider)
+		{
+			if (provider.lua_before_prototypes.empty()) return false;
+			return std::any_of(
+				snapshot->identities.begin(), snapshot->identities.end(),
+				[&](const TargetExecutionIdentity& identity)
+				{
+					if (identity.target_key != provider.key
+						|| identity.global_state != provider.vm)
+					{
+						return false;
+					}
+					return std::any_of(
+						identity.prototypes.begin(), identity.prototypes.end(),
+						[&](const TargetProtoRecord& prototype)
+						{
+							return std::binary_search(
+								provider.lua_before_prototypes.begin(),
+								provider.lua_before_prototypes.end(),
+								prototype.bytecode_id);
+						});
+				});
+		});
 	published_target_execution_snapshot.store(
 		std::shared_ptr<const TargetExecutionSnapshot>(std::move(snapshot)),
 		std::memory_order_release);
+	lua_before_provider_fast_gate.store(
+		has_admitted_lua_before_provider, std::memory_order_release);
 }
 
 struct TargetExecutionLease
@@ -2363,6 +2853,17 @@ struct HookAddonSnapshot
 	}
 };
 
+const TargetProtoRecord* published_target_proto(
+	const TargetExecutionIdentity& identity,
+	std::uintptr_t address) noexcept;
+bool published_target_proto_is_live(
+	const TargetProtoRecord& recorded) noexcept;
+bool published_target_closure_is_live(
+	luau_State* state,
+	luau_Closure* closure,
+	const TargetExecutionIdentity& identity,
+	const TargetProtoRecord*& matched) noexcept;
+
 std::uint64_t target_key_for_published_closure(
 	luau_State* state,
 	const luau_TValue& function,
@@ -2381,15 +2882,9 @@ std::uint64_t target_key_for_published_closure(
 	for (auto it = snapshot->identities.rbegin();
 		it != snapshot->identities.rend(); ++it)
 	{
-		const auto address = reinterpret_cast<std::uintptr_t>(closure->l.p);
-		const auto proto = std::lower_bound(
-			it->prototypes.begin(), it->prototypes.end(), address,
-			[](const TargetProtoRecord& candidate, std::uintptr_t value)
-			{
-				return candidate.address < value;
-			});
-		if (it->global_state == state->global_state
-			&& proto != it->prototypes.end() && proto->address == address)
+		const TargetProtoRecord* prototype = nullptr;
+		if (published_target_closure_is_live(
+				state, closure, *it, prototype))
 		{
 			if (!merge_target_ability_match(it->target_key, selected))
 			{
@@ -2401,81 +2896,126 @@ std::uint64_t target_key_for_published_closure(
 	return selected;
 }
 
+const TargetProtoRecord* published_target_proto(
+	const TargetExecutionIdentity& identity,
+	std::uintptr_t address
+) noexcept
+{
+	const auto prototype = std::lower_bound(
+		identity.prototypes.begin(), identity.prototypes.end(), address,
+		[](const TargetProtoRecord& candidate, std::uintptr_t value)
+		{
+			return candidate.address < value;
+		});
+	return prototype != identity.prototypes.end()
+		&& prototype->address == address ? &*prototype : nullptr;
+}
+
+bool published_target_proto_is_live(const TargetProtoRecord& recorded) noexcept
+{
+	constexpr std::size_t prototype_prefix_size = 0xb0;
+	if (recorded.address < 0x10000
+		|| recorded.address % alignof(void*) != 0
+		|| recorded.code < 0x10000
+		|| recorded.code % sizeof(std::uint32_t) != 0
+		|| recorded.instructions <= 0 || recorded.instructions > 1048576
+		|| recorded.bytecode_id < 0
+		|| diagnostics::bad_read_ptr(
+			reinterpret_cast<const void*>(recorded.address),
+			prototype_prefix_size))
+	{
+		return false;
+	}
+
+	std::array<unsigned char, prototype_prefix_size> bytes{};
+	std::memcpy(bytes.data(), reinterpret_cast<const void*>(recorded.address),
+		bytes.size());
+	std::uintptr_t live_code = 0;
+	std::int32_t live_instructions = 0;
+	std::int32_t live_bytecode_id = -1;
+	std::memcpy(&live_code, bytes.data() + 0x10, sizeof(live_code));
+	std::memcpy(&live_instructions, bytes.data() + 0x88,
+		sizeof(live_instructions));
+	std::memcpy(&live_bytecode_id, bytes.data() + 0xa8,
+		sizeof(live_bytecode_id));
+	if (bytes[0] != 12 || live_code != recorded.code
+		|| live_instructions != recorded.instructions
+		|| live_bytecode_id != recorded.bytecode_id)
+	{
+		return false;
+	}
+	const auto code_bytes = static_cast<std::size_t>(live_instructions)
+		* sizeof(std::uint32_t);
+	return !diagnostics::bad_read_ptr(
+		reinterpret_cast<const void*>(live_code), code_bytes);
+}
+
+bool published_target_closure_is_live(
+	luau_State* state,
+	luau_Closure* closure,
+	const TargetExecutionIdentity& identity,
+	const TargetProtoRecord*& matched
+) noexcept
+{
+	matched = nullptr;
+	if (state == nullptr || state->global_state == nullptr || closure == nullptr
+		|| diagnostics::bad_read_ptr(
+			closure, offsetof(luau_Closure, l.uprefs))
+		|| closure->isC || closure->l.p == nullptr
+		|| identity.target_key == 0
+		|| identity.global_state != state->global_state
+		|| identity.environment == nullptr
+		|| closure->env != identity.environment
+		|| diagnostics::bad_read_ptr(identity.environment, sizeof(std::uint8_t))
+		|| identity.root_proto == nullptr)
+	{
+		return false;
+	}
+
+	const auto* const root = published_target_proto(
+		identity, reinterpret_cast<std::uintptr_t>(identity.root_proto));
+	const auto* const prototype = published_target_proto(
+		identity, reinterpret_cast<std::uintptr_t>(closure->l.p));
+	if (root == nullptr || root->parent != 0 || prototype == nullptr
+		|| !published_target_proto_is_live(*root)
+		|| (prototype != root && !published_target_proto_is_live(*prototype)))
+	{
+		return false;
+	}
+	matched = prototype;
+	return true;
+}
+
 TargetLuaCall target_lua_call_for_published_closure(
+	const TargetExecutionSnapshot& snapshot,
 	luau_State* state,
 	const luau_TValue& function
 ) noexcept
 {
 	TargetLuaCall selected;
-	auto execution = acquire_target_execution_snapshot();
-	const auto* snapshot = execution.snapshot.get();
 	luau_Closure* closure = nullptr;
-	if (snapshot == nullptr || state == nullptr || state->global_state == nullptr
+	if (state == nullptr || state->global_state == nullptr
 		|| !readable_lua_closure(function, closure) || closure->isC)
 	{
 		return {};
 	}
-	const auto address = reinterpret_cast<std::uintptr_t>(closure->l.p);
-	for (auto it = snapshot->identities.rbegin();
-		it != snapshot->identities.rend(); ++it)
+	for (auto it = snapshot.identities.rbegin();
+		it != snapshot.identities.rend(); ++it)
 	{
-		if (it->global_state != state->global_state) continue;
-		const auto proto = std::lower_bound(
-			it->prototypes.begin(), it->prototypes.end(), address,
-			[](const TargetProtoRecord& candidate, std::uintptr_t value)
-			{
-				return candidate.address < value;
-			});
-		if (proto == it->prototypes.end() || proto->address != address) continue;
+		const TargetProtoRecord* prototype = nullptr;
+		if (!published_target_closure_is_live(
+				state, closure, *it, prototype)) continue;
 		if (selected.callsite.target_key != 0
 			&& selected.callsite.target_key != it->target_key)
 		{
 			return {};
 		}
 		selected.callsite.target_key = it->target_key;
-		selected.callsite.prototype = proto->bytecode_id;
+		selected.callsite.prototype = prototype->bytecode_id;
 		selected.callsite.exact = true;
 		selected.closure = closure;
 	}
 	return selected;
-}
-
-bool target_lua_call_frame_active(
-	luau_State* state,
-	luau_Closure* target,
-	bool& scan_valid
-) noexcept
-{
-	scan_valid = false;
-	if (state == nullptr || target == nullptr) return false;
-	const auto current_call = reinterpret_cast<std::uintptr_t>(state->ci);
-	const auto base_call = reinterpret_cast<std::uintptr_t>(state->base_ci);
-	constexpr std::size_t maximum_total_frames = 4096;
-	if (!valid_target_call_stack_bounds(
-		current_call, base_call, sizeof(luau_CallInfo), maximum_total_frames))
-	{
-		return false;
-	}
-	for (auto address = current_call;; address -= sizeof(luau_CallInfo))
-	{
-		auto* const frame = reinterpret_cast<luau_CallInfo*>(address);
-		if (diagnostics::bad_read_ptr(frame, sizeof(luau_CallInfo)) || frame->func == nullptr
-			|| diagnostics::bad_read_ptr(frame->func, sizeof(luau_TValue)))
-		{
-			return false;
-		}
-		if (is_function(frame->func->type)
-			&& frame->func->value.as_uintptr
-				== reinterpret_cast<std::uintptr_t>(target))
-		{
-			scan_valid = true;
-			return true;
-		}
-		if (address == base_call) break;
-		if (address < sizeof(luau_CallInfo)) return false;
-	}
-	scan_valid = true;
-	return false;
 }
 
 std::uint64_t target_key_for_closure_locked(
@@ -2493,11 +3033,32 @@ std::uint64_t target_key_for_closure_locked(
 	for (auto it = target_module_identities.rbegin();
 		it != target_module_identities.rend(); ++it)
 	{
-		if (it->global_state == state->global_state
-			&& target_addon_active_locked(it->target_key, state->global_state)
-			&& std::any_of(it->prototypes.begin(), it->prototypes.end(),
-				[&](const auto& proto) { return proto.address
-					== reinterpret_cast<std::uintptr_t>(closure->l.p); }))
+		if (it->global_state != state->global_state
+			|| it->environment == nullptr || closure->env != it->environment
+			|| it->root_proto == nullptr
+			|| !target_addon_active_locked(it->target_key, state->global_state))
+		{
+			continue;
+		}
+		const auto find_prototype = [&](std::uintptr_t address)
+			-> const TargetProtoRecord*
+		{
+			const auto prototype = std::lower_bound(
+				it->prototypes.begin(), it->prototypes.end(), address,
+				[](const TargetProtoRecord& candidate, std::uintptr_t value)
+				{
+					return candidate.address < value;
+				});
+			return prototype != it->prototypes.end()
+				&& prototype->address == address ? &*prototype : nullptr;
+		};
+		const auto* const root = find_prototype(
+			reinterpret_cast<std::uintptr_t>(it->root_proto));
+		const auto* const prototype = find_prototype(
+			reinterpret_cast<std::uintptr_t>(closure->l.p));
+		if (root != nullptr && root->parent == 0 && prototype != nullptr
+			&& published_target_proto_is_live(*root)
+			&& (prototype == root || published_target_proto_is_live(*prototype)))
 		{
 			if (!merge_target_ability_match(it->target_key, selected)) return 0;
 		}
@@ -2535,6 +3096,22 @@ bool target_provider_claims_native_method(
 		if (entry.key != target_key || entry.vm != global_state) continue;
 		return std::binary_search(
 			entry.native_methods.begin(), entry.native_methods.end(), method);
+	}
+	return false;
+}
+
+bool target_provider_claims_lua_before(
+	const TargetExecutionSnapshot& snapshot,
+	std::uint64_t target_key,
+	const luau_GlobalState* global_state,
+	std::int32_t prototype) noexcept
+{
+	for (const auto& entry : snapshot.providers)
+	{
+		if (entry.key != target_key || entry.vm != global_state) continue;
+		return std::binary_search(
+			entry.lua_before_prototypes.begin(),
+			entry.lua_before_prototypes.end(), prototype);
 	}
 	return false;
 }
@@ -2628,7 +3205,6 @@ std::atomic<std::uint64_t> addon_trace_attempts = 0;
 std::atomic<std::uint64_t> native_ingress_trace_sequence = 0;
 std::atomic_bool native_ingress_trace_suppression_logged = false;
 std::atomic<std::uint64_t> damage_timing_sequence = 0;
-std::atomic<std::uint64_t> lua_after_skip_trace_sequence = 0;
 thread_local std::uint64_t addon_trace_attempt = 0;
 thread_local bool addon_trace_detail_enabled = true;
 thread_local std::uint64_t addon_dispatch_errors = 0;
@@ -2944,7 +3520,7 @@ DiagnosticDamageCallsite diagnostic_damage_callsite_for_active_stack(
 						reinterpret_cast<const void*>(identity->code), bytes)
 					&& native_callsite_instruction_from_saved_pc(
 						reinterpret_cast<const std::uint32_t*>(identity->code),
-						identity->instructions, info->savedpc, instruction))
+						identity->instructions, info->savedpc, instruction, game_version >= GV(44, 0, 0)))
 				{
 					result.callsite.instruction = instruction;
 					result.callsite.exact = true;
@@ -3104,49 +3680,358 @@ int diagnostic_trace_bridge(luau_State* state)
 	return 0;
 }
 
-std::string protected_call_error_details(
+enum class SharedCallbackLeafStage : std::uint8_t
+{
+	none,
+	reserve_stack,
+	push_function,
+	push_argument,
+	invoke_callback,
+	capture_error,
+	capture_error_field,
+	capture_result,
+};
+
+constexpr std::size_t shared_callback_result_capacity = 8;
+constexpr std::size_t shared_callback_error_field_count = 10;
+constexpr const char* shared_callback_error_fields[shared_callback_error_field_count]{
+	"message", "Message", "error", "Error", "what", "reason",
+	"traceback", "stack", "source", "line",
+};
+
+struct SharedCallbackLeafContext
+{
+	luau_TValue function{};
+	const luau_TValue* arguments = nullptr;
+	std::size_t argument_count = 0;
+	int requested_results = 0;
+	luau_TValue results[shared_callback_result_capacity]{};
+	std::size_t actual_result_count = 0;
+	std::size_t copied_result_count = 0;
+	luau_TValue error{};
+	luau_TValue error_fields[shared_callback_error_field_count]{};
+	std::uint16_t error_field_mask = 0;
+	int callback_status = 0;
+	bool error_present = false;
+	bool completed = false;
+	SharedCallbackLeafStage stage = SharedCallbackLeafStage::none;
+	std::size_t failure_index = 0;
+};
+static_assert(std::is_trivially_copyable_v<SharedCallbackLeafContext>);
+
+struct SharedCallbackOutcome
+{
+	SharedCallbackLeafContext leaf{};
+	bool accepted = false;
+	bool admitted = false;
+	bool restored = false;
+	int raw_status = -1;
+};
+
+struct SharedCallbackMemorySnapshot
+{
+	bool enabled = false;
+	std::uint64_t before = 0;
+};
+static_assert(std::is_trivially_copyable_v<SharedCallbackMemorySnapshot>);
+
+// BEGIN SHARED_CALLBACK_PROTECTED_LEAF
+// This complete region runs below DE's raw protected boundary. It deliberately
+// owns only scalars, raw pointers, fixed TValue arrays, and a POD context. A DE
+// Lua error may skip every ordinary C++ scope in this leaf without stranding a
+// lock, string, vector, TLS owner, or generation lease.
+bool shared_callback_leaf_push_value(
 	luau_State* state,
-	const luau_TValue* base
-)
+	const luau_TValue& value)
+{
+	if (state == nullptr || state->outtop == nullptr || state->stack_last == nullptr
+		|| gc_barrierback == nullptr || state->outtop >= state->stack_last)
+	{
+		return false;
+	}
+	if ((state->marked & native_gc_black_mask_u43) != 0)
+	{
+		gc_barrierback(
+			state, reinterpret_cast<luau_GCObject*>(state), &state->gclist);
+	}
+	*state->outtop = value;
+	++state->outtop;
+	return true;
+}
+
+void shared_callback_leaf_capture_error(
+	luau_State* state,
+	std::ptrdiff_t error_offset,
+	SharedCallbackLeafContext* context)
+{
+	if (state == nullptr || context == nullptr || state->stack == nullptr
+		|| state->stack_last == nullptr || state->outtop == nullptr
+		|| error_offset < 0)
+	{
+		return;
+	}
+	auto* error = luau_restorestack(state, error_offset);
+	if (error < state->stack || error >= state->stack_last
+		|| state->outtop <= error || state->outtop > state->stack_last)
+	{
+		return;
+	}
+	context->error = *error;
+	context->error_present = true;
+	if (!is_table(context->error.type) || getfield == nullptr
+		|| check_stack(state, 2) == 0)
+	{
+		return;
+	}
+	error = luau_restorestack(state, error_offset);
+	if (error < state->stack || error >= state->stack_last) return;
+	state->outtop = error + 1;
+	for (std::size_t index = 0;
+		index != shared_callback_error_field_count; ++index)
+	{
+		context->stage = SharedCallbackLeafStage::capture_error_field;
+		context->failure_index = index;
+		getfield(state, -1, shared_callback_error_fields[index]);
+		error = luau_restorestack(state, error_offset);
+		if (state->outtop == error + 2 && (error + 1)->type != LUAU_NIL)
+		{
+			context->error_fields[index] = *(error + 1);
+			context->error_field_mask |= static_cast<std::uint16_t>(1u << index);
+		}
+		state->outtop = error + 1;
+	}
+}
+
+void shared_callback_protected_leaf(luau_State* state, void* opaque)
+{
+	auto* const context = static_cast<SharedCallbackLeafContext*>(opaque);
+	if (state == nullptr || context == nullptr || state->stack == nullptr
+		|| state->stack_last == nullptr || state->outtop == nullptr
+		|| state->ci == nullptr || state->ci->top == nullptr
+		|| check_stack == nullptr || protected_call == nullptr
+		|| gc_barrierback == nullptr || !is_function(context->function.type)
+		|| context->requested_results < 0
+		|| context->requested_results > static_cast<int>(shared_callback_result_capacity)
+		|| (context->argument_count != 0 && context->arguments == nullptr)
+		|| context->argument_count > static_cast<std::size_t>(
+			(std::numeric_limits<int>::max)() - 2))
+	{
+		return;
+	}
+
+	context->stage = SharedCallbackLeafStage::reserve_stack;
+	const auto required_slots = (std::max)(
+		context->argument_count + 2,
+		static_cast<std::size_t>(context->requested_results + 2));
+	if (required_slots > static_cast<std::size_t>((std::numeric_limits<int>::max)())
+		|| check_stack(state, static_cast<int>(required_slots)) == 0
+		|| state->stack == nullptr || state->stack_last == nullptr
+		|| state->outtop == nullptr || state->ci == nullptr
+		|| state->ci->top == nullptr || state->outtop < state->stack
+		|| state->outtop > state->stack_last
+		|| state->ci->top < state->outtop
+		|| state->ci->top > state->stack_last
+		|| required_slots > static_cast<std::size_t>(state->stack_last - state->outtop)
+		|| required_slots > static_cast<std::size_t>(state->ci->top - state->outtop))
+	{
+		return;
+	}
+
+	const auto base_offset = luau_savestack(state, state->outtop);
+	context->stage = SharedCallbackLeafStage::push_function;
+	if (!shared_callback_leaf_push_value(state, context->function)) return;
+	for (std::size_t index = 0; index != context->argument_count; ++index)
+	{
+		context->stage = SharedCallbackLeafStage::push_argument;
+		context->failure_index = index;
+		if (!shared_callback_leaf_push_value(state, context->arguments[index])) return;
+	}
+
+	context->stage = SharedCallbackLeafStage::invoke_callback;
+	context->callback_status = protected_call(
+		state, static_cast<int>(context->argument_count),
+		context->requested_results, 0);
+	auto* base = luau_restorestack(state, base_offset);
+	if (state->outtop == nullptr || base < state->stack || base > state->stack_last
+		|| state->outtop < base || state->outtop > state->stack_last)
+	{
+		return;
+	}
+
+	if (context->callback_status != 0)
+	{
+		context->stage = SharedCallbackLeafStage::capture_error;
+		shared_callback_leaf_capture_error(state, base_offset, context);
+		context->completed = true;
+		return;
+	}
+
+	context->stage = SharedCallbackLeafStage::capture_result;
+	context->actual_result_count = static_cast<std::size_t>(state->outtop - base);
+	context->copied_result_count = (std::min)(
+		context->actual_result_count, shared_callback_result_capacity);
+	for (std::size_t index = 0; index != context->copied_result_count; ++index)
+	{
+		context->results[index] = base[index];
+	}
+	context->completed = true;
+}
+// END SHARED_CALLBACK_PROTECTED_LEAF
+
+const char* shared_callback_leaf_stage_label(SharedCallbackLeafStage stage) noexcept
+{
+	switch (stage)
+	{
+	case SharedCallbackLeafStage::none: return "none";
+	case SharedCallbackLeafStage::reserve_stack: return "reserve-stack";
+	case SharedCallbackLeafStage::push_function: return "push-function";
+	case SharedCallbackLeafStage::push_argument: return "push-argument";
+	case SharedCallbackLeafStage::invoke_callback: return "invoke-callback";
+	case SharedCallbackLeafStage::capture_error: return "capture-error";
+	case SharedCallbackLeafStage::capture_error_field: return "capture-error-field";
+	case SharedCallbackLeafStage::capture_result: return "capture-result";
+	}
+	return "unknown";
+}
+
+std::uint64_t read_shared_callback_memory_total(luau_State* state) noexcept
+{
+	std::uint64_t result = 0;
+	if (state != nullptr && state->global_state != nullptr)
+	{
+		std::memcpy(
+			&result, reinterpret_cast<const char*>(state->global_state) + 0x48,
+			sizeof(result));
+	}
+	return result;
+}
+
+SharedCallbackMemorySnapshot capture_shared_callback_memory(
+	luau_State* state) noexcept
+{
+	SharedCallbackMemorySnapshot snapshot;
+	snapshot.enabled = state != nullptr && state->global_state != nullptr
+		&& diagnostic_bridge_may_format(config::diagnostics_mode());
+	if (snapshot.enabled) snapshot.before = read_shared_callback_memory_total(state);
+	return snapshot;
+}
+
+void report_shared_callback_memory(
+	luau_State* state,
+	const char* label,
+	const SharedCallbackMemorySnapshot& snapshot) noexcept
+{
+	if (!snapshot.enabled) return;
+	try
+	{
+		static std::atomic<std::uint64_t> counts[4]{};
+		static std::atomic<std::uint64_t> positive_net[4]{};
+		static std::atomic<std::uint64_t> negative_net[4]{};
+		const std::string_view name = label == nullptr ? "unknown" : label;
+		const unsigned lane = name == "casterStats.before" ? 0
+			: name == "casterAfter" ? 1
+			: name.starts_with("automaticDamage") ? 2 : 3;
+		const auto after = read_shared_callback_memory_total(state);
+		const auto positive = after >= snapshot.before ? after - snapshot.before : 0;
+		const auto negative = snapshot.before > after ? snapshot.before - after : 0;
+		const auto positive_sum = positive_net[lane].fetch_add(positive) + positive;
+		const auto negative_sum = negative_net[lane].fetch_add(negative) + negative;
+		const auto count = counts[lane].fetch_add(1) + 1;
+		if (count > 8 && (count & (count - 1)) != 0) return;
+		std::ostringstream out;
+		out << "RENOVICE VM_MEMORY build=V110 pid=" << GetCurrentProcessId()
+			<< " vm=" << (state != nullptr ? state->global_state : nullptr)
+			<< " tick_ms=" << GetTickCount64()
+			<< " lane=" << lane << " label=" << name << " calls=" << count
+			<< " lua_before=" << snapshot.before << " lua_after=" << after
+			<< " positive_net_sum=" << positive_sum
+			<< " negative_net_sum=" << negative_sum;
+		config::diagnostic_log(out.str(), config::DiagnosticsMode::battle);
+	}
+	catch (...)
+	{
+		// Read-only evidence cannot alter callback results.
+	}
+}
+
+bool invoke_shared_callback(
+	luau_State* state,
+	const luau_TValue& function,
+	const luau_TValue* arguments,
+	std::size_t argument_count,
+	int requested_results,
+	const char* label,
+	SharedCallbackOutcome& outcome)
+{
+	outcome = {};
+	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
+		|| protected_call == nullptr || gc_barrierback == nullptr
+		|| !is_function(function.type)
+		|| requested_results < 0
+		|| requested_results > static_cast<int>(shared_callback_result_capacity)
+		|| (argument_count != 0 && arguments == nullptr)
+		|| argument_count > static_cast<std::size_t>(
+			(std::numeric_limits<int>::max)() - 2))
+	{
+		return false;
+	}
+	std::vector<luau_TValue> staged_arguments;
+	try
+	{
+		if (argument_count != 0)
+			staged_arguments.assign(arguments, arguments + argument_count);
+	}
+	catch (...)
+	{
+		return false;
+	}
+	outcome.accepted = true;
+	outcome.leaf.function = function;
+	outcome.leaf.arguments = staged_arguments.empty()
+		? nullptr : staged_arguments.data();
+	outcome.leaf.argument_count = argument_count;
+	outcome.leaf.requested_results = requested_results;
+	const auto memory = capture_shared_callback_memory(state);
+	ScopedInjectedInterruptBudget interrupt_budget(state->interrupt_count);
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &shared_callback_protected_leaf, &outcome.leaf);
+	outcome.admitted = protected_result.admitted;
+	outcome.restored = protected_result.restored;
+	outcome.raw_status = protected_result.status;
+	report_shared_callback_memory(state, label, memory);
+	return outcome.admitted && outcome.restored && outcome.raw_status == 0
+		&& outcome.leaf.completed;
+}
+
+std::string shared_callback_error_details(const SharedCallbackOutcome& outcome)
 {
 	std::ostringstream details;
-	if (state == nullptr || state->stack == nullptr || state->outtop == nullptr
-		|| base == nullptr
-		|| state->outtop <= base)
+	if (!outcome.leaf.error_present)
 	{
 		details << " error_result=missing";
 		return details.str();
 	}
-
-	const auto error = *base;
-	append_error_value(details, "error", error);
-	if (is_table(error.type) && getfield != nullptr && check_stack != nullptr)
+	append_error_value(details, "error", outcome.leaf.error);
+	for (std::size_t index = 0; index != shared_callback_error_field_count; ++index)
 	{
-		static constexpr const char* fields[]{
-			"message", "Message", "error", "Error", "what", "reason",
-			"traceback", "stack", "source", "line",
-		};
-		const auto base_offset = luau_savestack(state, base);
-		const auto saved_top_offset = luau_savestack(state, state->outtop);
-		ScopedVmApiFrame frame_capacity(state);
-		require_stack(state, 2);
-		auto* const live_base = luau_restorestack(state, base_offset);
-		state->outtop = live_base + 1;
-		for (const char* const field : fields)
-		{
-			getfield(state, -1, field);
-			if (state->outtop == live_base + 2
-				&& (live_base + 1)->type != LUAU_NIL)
-			{
-				std::string label = "error_field_";
-				label += field;
-				append_error_value(details, label.c_str(), *(live_base + 1));
-			}
-			state->outtop = live_base + 1;
-		}
-		state->outtop = luau_restorestack(state, saved_top_offset);
+		if ((outcome.leaf.error_field_mask & (1u << index)) == 0) continue;
+		std::string field_label = "error_field_";
+		field_label += shared_callback_error_fields[index];
+		append_error_value(
+			details, field_label.c_str(), outcome.leaf.error_fields[index]);
 	}
 	return details.str();
+}
+
+void append_shared_callback_transport_failure(
+	std::ostringstream& failure,
+	const SharedCallbackOutcome& outcome)
+{
+	failure << " protected_admitted=" << (outcome.admitted ? 1 : 0)
+		<< " protected_restored=" << (outcome.restored ? 1 : 0)
+		<< " raw_status=" << outcome.raw_status
+		<< " stage=" << shared_callback_leaf_stage_label(outcome.leaf.stage)
+		<< " index=" << outcome.leaf.failure_index;
 }
 
 bool call_value(
@@ -3158,59 +4043,41 @@ bool call_value(
 	std::string* traced_results = nullptr
 )
 {
-	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
-		|| protected_call == nullptr || !is_function(function.type)
-		|| argument_count > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
-	{
-		return false;
-	}
 	constexpr int traced_result_count = 8;
 	const int requested_results = traced_results == nullptr ? 0 : traced_result_count;
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>((std::max)(
-		argument_count + 2,
-		static_cast<std::size_t>(requested_results + 2))));
-	const auto base_offset = luau_savestack(state, state->outtop);
-	push_stack_value(state, function);
-	for (std::size_t i = 0; i != argument_count; ++i)
-	{
-		push_stack_value(state, arguments[i]);
-	}
-	const int status = protected_callback_call(
-		state, static_cast<int>(argument_count), requested_results, 0, label);
-	// A Lua callback may grow and relocate the stack, including on error.
-	auto* const base = luau_restorestack(state, base_offset);
-	if (status != 0)
+	SharedCallbackOutcome outcome;
+	const bool invoked = invoke_shared_callback(
+		state, function, arguments, argument_count, requested_results, label, outcome);
+	if (!outcome.accepted) return false;
+	if (!invoked || outcome.leaf.callback_status != 0)
 	{
 		std::ostringstream failure;
-		failure << "RENOVICE hook callback FAIL label=" << label
-			<< " pcall=" << status
-			<< protected_call_error_details(state, base);
+		failure << "RENOVICE hook callback FAIL label=" << label;
+		if (!invoked) append_shared_callback_transport_failure(failure, outcome);
+		else failure << " pcall=" << outcome.leaf.callback_status
+			<< shared_callback_error_details(outcome);
 		trace_addon(state, 0, "pcall.error", failure.str());
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
-		state->outtop = base;
 		return false;
 	}
 	if (traced_results != nullptr)
 	{
 		std::ostringstream results;
 		results << "resultc=" << requested_results;
-		if (state->outtop != base + requested_results)
+		if (outcome.leaf.actual_result_count
+			!= static_cast<std::size_t>(requested_results))
 		{
-			results << " stack_resultc=" << (state->outtop - base);
+			results << " stack_resultc=" << outcome.leaf.actual_result_count;
 		}
-		const auto available = state->outtop > base
-			? static_cast<std::size_t>(state->outtop - base) : 0;
-		for (std::size_t i = 0;
-			i < available && i < static_cast<std::size_t>(requested_results); ++i)
+		for (std::size_t i = 0; i != outcome.leaf.copied_result_count; ++i)
 		{
 			append_error_value(
-				results, ("result" + std::to_string(i)).c_str(), base[i]);
+				results, ("result" + std::to_string(i)).c_str(),
+				outcome.leaf.results[i]);
 		}
 		*traced_results = results.str();
 	}
-	state->outtop = base;
 	return true;
 }
 
@@ -3224,42 +4091,30 @@ bool call_boolean_value(
 )
 {
 	output = false;
-	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
-		|| protected_call == nullptr || !is_function(function.type)
-		|| argument_count > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
-	{
-		return false;
-	}
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>(argument_count + 2));
-	const auto base_offset = luau_savestack(state, state->outtop);
-	push_stack_value(state, function);
-	for (std::size_t i = 0; i != argument_count; ++i)
-	{
-		push_stack_value(state, arguments[i]);
-	}
-	const int status = protected_callback_call(
-		state, static_cast<int>(argument_count), 1, 0, label);
-	auto* const base = luau_restorestack(state, base_offset);
-	const bool result_is_boolean = status == 0
-		&& state->outtop == base + 1 && base->type == LUAU_BOOL;
-	if (result_is_boolean) output = base->value.as_bool != 0;
-	if (status != 0 || !result_is_boolean)
+	SharedCallbackOutcome outcome;
+	const bool invoked = invoke_shared_callback(
+		state, function, arguments, argument_count, 1, label, outcome);
+	if (!outcome.accepted) return false;
+	const bool result_is_boolean = invoked && outcome.leaf.callback_status == 0
+		&& outcome.leaf.actual_result_count == 1
+		&& outcome.leaf.copied_result_count == 1
+		&& outcome.leaf.results[0].type == LUAU_BOOL;
+	if (result_is_boolean) output = outcome.leaf.results[0].value.as_bool != 0;
+	if (!result_is_boolean)
 	{
 		std::ostringstream failure;
 		failure << "RENOVICE hook callback FAIL label=" << label;
-		if (status != 0)
+		if (!invoked) append_shared_callback_transport_failure(failure, outcome);
+		else if (outcome.leaf.callback_status != 0)
 		{
-			failure << " pcall=" << status
-				<< protected_call_error_details(state, base);
+			failure << " pcall=" << outcome.leaf.callback_status
+				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=non-boolean";
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
-		state->outtop = base;
 		return false;
 	}
-	state->outtop = base;
 	return true;
 }
 
@@ -3273,43 +4128,31 @@ bool call_number_value(
 )
 {
 	output = 0;
-	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
-		|| protected_call == nullptr || !is_function(function.type)
-		|| argument_count > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
-	{
-		return false;
-	}
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>(argument_count + 2));
-	const auto base_offset = luau_savestack(state, state->outtop);
-	push_stack_value(state, function);
-	for (std::size_t i = 0; i != argument_count; ++i)
-	{
-		push_stack_value(state, arguments[i]);
-	}
-	const int status = protected_callback_call(
-		state, static_cast<int>(argument_count), 1, 0, label);
-	auto* const base = luau_restorestack(state, base_offset);
-	const bool result_is_number = status == 0
-		&& state->outtop == base + 1 && base->type == LUAU_NUMBER
-		&& std::isfinite(base->value.as_float);
-	if (result_is_number) output = base->value.as_float;
+	SharedCallbackOutcome outcome;
+	const bool invoked = invoke_shared_callback(
+		state, function, arguments, argument_count, 1, label, outcome);
+	if (!outcome.accepted) return false;
+	const bool result_is_number = invoked && outcome.leaf.callback_status == 0
+		&& outcome.leaf.actual_result_count == 1
+		&& outcome.leaf.copied_result_count == 1
+		&& outcome.leaf.results[0].type == LUAU_NUMBER
+		&& std::isfinite(outcome.leaf.results[0].value.as_float);
+	if (result_is_number) output = outcome.leaf.results[0].value.as_float;
 	if (!result_is_number)
 	{
 		std::ostringstream failure;
 		failure << "RENOVICE hook callback FAIL label=" << label;
-		if (status != 0)
+		if (!invoked) append_shared_callback_transport_failure(failure, outcome);
+		else if (outcome.leaf.callback_status != 0)
 		{
-			failure << " pcall=" << status
-				<< protected_call_error_details(state, base);
+			failure << " pcall=" << outcome.leaf.callback_status
+				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=non-finite-or-non-number";
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
-		state->outtop = base;
 		return false;
 	}
-	state->outtop = base;
 	return true;
 }
 
@@ -3323,45 +4166,33 @@ bool call_identity_value(
 )
 {
 	output = {};
-	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
-		|| protected_call == nullptr || !is_function(function.type)
-		|| argument_count > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
-	{
-		return false;
-	}
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>(argument_count + 2));
-	const auto base_offset = luau_savestack(state, state->outtop);
-	push_stack_value(state, function);
-	for (std::size_t i = 0; i != argument_count; ++i)
-	{
-		push_stack_value(state, arguments[i]);
-	}
-	const int status = protected_callback_call(
-		state, static_cast<int>(argument_count), 1, 0, label);
-	auto* const base = luau_restorestack(state, base_offset);
-	const bool result_has_identity = status == 0
-		&& state->outtop == base + 1 && base->type != LUAU_NIL
-		&& base->value.as_uintptr != 0;
-	if (result_has_identity) output = *base;
-	const int result_tag = state->outtop == base + 1
-		? static_cast<int>(base->type) : -1;
-	if (status != 0 || !result_has_identity)
+	SharedCallbackOutcome outcome;
+	const bool invoked = invoke_shared_callback(
+		state, function, arguments, argument_count, 1, label, outcome);
+	if (!outcome.accepted) return false;
+	const bool result_has_identity = invoked && outcome.leaf.callback_status == 0
+		&& outcome.leaf.actual_result_count == 1
+		&& outcome.leaf.copied_result_count == 1
+		&& outcome.leaf.results[0].type != LUAU_NIL
+		&& outcome.leaf.results[0].value.as_uintptr != 0;
+	if (result_has_identity) output = outcome.leaf.results[0];
+	const int result_tag = outcome.leaf.copied_result_count == 1
+		? static_cast<int>(outcome.leaf.results[0].type) : -1;
+	if (!result_has_identity)
 	{
 		std::ostringstream failure;
 		failure << "RENOVICE hook callback FAIL label=" << label;
-		if (status != 0)
+		if (!invoked) append_shared_callback_transport_failure(failure, outcome);
+		else if (outcome.leaf.callback_status != 0)
 		{
-			failure << " pcall=" << status
-				<< protected_call_error_details(state, base);
+			failure << " pcall=" << outcome.leaf.callback_status
+				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=missing-identity tag=" << result_tag;
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
-		state->outtop = base;
 		return false;
 	}
-	state->outtop = base;
 	return true;
 }
 
@@ -3375,44 +4206,32 @@ bool call_table_value(
 )
 {
 	output = {};
-	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
-		|| protected_call == nullptr || !is_function(function.type)
-		|| argument_count > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
-	{
-		return false;
-	}
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>(argument_count + 2));
-	const auto base_offset = luau_savestack(state, state->outtop);
-	push_stack_value(state, function);
-	for (std::size_t i = 0; i != argument_count; ++i)
-	{
-		push_stack_value(state, arguments[i]);
-	}
-	const int status = protected_callback_call(
-		state, static_cast<int>(argument_count), 1, 0, label);
-	auto* const base = luau_restorestack(state, base_offset);
-	const bool result_is_table = status == 0
-		&& state->outtop == base + 1 && is_table(base->type);
-	if (result_is_table) output = *base;
-	const int result_tag = state->outtop == base + 1
-		? static_cast<int>(base->type) : -1;
-	if (status != 0 || !result_is_table)
+	SharedCallbackOutcome outcome;
+	const bool invoked = invoke_shared_callback(
+		state, function, arguments, argument_count, 1, label, outcome);
+	if (!outcome.accepted) return false;
+	const bool result_is_table = invoked && outcome.leaf.callback_status == 0
+		&& outcome.leaf.actual_result_count == 1
+		&& outcome.leaf.copied_result_count == 1
+		&& is_table(outcome.leaf.results[0].type);
+	if (result_is_table) output = outcome.leaf.results[0];
+	const int result_tag = outcome.leaf.copied_result_count == 1
+		? static_cast<int>(outcome.leaf.results[0].type) : -1;
+	if (!result_is_table)
 	{
 		std::ostringstream failure;
 		failure << "RENOVICE hook callback FAIL label=" << label;
-		if (status != 0)
+		if (!invoked) append_shared_callback_transport_failure(failure, outcome);
+		else if (outcome.leaf.callback_status != 0)
 		{
-			failure << " pcall=" << status
-				<< protected_call_error_details(state, base);
+			failure << " pcall=" << outcome.leaf.callback_status
+				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=non-table tag=" << result_tag;
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
-		state->outtop = base;
 		return false;
 	}
-	state->outtop = base;
 	return true;
 }
 
@@ -3568,22 +4387,83 @@ void clear_scripts_settings_pending()
 	scripts_settings_pending.clear();
 }
 
-void clear_scripts_settings_callbacks(luau_State* state)
+bool raw_push_vm_global_noexcept(luau_State* state, const char* name) noexcept
 {
-	if (state == nullptr || state->outtop == nullptr || setfield == nullptr) return;
+	if (state == nullptr || state->outtop == nullptr || name == nullptr
+		|| check_stack == nullptr || !check_stack(state, 2)) return false;
 	auto* const base = state->outtop;
-	if (!push_vm_global(state, "_T") || !is_table(base->type))
+	if (wf_hash != nullptr && luau_gettable != nullptr)
 	{
-		state->outtop = base;
-		return;
+		luau_TValue hash{};
+		hash.value.as_bool = wf_hash(name);
+		hash.type = LUAU_BOOL;
+		if (!append_game_vm_stack_value(state, hash)) return false;
+		luau_gettable(state, -10002);
+		return state->outtop == base + 1;
 	}
+	if (getfield == nullptr) return false;
+	getfield(state, -10002, name);
+	return state->outtop == base + 1;
+}
+
+bool raw_push_hashed_table_field_noexcept(
+	luau_State* state, int table_index, const char* name) noexcept
+{
+	if (state == nullptr || state->outtop == nullptr || name == nullptr
+		|| check_stack == nullptr || !check_stack(state, 2)) return false;
+	const int destination_index = table_index < 0 ? table_index - 1 : table_index;
+	if (wf_hash != nullptr && luau_gettable != nullptr)
+	{
+		luau_TValue hash{};
+		hash.value.as_bool = wf_hash(name);
+		hash.type = LUAU_BOOL;
+		if (!append_game_vm_stack_value(state, hash)) return false;
+		luau_gettable(state, destination_index);
+		return true;
+	}
+	if (getfield == nullptr) return false;
+	getfield(state, destination_index, name);
+	return true;
+}
+
+struct ClearScriptsSettingsCallbacksContext
+{
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<ClearScriptsSettingsCallbacksContext>);
+
+void clear_scripts_settings_callbacks_leaf(luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<ClearScriptsSettingsCallbacksContext*>(
+		raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| setfield == nullptr) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!raw_push_vm_global_noexcept(state, "_T")) return;
+	auto* const base = luau_restorestack(state, base_offset);
+	if (!is_table(base->type)) return;
+	static constexpr const char* fields[]{
+		scripts_settings_elements_name,
+		scripts_settings_native_elements_name,
+		scripts_settings_changed_name,
+		scripts_settings_done_name,
+	};
 	luau_TValue nil{};
 	nil.type = LUAU_NIL;
-	table_set_value(state, -1, scripts_settings_elements_name, nil);
-	table_set_value(state, -1, scripts_settings_native_elements_name, nil);
-	table_set_value(state, -1, scripts_settings_changed_name, nil);
-	table_set_value(state, -1, scripts_settings_done_name, nil);
-	state->outtop = base;
+	for (const char* const field : fields)
+	{
+		state->outtop = base + 1;
+		if (!append_game_vm_stack_value(state, nil)) return;
+		setfield(state, -2, field);
+	}
+	context->completed = true;
+}
+
+void clear_scripts_settings_callbacks(luau_State* state)
+{
+	ClearScriptsSettingsCallbacksContext context;
+	(void)de_vm_authority::run_current_vm_protected(
+		state, &clear_scripts_settings_callbacks_leaf, &context);
 }
 
 bool table_set_array_value(
@@ -3592,6 +4472,178 @@ bool table_set_array_value(
 	std::size_t index,
 	const luau_TValue& value
 );
+
+constexpr const char* scripts_settings_elements_return_root =
+	"RENOVICE.scripts-settings-elements.return.v109";
+
+struct PreparedScriptsSettingsRow
+{
+	std::string label;
+	std::string id;
+	std::string tooltip;
+	bool enabled = false;
+	bool valid = false;
+};
+
+struct ScriptsSettingsRowView
+{
+	const char* label = nullptr;
+	const char* id = nullptr;
+	const char* tooltip = nullptr;
+	bool enabled = false;
+	bool valid = false;
+};
+static_assert(std::is_trivially_copyable_v<ScriptsSettingsRowView>);
+
+struct ScriptsSettingsElementsLeafContext
+{
+	const ScriptsSettingsRowView* rows = nullptr;
+	std::size_t row_count = 0;
+	luau_TValue control_type{};
+	std::size_t failure_index = 0;
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<ScriptsSettingsElementsLeafContext>);
+
+bool raw_table_set_string(
+	luau_State* state, int table_index, const char* key, const char* value) noexcept
+{
+	if (state == nullptr || key == nullptr || value == nullptr
+		|| luau_pushstring == nullptr || setfield == nullptr) return false;
+	const int destination_index = table_index < 0 ? table_index - 1 : table_index;
+	if (luau_pushstring(state, value) == nullptr) return false;
+	setfield(state, destination_index, key);
+	return true;
+}
+
+bool raw_table_set_value(
+	luau_State* state, int table_index, const char* key,
+	const luau_TValue& value) noexcept
+{
+	if (state == nullptr || key == nullptr || setfield == nullptr) return false;
+	const int destination_index = table_index < 0 ? table_index - 1 : table_index;
+	if (!append_game_vm_stack_value(state, value)) return false;
+	setfield(state, destination_index, key);
+	return true;
+}
+
+bool raw_table_set_bool(
+	luau_State* state, int table_index, const char* key, bool value) noexcept
+{
+	luau_TValue boolean{};
+	boolean.value.as_bool = value;
+	boolean.type = LUAU_BOOL;
+	return raw_table_set_value(state, table_index, key, boolean);
+}
+
+bool raw_table_set_array_value(
+	luau_State* state, int table_index, std::size_t index,
+	const luau_TValue& value) noexcept
+{
+	if (state == nullptr || luau_settable == nullptr
+		|| index > (1u << 24)) return false;
+	if (!luau_push_number(state, static_cast<float>(index))
+		|| !append_game_vm_stack_value(state, value)) return false;
+	luau_settable(state, table_index < 0 ? table_index - 2 : table_index);
+	return true;
+}
+
+void scripts_settings_elements_leaf(luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<ScriptsSettingsElementsLeafContext*>(
+		raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| state->stack == nullptr || state->ci == nullptr
+		|| state->ci->top == nullptr || check_stack == nullptr
+		|| luau_createtable == nullptr || luau_pushstring == nullptr
+		|| luau_settable == nullptr || setfield == nullptr
+		|| context->row_count > static_cast<std::size_t>(1u << 24)
+		|| (context->row_count != 0 && context->rows == nullptr)
+		|| !check_stack(state, 40)) return;
+
+	const auto base_offset = luau_savestack(state, state->outtop);
+	luau_createtable(state, static_cast<int>(context->row_count), 0);
+	for (std::size_t index = 0; index != context->row_count; ++index)
+	{
+		context->failure_index = index;
+		auto* base = luau_restorestack(state, base_offset);
+		state->outtop = base + 1;
+		luau_createtable(state, 0, 7);
+		const auto row_offset = luau_savestack(state, state->outtop - 1);
+		const auto& row = context->rows[index];
+		if (!raw_table_set_string(state, -1, "mLabel", row.label)
+			|| !raw_table_set_string(state, -1, "mRawName", row.id)
+			|| !raw_table_set_string(state, -1, "mSetting", row.id)
+			|| !raw_table_set_string(state, -1, "mTooltip", row.tooltip)
+			|| !raw_table_set_value(state, -1, "mType", context->control_type)
+			|| !raw_table_set_bool(state, -1, "mValue", row.enabled)
+			|| !raw_table_set_bool(state, -1, "mLocked", !row.valid)) return;
+		const auto row_value = *luau_restorestack(state, row_offset);
+		base = luau_restorestack(state, base_offset);
+		state->outtop = base + 1;
+		if (!raw_table_set_array_value(state, -1, index + 1, row_value)) return;
+	}
+
+	auto* const base = luau_restorestack(state, base_offset);
+	state->outtop = base + 1;
+	const auto result = *base;
+	if (luau_pushstring(state, scripts_settings_elements_return_root) == nullptr
+		|| !append_game_vm_stack_value(state, result)) return;
+	luau_settable(state, -10000);
+	context->completed = true;
+}
+
+struct ScriptsSettingsElementsRootContext
+{
+	luau_TValue value{};
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<ScriptsSettingsElementsRootContext>);
+
+void read_scripts_settings_elements_root_leaf(
+	luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<ScriptsSettingsElementsRootContext*>(
+		raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| getfield == nullptr) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	getfield(state, -10000, scripts_settings_elements_return_root);
+	auto* const base = luau_restorestack(state, base_offset);
+	if (is_table(base->type))
+	{
+		context->value = *base;
+		context->completed = true;
+	}
+}
+
+struct ScriptsSettingsElementsClearContext
+{
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<ScriptsSettingsElementsClearContext>);
+
+void clear_scripts_settings_elements_root_leaf(
+	luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<ScriptsSettingsElementsClearContext*>(
+		raw_context);
+	if (context == nullptr || state == nullptr || setfield == nullptr) return;
+	luau_TValue nil{};
+	nil.type = LUAU_NIL;
+	if (!append_game_vm_stack_value(state, nil)) return;
+	setfield(state, -10000, scripts_settings_elements_return_root);
+	context->completed = true;
+}
+
+bool clear_scripts_settings_elements_root(luau_State* state) noexcept
+{
+	ScriptsSettingsElementsClearContext context;
+	const auto result = de_vm_authority::run_current_vm_protected(
+		state, &clear_scripts_settings_elements_root_leaf, &context);
+	return result.admitted && result.restored && result.status == 0
+		&& context.completed;
+}
 
 int scripts_settings_elements_callback(luau_State* state)
 {
@@ -3619,53 +4671,89 @@ int scripts_settings_elements_callback(luau_State* state)
 			+ std::to_string(control_type.type) + " checkbox_value="
 			+ std::to_string(control_type.value.as_float));
 
-		const auto scripts = script_control::snapshot();
-		config::log("RENOVICE Scripts settings inventory rows="
-			+ std::to_string(scripts.size()));
-		if (scripts.size() > 4096)
+		// Reserve the one C-result slot before creating any owning C++ object. A
+		// DE allocation error here follows the game's native error path without
+		// skipping a Renovice vector/string destructor.
+		if (!check_stack(state, 1)) return 0;
+
+		luau_TValue result_table{};
+		std::size_t result_rows = 0;
+		bool prepared = false;
 		{
-			config::log("RENOVICE Scripts settings elements FAIL reason=row-limit");
+			const auto scripts = script_control::snapshot();
+			result_rows = scripts.size();
+			config::log("RENOVICE Scripts settings inventory rows="
+				+ std::to_string(result_rows));
+			// Lua numeric array keys are exact only through 2^24 in this float-number
+			// VM. This is an ABI representability bound, not a loader/menu policy.
+			if (result_rows > static_cast<std::size_t>(1u << 24))
+			{
+				config::log("RENOVICE Scripts settings elements FAIL reason=row-count-unrepresentable");
+				return 0;
+			}
+			std::vector<PreparedScriptsSettingsRow> prepared_rows;
+			prepared_rows.reserve(result_rows);
+			for (const auto& script : scripts)
+			{
+				PreparedScriptsSettingsRow row;
+				row.label = script_control::menu_display_name(
+					script.kind, script.filename);
+				row.id = script.id;
+				row.tooltip = script_control::kind_label(script.kind);
+				if (!script.target.empty()) row.tooltip += " | target " + script.target;
+				row.tooltip += " | " + script.status;
+				row.enabled = script.enabled;
+				row.valid = script.valid;
+				prepared_rows.emplace_back(std::move(row));
+			}
+			std::vector<ScriptsSettingsRowView> row_views;
+			row_views.reserve(prepared_rows.size());
+			for (const auto& row : prepared_rows)
+			{
+				row_views.push_back(ScriptsSettingsRowView{
+					row.label.c_str(), row.id.c_str(), row.tooltip.c_str(),
+					row.enabled, row.valid});
+			}
+			ScriptsSettingsElementsLeafContext build_context;
+			build_context.rows = row_views.data();
+			build_context.row_count = row_views.size();
+			build_context.control_type = control_type;
+			const auto build_result = de_vm_authority::run_current_vm_protected(
+				state, &scripts_settings_elements_leaf, &build_context);
+			if (!build_result.admitted || !build_result.restored
+				|| build_result.status != 0 || !build_context.completed)
+			{
+				config::log("RENOVICE Scripts settings elements FAIL reason=protected-build index="
+					+ std::to_string(build_context.failure_index)
+					+ " status=" + std::to_string(build_result.status));
+				return 0;
+			}
+			ScriptsSettingsElementsRootContext read_context;
+			const auto read_result = de_vm_authority::run_current_vm_protected(
+				state, &read_scripts_settings_elements_root_leaf, &read_context);
+			if (!read_result.admitted || !read_result.restored
+				|| read_result.status != 0 || !read_context.completed)
+			{
+				(void)clear_scripts_settings_elements_root(state);
+				config::log("RENOVICE Scripts settings elements FAIL reason=protected-root-read");
+				return 0;
+			}
+			result_table = read_context.value;
+			prepared = true;
+		}
+
+		if (!prepared || !append_game_vm_stack_value_reserved(state, result_table))
+		{
+			(void)clear_scripts_settings_elements_root(state);
+			config::log("RENOVICE Scripts settings elements FAIL reason=result-slot");
 			return 0;
 		}
-		ScopedVmApiFrame frame_capacity(state);
-		require_stack(state, 40);
-		auto* const base = state->outtop;
-		luau_createtable(state, static_cast<int>(scripts.size()), 0);
-		std::size_t row_index = 1;
-		for (const auto& script : scripts)
+		if (!clear_scripts_settings_elements_root(state))
 		{
-			luau_createtable(state, 0, 7);
-			auto* const row_slot = state->outtop - 1;
-			const std::string label = script_control::menu_display_name(
-				script.kind, script.filename);
-			std::string tooltip = script_control::kind_label(script.kind);
-			if (!script.target.empty()) tooltip += " | target " + script.target;
-			tooltip += " | " + script.status;
-			if (!table_set_string(state, -1, "mLabel", label)
-				|| !table_set_string(state, -1, "mRawName", script.id)
-				|| !table_set_string(state, -1, "mSetting", script.id)
-				|| !table_set_string(state, -1, "mTooltip", tooltip)
-				|| !table_set_value(state, -1, "mType", control_type)
-				|| !table_set_bool(state, -1, "mValue", script.enabled)
-				|| !table_set_bool(state, -1, "mLocked", !script.valid))
-			{
-				state->outtop = base;
-				config::log("RENOVICE Scripts settings elements FAIL reason=row-fields index="
-					+ std::to_string(row_index));
-				return 0;
-			}
-			const auto row = *row_slot;
-			state->outtop = row_slot;
-			if (!table_set_array_value(state, -1, row_index++, row))
-			{
-				state->outtop = base;
-				config::log("RENOVICE Scripts settings elements FAIL reason=array-insert index="
-					+ std::to_string(row_index));
-				return 0;
-			}
+			config::log("RENOVICE Scripts settings elements FAIL reason=temporary-root-clear");
 		}
 		config::log("RENOVICE Scripts settings elements PASS rows="
-			+ std::to_string(scripts.size()));
+			+ std::to_string(result_rows));
 		return 1;
 	}
 	catch (...)
@@ -3776,6 +4864,80 @@ int scripts_settings_done_callback(luau_State* state)
 	return 0;
 }
 
+struct OpenScriptsSettingsLeafContext
+{
+	luau_TValue parent_movie{};
+	luau_TValue bridge{};
+	bool bridge_present = false;
+	bool completed = false;
+	bool opened = false;
+	int callback_status = -1;
+};
+static_assert(std::is_trivially_copyable_v<OpenScriptsSettingsLeafContext>);
+
+void open_scripts_settings_leaf(luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<OpenScriptsSettingsLeafContext*>(
+		raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| check_stack == nullptr || luau_pushcclosurek == nullptr
+		|| luau_pushstring == nullptr || setfield == nullptr
+		|| protected_call == nullptr || !check_stack(state, 24)) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	auto* base = luau_restorestack(state, base_offset);
+
+	if (!raw_push_vm_global_noexcept(state, "_G") || !is_table(base->type)
+		|| !raw_push_hashed_table_field_noexcept(
+			state, -1, "UIMovie_GenericSettings")) return;
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2 || (base + 1)->type == LUAU_NIL
+		|| (base + 1)->value.as_uintptr == 0) return;
+	const auto settings_resource = *(base + 1);
+
+	state->outtop = base;
+	if (!raw_push_vm_global_noexcept(state, "_T")) return;
+	base = luau_restorestack(state, base_offset);
+	if (!is_table(base->type)) return;
+	luau_pushcclosurek(
+		state, &scripts_settings_elements_callback,
+		"RENOVICE native script settings elements", 0, nullptr);
+	setfield(state, -2, scripts_settings_native_elements_name);
+	luau_pushcclosurek(
+		state, &scripts_settings_changed_callback,
+		"RENOVICE native script settings stage", 0, nullptr);
+	setfield(state, -2, scripts_settings_changed_name);
+	luau_pushcclosurek(
+		state, &scripts_settings_done_callback,
+		"RENOVICE native script settings close", 0, nullptr);
+	setfield(state, -2, scripts_settings_done_name);
+
+	luau_TValue bridge = context->bridge;
+	if (!context->bridge_present)
+	{
+		state->outtop = base + 1;
+		if (!raw_push_hashed_table_field_noexcept(
+				state, -1, scripts_settings_bridge_name)) return;
+		base = luau_restorestack(state, base_offset);
+		if (state->outtop != base + 2 || !is_function((base + 1)->type)) return;
+		bridge = *(base + 1);
+	}
+	if (!is_function(bridge.type)) return;
+
+	state->outtop = base;
+	if (!append_game_vm_stack_value(state, bridge)
+		|| !append_game_vm_stack_value(state, context->parent_movie)
+		|| !append_game_vm_stack_value(state, settings_resource)
+		|| luau_pushstring(state, scripts_settings_elements_name) == nullptr
+		|| luau_pushstring(state, scripts_settings_changed_name) == nullptr
+		|| luau_pushstring(state, scripts_settings_done_name) == nullptr) return;
+	context->callback_status = protected_call(state, 5, 1, 0);
+	base = luau_restorestack(state, base_offset);
+	context->completed = true;
+	context->opened = context->callback_status == 0
+		&& state->outtop == base + 1 && base->type == LUAU_BOOL
+		&& base->value.as_bool != 0;
+}
+
 int open_scripts_settings_callback(luau_State* state)
 {
 	try
@@ -3790,14 +4952,10 @@ int open_scripts_settings_callback(luau_State* state)
 			? reinterpret_cast<const luau_Closure*>(state->ci->func->value.as_uintptr)
 			: nullptr;
 		if (wrapper == nullptr || !wrapper->isC || wrapper->nupvalues < 1
-			|| state->outtop == nullptr || check_stack == nullptr
-			|| luau_pushcclosurek == nullptr || setfield == nullptr)
+			|| state->outtop == nullptr)
 		{
 			return 0;
 		}
-		ScopedVmApiFrame frame_capacity(state);
-		require_stack(state, 20);
-		auto* const base = state->outtop;
 		const auto parent_movie = dereference_upvalue(wrapper->c.upvals[0]);
 		if (!is_userdata(parent_movie.type) || parent_movie.value.as_uintptr == 0)
 		{
@@ -3805,78 +4963,21 @@ int open_scripts_settings_callback(luau_State* state)
 			return 0;
 		}
 		config::log("RENOVICE Scripts settings parent movie PASS source=captured-upvalue");
-
-		luau_TValue settings_resource{};
-		if (!common_ui_movie_value(state, "UIMovie_GenericSettings", settings_resource))
-		{
-			config::log("RENOVICE Scripts settings open FAIL reason=UIMovie_GenericSettings");
-			return 0;
-		}
-		if (!push_vm_global(state, "_T") || !is_table(base->type))
-		{
-			state->outtop = base;
-			config::log("RENOVICE Scripts settings open FAIL reason=_T-table");
-			return 0;
-		}
 		clear_scripts_settings_pending();
-		luau_pushcclosurek(
-			state, &scripts_settings_elements_callback,
-			"RENOVICE native script settings elements", 0, nullptr);
-		setfield(state, -2, scripts_settings_native_elements_name);
-		luau_pushcclosurek(
-			state, &scripts_settings_changed_callback,
-			"RENOVICE native script settings stage", 0, nullptr);
-		setfield(state, -2, scripts_settings_changed_name);
-		luau_pushcclosurek(
-			state, &scripts_settings_done_callback,
-			"RENOVICE native script settings close", 0, nullptr);
-		setfield(state, -2, scripts_settings_done_name);
 		luau_TValue bridge{};
-		state->outtop = base;
-		bool bridge_present = registry_scripts_bridge_value(state, bridge);
-		if (!bridge_present)
-		{
-			// Compatibility fallback for pre-V26 bridge bytecode. New generations
-			// keep the opener rooted in the VM registry so replacing _T cannot
-			// make a second SCRIPTS click lose it.
-			if (push_vm_global(state, "_T") && is_table(base->type))
-			{
-				bridge_present = push_hashed_table_field(
-					state, -1, scripts_settings_bridge_name)
-					&& state->outtop == base + 2
-					&& is_function((base + 1)->type);
-				if (bridge_present) bridge = *(base + 1);
-			}
-		}
-		state->outtop = base;
-		if (!bridge_present)
+		OpenScriptsSettingsLeafContext context;
+		context.parent_movie = parent_movie;
+		context.bridge_present = registry_scripts_bridge_value(state, bridge);
+		context.bridge = bridge;
+		const auto protected_open = de_vm_authority::run_current_vm_protected(
+			state, &open_scripts_settings_leaf, &context);
+		if (!protected_open.admitted || !protected_open.restored
+			|| protected_open.status != 0 || !context.completed || !context.opened)
 		{
 			clear_scripts_settings_callbacks(state);
-			config::log("RENOVICE Scripts settings open FAIL reason=lua-namecall-bridge-missing");
-			return 0;
-		}
-
-		luau_TValue elements_name{};
-		luau_TValue changed_name{};
-		luau_TValue done_name{};
-		if (!make_string_value(state, scripts_settings_elements_name, elements_name)
-			|| !make_string_value(state, scripts_settings_changed_name, changed_name)
-			|| !make_string_value(state, scripts_settings_done_name, done_name))
-		{
-			clear_scripts_settings_callbacks(state);
-			config::log("RENOVICE Scripts settings open FAIL reason=bridge-arguments");
-			return 0;
-		}
-		const luau_TValue bridge_arguments[]{
-			parent_movie, settings_resource, elements_name, changed_name, done_name,
-		};
-		bool opened = false;
-		if (!call_boolean_value(
-			state, bridge, bridge_arguments, std::size(bridge_arguments),
-			"ScriptsSettingsBridgeV10", opened) || !opened)
-		{
-			clear_scripts_settings_callbacks(state);
-			config::log("RENOVICE Scripts settings open FAIL reason=lua-namecall-bridge");
+			config::log("RENOVICE Scripts settings open FAIL reason=protected-lua-namecall-bridge status="
+				+ std::to_string(protected_open.status)
+				+ " callback=" + std::to_string(context.callback_status));
 			return 0;
 		}
 		config::log("RENOVICE Scripts settings open PASS renderer=ThemedGenericSettings.CHECKBOX bridge=lua-namecall-v10 lotusutilities-enum=v13");
@@ -3965,52 +5066,250 @@ bool table_get_array_value(
 	}
 }
 
-bool append_scripts_menu(
+bool ui_leaf_push_environment_table(
+	luau_State* state,
+	void* environment
+) noexcept
+{
+	if (state == nullptr || environment == nullptr
+		|| diagnostics::bad_read_ptr(environment, sizeof(std::uint8_t)))
+	{
+		return false;
+	}
+	luau_TValue value{};
+	value.type = static_cast<std::uint32_t>(
+		*reinterpret_cast<const std::uint8_t*>(environment));
+	value.value.as_uintptr = reinterpret_cast<std::uintptr_t>(environment);
+	return is_table(value.type)
+		&& append_game_vm_stack_value_reserved(state, value);
+}
+
+bool ui_leaf_push_vm_global(luau_State* state, const char* name) noexcept
+{
+	if (state == nullptr || state->outtop == nullptr || name == nullptr)
+		return false;
+	auto* const base = state->outtop;
+	if (wf_hash != nullptr && luau_gettable != nullptr)
+	{
+		luau_TValue key{};
+		key.value.as_bool = wf_hash(name);
+		key.type = LUAU_BOOL;
+		if (!append_game_vm_stack_value_reserved(state, key)) return false;
+		luau_gettable(state, -10002);
+		return state->outtop == base + 1;
+	}
+	if (getfield == nullptr) return false;
+	getfield(state, -10002, name);
+	return state->outtop == base + 1;
+}
+
+bool ui_leaf_push_hashed_table_field(
+	luau_State* state,
+	int table_index,
+	const char* name
+) noexcept
+{
+	if (state == nullptr || state->outtop == nullptr || name == nullptr
+		|| wf_hash == nullptr || luau_gettable == nullptr)
+	{
+		return false;
+	}
+	auto* const base = state->outtop;
+	luau_TValue key{};
+	key.value.as_bool = wf_hash(name);
+	key.type = LUAU_BOOL;
+	if (!append_game_vm_stack_value_reserved(state, key)) return false;
+	luau_gettable(state, table_index < 0 ? table_index - 1 : table_index);
+	return state->outtop == base + 1;
+}
+
+std::size_t ui_leaf_array_next_index(
+	luau_State* state,
+	int table_index
+) noexcept
+{
+	if (state == nullptr || state->outtop == nullptr || luau_next == nullptr)
+		return 0;
+	std::size_t maximum = 0;
+	const int next_table_index = table_index < 0 ? table_index - 1 : table_index;
+	luau_TValue nil{};
+	nil.type = LUAU_NIL;
+	if (!append_game_vm_stack_value_reserved(state, nil)) return 0;
+	while (luau_next(state, next_table_index) != 0)
+	{
+		if (state->outtop < state->stack + 2) return 0;
+		const auto& key = state->outtop[-2];
+		if (key.type == LUAU_NUMBER && key.value.as_float >= 1.0f)
+		{
+			const auto integer = static_cast<std::size_t>(key.value.as_float);
+			if (static_cast<float>(integer) == key.value.as_float)
+				maximum = (std::max)(maximum, integer);
+		}
+		--state->outtop;
+	}
+	return maximum + 1;
+}
+
+bool ui_leaf_set_literal(
+	luau_State* state,
+	int table_index,
+	const char* key,
+	const char* value
+) noexcept
+{
+	if (state == nullptr || key == nullptr || value == nullptr
+		|| luau_pushstring == nullptr || setfield == nullptr)
+	{
+		return false;
+	}
+	const int destination_index = table_index < 0 ? table_index - 1 : table_index;
+	if (luau_pushstring(state, value) == nullptr) return false;
+	setfield(state, destination_index, key);
+	return true;
+}
+
+bool ui_leaf_set_array_value(
+	luau_State* state,
+	int table_index,
+	std::size_t index,
+	luau_TValue value
+) noexcept
+{
+	if (state == nullptr || luau_settable == nullptr
+		|| index == 0 || index > (1u << 24))
+	{
+		return false;
+	}
+	if (!luau_push_number(state, static_cast<float>(index))) return false;
+	if (!append_game_vm_stack_value_reserved(state, value)) return false;
+	luau_settable(state, table_index < 0 ? table_index - 2 : table_index);
+	return true;
+}
+
+bool append_scripts_menu_raw(
 	luau_State* state,
 	const luau_TValue& stock_entries,
 	const luau_TValue& parent_movie
-)
+) noexcept
 {
 	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
 		|| luau_createtable == nullptr || luau_settable == nullptr
+		|| setfield == nullptr
 		|| luau_pushcclosurek == nullptr || luau_pushstring == nullptr
 		|| !is_table(stock_entries.type)
 		|| !is_userdata(parent_movie.type) || parent_movie.value.as_uintptr == 0)
 	{
 		return false;
 	}
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 12);
-	auto* const base = state->outtop;
-	push_stack_value(state, stock_entries);
-	const auto insertion_index = array_next_index(state, -1);
+	if (check_stack(state, 12) == 0) return false;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!append_game_vm_stack_value_reserved(state, stock_entries)) return false;
+	const auto insertion_index = ui_leaf_array_next_index(state, -1);
+	if (insertion_index == 0) return false;
 
 	luau_createtable(state, 0, 3);
-	auto* const parent_slot = state->outtop - 1;
-	if (!table_set_string(state, -1, "Name", "SCRIPTS")
-		|| !table_set_string(state, -1, "Description",
+	const auto parent_offset = luau_savestack(state, state->outtop - 1);
+	if (!ui_leaf_set_literal(state, -1, "Name", "SCRIPTS")
+		|| !ui_leaf_set_literal(state, -1, "Description",
 			"Enable or disable RENOVICE Lua addons and replacements"))
 	{
-		state->outtop = base;
 		return false;
 	}
 
-	push_stack_value(state, parent_movie);
+	if (!append_game_vm_stack_value_reserved(state, parent_movie)) return false;
 	luau_pushcclosurek(
 		state, &open_scripts_settings_callback,
 		"RENOVICE open native Scripts settings", 1, nullptr);
 	setfield(state, -2, "CallBack");
+	auto* const parent_slot = luau_restorestack(state, parent_offset);
 	const auto parent = *parent_slot;
 	state->outtop = parent_slot;
-	if (!table_set_array_value(state, -1, insertion_index, parent))
-	{
-		state->outtop = base;
-		return false;
-	}
-	state->outtop = base;
+	if (!ui_leaf_set_array_value(state, -1, insertion_index, parent)) return false;
+	state->outtop = luau_restorestack(state, base_offset);
 	return true;
 }
 
+enum class PauseMenuAppendFailure : std::uint8_t
+{
+	none,
+	prerequisite,
+	stack_capacity,
+	environment,
+	movie_capture,
+	menu_append,
+};
+
+struct PauseMenuAppendContext
+{
+	void* environment = nullptr;
+	luau_TValue stock_entries{};
+	std::uint32_t stock_entries_tag = LUAU_NIL;
+	PauseMenuAppendFailure failure = PauseMenuAppendFailure::none;
+	bool completed = false;
+	bool appended = false;
+};
+static_assert(std::is_trivially_copyable_v<PauseMenuAppendContext>);
+
+// BEGIN PAUSE_MENU_APPEND_PROTECTED_LEAF
+void pause_menu_append_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<PauseMenuAppendContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| context->environment == nullptr || getfield == nullptr
+		|| check_stack == nullptr)
+	{
+		if (context != nullptr)
+		{
+			context->failure = PauseMenuAppendFailure::prerequisite;
+			context->completed = true;
+		}
+		return;
+	}
+	if (check_stack(state, 16) == 0)
+	{
+		context->failure = PauseMenuAppendFailure::stack_capacity;
+		context->completed = true;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!ui_leaf_push_environment_table(state, context->environment))
+	{
+		context->failure = PauseMenuAppendFailure::environment;
+		context->completed = true;
+		return;
+	}
+	auto* base = luau_restorestack(state, base_offset);
+	getfield(state, -1, "mMovie");
+	base = luau_restorestack(state, base_offset);
+	const bool environment_is_table = is_table(base->type);
+	const bool movie_is_userdata = state->outtop == base + 2
+		&& is_userdata((base + 1)->type)
+		&& (base + 1)->value.as_uintptr != 0;
+	const auto parent_movie = movie_is_userdata
+		? *(base + 1) : luau_TValue{};
+	state->outtop = base;
+	if (!pause_callback_movie_capture_ready(
+		true, true, environment_is_table, movie_is_userdata))
+	{
+		context->failure = PauseMenuAppendFailure::movie_capture;
+		context->completed = true;
+		return;
+	}
+	if (!append_scripts_menu_raw(
+		state, context->stock_entries, parent_movie))
+	{
+		context->failure = PauseMenuAppendFailure::menu_append;
+		context->completed = true;
+		return;
+	}
+	context->appended = true;
+	context->completed = true;
+}
+// END PAUSE_MENU_APPEND_PROTECTED_LEAF
+
+// BEGIN PAUSE_MENU_BUILDER_OUTER
 int pause_menu_builder_wrapper(luau_State* state)
 {
 	const auto* wrapper = state != nullptr && state->ci != nullptr
@@ -4038,42 +5337,43 @@ int pause_menu_builder_wrapper(luau_State* state)
 	}
 	else
 	{
-		ScopedVmApiFrame frame_capacity(state);
-		require_stack(state, 4);
-		auto* const capture_base = state->outtop;
-		if (!push_environment_table(state, original_closure->env, capture_base))
+		PauseMenuAppendContext context{};
+		context.environment = original_closure->env;
+		context.stock_entries = arguments.front();
+		context.stock_entries_tag = arguments.front().type;
+		const auto protected_append = de_vm_authority::run_current_vm_protected(
+			state, &pause_menu_append_protected_leaf, &context);
+		appended = protected_append.admitted && protected_append.restored
+			&& protected_append.status == 0 && context.completed
+			&& context.appended;
+		if (!appended)
 		{
-			state->outtop = capture_base;
-			config::log("RENOVICE Scripts UI row append FAIL reason=dispatch-environment-table");
+			const char* reason = "raw-protection";
+			switch (context.failure)
+			{
+			case PauseMenuAppendFailure::environment:
+				reason = "dispatch-environment-table"; break;
+			case PauseMenuAppendFailure::movie_capture:
+				reason = "module-mMovie-capture"; break;
+			case PauseMenuAppendFailure::menu_append:
+				reason = "menu-table-unavailable"; break;
+			case PauseMenuAppendFailure::stack_capacity:
+				reason = "stack-capacity"; break;
+			case PauseMenuAppendFailure::prerequisite:
+				reason = "prerequisite"; break;
+			case PauseMenuAppendFailure::none:
+				break;
+			}
+			std::ostringstream failure;
+			failure << "RENOVICE Scripts UI row append FAIL reason=" << reason
+				<< " tag=" << context.stock_entries_tag
+				<< " admitted=" << protected_append.admitted
+				<< " restored=" << protected_append.restored
+				<< " raw_status=" << protected_append.status;
+			config::log(failure.str());
 		}
-		else
-		{
-			getfield(state, -1, "mMovie");
-			const bool environment_is_table = is_table(capture_base->type);
-			const bool movie_is_userdata = state->outtop == capture_base + 2
-				&& is_userdata((capture_base + 1)->type)
-				&& (capture_base + 1)->value.as_uintptr != 0;
-			const auto parent_movie = movie_is_userdata
-				? *(capture_base + 1) : luau_TValue{};
-			state->outtop = capture_base;
-			if (!pause_callback_movie_capture_ready(
-				true, true, environment_is_table, movie_is_userdata))
-			{
-				config::log("RENOVICE Scripts UI row append FAIL reason=module-mMovie-capture");
-			}
-			else if (!append_scripts_menu(state, arguments.front(), parent_movie))
-			{
-				std::ostringstream failure;
-				failure << "RENOVICE Scripts UI row append FAIL reason=menu-table-unavailable"
-					<< " tag=" << arguments.front().type;
-				config::log(failure.str());
-			}
-			else
-			{
-				appended = true;
-				config::log("RENOVICE Scripts UI row append PASS owner=Initialize.U14.Builder.U58 parent_movie=captured");
-			}
-		}
+		else config::log(
+			"RENOVICE Scripts UI row append PASS owner=Initialize.U14.Builder.U58 parent_movie=captured");
 	}
 	// The wrapper is an additive observer around DE's final dispatch callback.
 	// Forward the original call even when our row cannot be appended; otherwise
@@ -4091,7 +5391,63 @@ int pause_menu_builder_wrapper(luau_State* state)
 	}
 	return 0;
 }
+// END PAUSE_MENU_BUILDER_OUTER
 
+struct LifecycleHookValueContext
+{
+	const char* registry_key = nullptr;
+	const char* hook_name = nullptr;
+	luau_TValue output{};
+	bool completed = false;
+	bool found = false;
+};
+static_assert(std::is_trivially_copyable_v<LifecycleHookValueContext>);
+
+// BEGIN LIFECYCLE_HOOK_VALUE_PROTECTED_LEAF
+void lifecycle_hook_value_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<LifecycleHookValueContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| context->registry_key == nullptr || context->hook_name == nullptr
+		|| getfield == nullptr || check_stack == nullptr)
+	{
+		if (context != nullptr) context->completed = true;
+		return;
+	}
+	if (check_stack(state, 4) == 0)
+	{
+		context->completed = true;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	getfield(state, -10000, context->registry_key);
+	auto* base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 1 || !is_table(base->type))
+	{
+		context->completed = true;
+		return;
+	}
+	getfield(state, -1, "hooks");
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2 || !is_table((base + 1)->type))
+	{
+		context->completed = true;
+		return;
+	}
+	getfield(state, -1, context->hook_name);
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop == base + 3 && is_function((base + 2)->type))
+	{
+		context->output = *(base + 2);
+		context->found = true;
+	}
+	context->completed = true;
+}
+// END LIFECYCLE_HOOK_VALUE_PROTECTED_LEAF
+
+// BEGIN LIFECYCLE_HOOK_VALUE_OUTER
 bool lifecycle_hook_value(
 	luau_State* state,
 	const AddonRecord& addon,
@@ -4099,29 +5455,21 @@ bool lifecycle_hook_value(
 	luau_TValue& output
 )
 {
-	auto* const base = state->outtop;
-	getfield(state, -10000, addon.registry_key.c_str());
-	if (!is_table(base->type))
-	{
-		state->outtop = base;
-		return false;
-	}
-	getfield(state, -1, "hooks");
-	if (!is_table((base + 1)->type))
-	{
-		state->outtop = base;
-		return false;
-	}
-	getfield(state, -1, hook_name);
-	if (!is_function((base + 2)->type))
-	{
-		state->outtop = base;
-		return false;
-	}
-	output = *(base + 2);
-	state->outtop = base;
-	return true;
+	output = {};
+	output.type = LUAU_NIL;
+	if (state == nullptr || state->outtop == nullptr || hook_name == nullptr
+		|| addon.registry_key.empty()) return false;
+	LifecycleHookValueContext context{};
+	context.registry_key = addon.registry_key.c_str();
+	context.hook_name = hook_name;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &lifecycle_hook_value_protected_leaf, &context);
+	const bool found = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed && context.found;
+	if (found) output = context.output;
+	return found;
 }
+// END LIFECYCLE_HOOK_VALUE_OUTER
 
 std::uint64_t target_key_for_active_call_stack(luau_State* state)
 {
@@ -4199,6 +5547,30 @@ std::uint64_t target_key_for_active_call_stack(luau_State* state)
 				call_info_address -= sizeof(luau_CallInfo);
 			}
 			if (!ambiguous && selected_target_key != 0) status = "match";
+		}
+	}
+
+	// A live DE closure can retain the exact published prototype while using an
+	// environment that differs from the module's original publication frame.
+	// The strict closure/environment lookup above then rejects a call even though
+	// the current-generation prototype graph proves one exact target. Native-call
+	// dispatch already uses this exact prototype+saved-PC identity. Reuse that
+	// authority as a fail-closed fallback so SetSourceObject can attach the
+	// additive damage callback before RadialDamage executes.
+	if (!ambiguous && selected_target_key == 0)
+	{
+		const auto callsite = target_callsite_for_active_call_stack(state);
+		const auto fallback_target = select_exact_stack_target(
+			selected_target_key, ambiguous, callsite.target_key, callsite.exact);
+		if (fallback_target != 0)
+		{
+			selected_target_key = fallback_target;
+			matched_frame = 0;
+			status = "exact-prototype-fallback";
+			frames << " fallback_target=0x" << std::hex
+				<< callsite.target_key << std::dec
+				<< "_prototype=" << callsite.prototype
+				<< "_instruction=" << callsite.instruction;
 		}
 	}
 
@@ -4285,7 +5657,7 @@ TargetCallsite target_callsite_for_active_call_stack(luau_State* state)
 					if (!diagnostics::bad_read_ptr(reinterpret_cast<const void*>(proto->code), byte_count)
 						&& native_callsite_instruction_from_saved_pc(
 							reinterpret_cast<const std::uint32_t*>(proto->code),
-							proto->instructions, call_info->savedpc, instruction))
+							proto->instructions, call_info->savedpc, instruction, game_version >= GV(44, 0, 0)))
 					{
 						selected.prototype = proto->bytecode_id;
 						selected.instruction = instruction;
@@ -4427,7 +5799,7 @@ void trace_native_call_ingress(
 											reinterpret_cast<const void*>(proto->code), byte_count)
 										&& native_callsite_instruction_from_saved_pc(
 											reinterpret_cast<const std::uint32_t*>(proto->code),
-											proto->instructions, info->savedpc, instruction);
+											proto->instructions, info->savedpc, instruction, game_version >= GV(44, 0, 0));
 									out << "_identity_target=0x" << std::hex
 										<< identity->target_key << std::dec
 										<< "_bytecode_id=" << proto->bytecode_id
@@ -4632,48 +6004,98 @@ int target_hook_registry_dispatcher(luau_State* state)
 	return 0;
 }
 
-bool install_target_hook_registry_dispatcher(
-	luau_State* state,
-	void* target_environment,
-	std::uint64_t target_key)
+struct TargetHookRegistryInstallContext
 {
-	if (state == nullptr || state->outtop == nullptr || state->global_state == nullptr
-		|| target_environment == nullptr || check_stack == nullptr
-		|| luau_pushcclosurek == nullptr)
+	void* target_environment = nullptr;
+	bool completed = false;
+	bool passed = false;
+};
+static_assert(std::is_trivially_copyable_v<TargetHookRegistryInstallContext>);
+
+void install_target_hook_registry_dispatcher_leaf(
+	luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<TargetHookRegistryInstallContext*>(
+		raw_context);
+	if (context == nullptr || state == nullptr || state->stack == nullptr
+		|| state->stack_last == nullptr || state->outtop == nullptr
+		|| state->ci == nullptr || state->ci->top == nullptr
+		|| context->target_environment == nullptr || check_stack == nullptr
+		|| luau_pushcclosurek == nullptr || wf_hash == nullptr
+		|| luau_settable == nullptr)
 	{
-		return false;
+		if (context != nullptr) context->completed = true;
+		return;
 	}
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 6);
-	auto* const base = state->outtop;
-	if (!push_environment_table(state, target_environment, base)
-		|| !is_table(base->type))
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (check_stack(state, 6) == 0)
 	{
-		state->outtop = base;
-		return false;
+		context->completed = true;
+		return;
+	}
+	auto* base = luau_restorestack(state, base_offset);
+	if (!push_environment_table(state, context->target_environment, base))
+	{
+		context->completed = true;
+		return;
+	}
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 1 || !is_table(base->type))
+	{
+		context->completed = true;
+		return;
 	}
 
 	luau_pushcclosurek(
 		state, &target_hook_registry_dispatcher,
 		"RENOVICE target registry hook dispatcher", 0, nullptr);
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2 || !is_function((base + 1)->type))
+	{
+		context->completed = true;
+		return;
+	}
 	const auto dispatcher = *(base + 1);
 	state->outtop = base + 1;
-	if (!set_hashed_table_field(
-			state, -1, target_hook_registry_dispatcher_name, dispatcher))
+	luau_TValue key{};
+	key.value.as_bool = wf_hash(target_hook_registry_dispatcher_name);
+	key.type = LUAU_BOOL;
+	if (!append_game_vm_stack_value_reserved(state, key)
+		|| !append_game_vm_stack_value_reserved(state, dispatcher))
 	{
-		state->outtop = base;
-		return false;
+		context->completed = true;
+		return;
 	}
+	luau_settable(state, -3);
 
+	base = luau_restorestack(state, base_offset);
 	state->outtop = base + 1;
-	const bool pushed = push_hashed_table_field(
-		state, -1, target_hook_registry_dispatcher_name);
+	if (!raw_push_hashed_table_field_noexcept(
+			state, -1, target_hook_registry_dispatcher_name))
+	{
+		context->completed = true;
+		return;
+	}
+	base = luau_restorestack(state, base_offset);
 	luau_Closure* installed = nullptr;
-	const bool pass = pushed && state->outtop == base + 2
+	context->passed = state->outtop == base + 2
 		&& readable_lua_closure(*(base + 1), installed)
 		&& installed->isC
 		&& installed->c.func == &target_hook_registry_dispatcher;
-	state->outtop = base;
+	context->completed = true;
+}
+
+bool install_target_hook_registry_dispatcher(
+	luau_State* state,
+	void* target_environment,
+	std::uint64_t target_key)
+{
+	TargetHookRegistryInstallContext context{};
+	context.target_environment = target_environment;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &install_target_hook_registry_dispatcher_leaf, &context);
+	const bool pass = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed && context.passed;
 	if (pass)
 	{
 		log_native_hook_once(
@@ -4892,6 +6314,228 @@ bool ensure_diagnostic_trace_registry_root(luau_State* state)
 	return rooted;
 }
 
+bool ui_leaf_write_registry_value(
+	luau_State* state,
+	const char* key,
+	luau_TValue value
+) noexcept
+{
+	if (state == nullptr || state->outtop == nullptr || key == nullptr
+		|| setfield == nullptr || getfield == nullptr)
+	{
+		return false;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!append_game_vm_stack_value_reserved(state, value)) return false;
+	setfield(state, -10000, key);
+	state->outtop = luau_restorestack(state, base_offset);
+	getfield(state, -10000, key);
+	auto* const base = luau_restorestack(state, base_offset);
+	const bool exact = state->outtop == base + 1
+		&& base->type == value.type
+		&& (value.type == LUAU_NIL
+			|| base->value.as_uintptr == value.value.as_uintptr);
+	state->outtop = base;
+	return exact;
+}
+
+enum class SharedTableLeafFailure : std::uint8_t
+{
+	none,
+	prerequisite,
+	stack_capacity,
+	shared_global_lookup,
+	shared_global_not_table,
+	diagnostic_registry_root,
+	shared_field_collision,
+	diagnostic_prerequisite,
+	shared_field_remove,
+	shared_field_remove_readback,
+	readback_mismatch,
+};
+
+struct SharedTableLeafContext
+{
+	const char* registry_key = nullptr;
+	bool diagnostics_enabled = false;
+	bool preserve_owned_bridge = false;
+	bool registry_root_required = false;
+	bool completed = false;
+	bool passed = false;
+	bool bridge_removed = false;
+	bool bridge_installed = false;
+	std::uintptr_t shared_table_identity = 0;
+	DiagnosticBridgeAction action = DiagnosticBridgeAction::leave_absent;
+	SharedTableLeafFailure failure = SharedTableLeafFailure::none;
+};
+static_assert(std::is_trivially_copyable_v<SharedTableLeafContext>);
+
+// BEGIN TARGET_SHARED_TABLE_PROTECTED_LEAF
+void prepare_target_shared_table_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<SharedTableLeafContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| context->registry_key == nullptr || check_stack == nullptr
+		|| getfield == nullptr || setfield == nullptr)
+	{
+		if (context != nullptr)
+		{
+			context->failure = SharedTableLeafFailure::prerequisite;
+			context->completed = true;
+		}
+		return;
+	}
+	if (check_stack(state, 8) == 0)
+	{
+		context->failure = SharedTableLeafFailure::stack_capacity;
+		context->completed = true;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!ui_leaf_push_vm_global(state, "_T"))
+	{
+		context->failure = SharedTableLeafFailure::shared_global_lookup;
+		context->completed = true;
+		return;
+	}
+	auto* base = luau_restorestack(state, base_offset);
+	if (!is_table(base->type))
+	{
+		context->failure = SharedTableLeafFailure::shared_global_not_table;
+		context->completed = true;
+		return;
+	}
+	context->shared_table_identity = base->value.as_uintptr;
+	getfield(state, -1, "RENOVICE_TRACE");
+	base = luau_restorestack(state, base_offset);
+	const auto existing_value = *(base + 1);
+	luau_Closure* existing = nullptr;
+	const bool field_present = existing_value.type != LUAU_NIL;
+	const bool field_owned = field_present
+		&& readable_lua_closure(existing_value, existing)
+		&& existing->isC && existing->c.func == &diagnostic_trace_bridge;
+	const bool can_mutate = setfield != nullptr
+		&& (!context->diagnostics_enabled || luau_pushcclosurek != nullptr);
+	context->action = classify_diagnostic_bridge_action(
+		context->diagnostics_enabled, field_present, field_owned, can_mutate);
+
+	luau_TValue nil{};
+	nil.type = LUAU_NIL;
+	if (context->action == DiagnosticBridgeAction::leave_absent
+		|| context->action == DiagnosticBridgeAction::leave_foreign_disabled)
+	{
+		if (!context->registry_root_required
+			&& !ui_leaf_write_registry_value(
+				state, context->registry_key, nil))
+		{
+			context->failure = SharedTableLeafFailure::diagnostic_registry_root;
+			context->completed = true;
+			return;
+		}
+		context->passed = true;
+		context->completed = true;
+		return;
+	}
+	if (context->action == DiagnosticBridgeAction::keep_owned)
+	{
+		context->passed = ui_leaf_write_registry_value(
+			state, context->registry_key, existing_value);
+		if (!context->passed)
+			context->failure = SharedTableLeafFailure::diagnostic_registry_root;
+		context->completed = true;
+		return;
+	}
+	if (context->action == DiagnosticBridgeAction::reject_collision
+		|| context->action == DiagnosticBridgeAction::reject_prerequisite)
+	{
+		if (!context->registry_root_required)
+			(void)ui_leaf_write_registry_value(
+				state, context->registry_key, nil);
+		context->failure = context->action
+			== DiagnosticBridgeAction::reject_collision
+			? SharedTableLeafFailure::shared_field_collision
+			: SharedTableLeafFailure::diagnostic_prerequisite;
+		context->completed = true;
+		return;
+	}
+	if (context->action == DiagnosticBridgeAction::remove_owned)
+	{
+		if (context->preserve_owned_bridge)
+		{
+			context->passed = true;
+			context->completed = true;
+			return;
+		}
+		if (!context->registry_root_required
+			&& !ui_leaf_write_registry_value(
+				state, context->registry_key, nil))
+		{
+			context->failure = SharedTableLeafFailure::diagnostic_registry_root;
+			context->completed = true;
+			return;
+		}
+		base = luau_restorestack(state, base_offset);
+		state->outtop = base + 1;
+		if (!append_game_vm_stack_value_reserved(state, nil))
+		{
+			context->failure = SharedTableLeafFailure::shared_field_remove;
+			context->completed = true;
+			return;
+		}
+		setfield(state, -2, "RENOVICE_TRACE");
+		state->outtop = base + 1;
+		getfield(state, -1, "RENOVICE_TRACE");
+		base = luau_restorestack(state, base_offset);
+		if ((base + 1)->type != LUAU_NIL)
+		{
+			context->failure = SharedTableLeafFailure::shared_field_remove_readback;
+			context->completed = true;
+			return;
+		}
+		context->bridge_removed = true;
+		context->passed = true;
+		context->completed = true;
+		return;
+	}
+
+	base = luau_restorestack(state, base_offset);
+	state->outtop = base + 1;
+	luau_pushcclosurek(
+		state, &diagnostic_trace_bridge,
+		"RENOVICE exact-pipeline trace", 0, nullptr);
+	setfield(state, -2, "RENOVICE_TRACE");
+	state->outtop = base + 1;
+	getfield(state, -1, "RENOVICE_TRACE");
+	base = luau_restorestack(state, base_offset);
+	luau_Closure* installed = nullptr;
+	const bool installed_exact = readable_lua_closure(*(base + 1), installed)
+		&& installed->isC && installed->c.func == &diagnostic_trace_bridge;
+	const auto installed_value = *(base + 1);
+	if (!installed_exact)
+	{
+		context->failure = SharedTableLeafFailure::readback_mismatch;
+		context->completed = true;
+		return;
+	}
+	if (!ui_leaf_write_registry_value(
+		state, context->registry_key, installed_value))
+	{
+		base = luau_restorestack(state, base_offset);
+		state->outtop = base + 1;
+		if (append_game_vm_stack_value_reserved(state, nil))
+			setfield(state, -2, "RENOVICE_TRACE");
+		context->failure = SharedTableLeafFailure::diagnostic_registry_root;
+		context->completed = true;
+		return;
+	}
+	context->bridge_installed = true;
+	context->passed = true;
+	context->completed = true;
+}
+// END TARGET_SHARED_TABLE_PROTECTED_LEAF
+
 bool prepare_target_shared_table(
 	std::uint64_t target_key,
 	luau_State* state,
@@ -4938,89 +6582,48 @@ bool prepare_target_shared_table(
 
 	std::lock_guard execution_lock(lua_execution_mutex);
 	ScopedExecutionDepth execution_depth;
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 6);
-	auto* const base = state->outtop;
-	// DE resolves `_T` through the VM's hashed-global path. It is not required
-	// to be a direct string field on the borrowed closure environment. Reuse the
-	// same lookup primitive already proven by the live card observer.
-	if (!push_vm_global(state, "_T"))
+	SharedTableLeafContext context{};
+	context.registry_key = diagnostic_trace_registry_key.c_str();
+	context.diagnostics_enabled = diagnostics_enabled;
+	context.preserve_owned_bridge = preserve_owned_bridge;
+	context.registry_root_required = registry_root_required;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &prepare_target_shared_table_protected_leaf, &context);
+	shared_table_identity = context.shared_table_identity;
+	const bool passed = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed && context.passed;
+	if (!passed)
 	{
-		state->outtop = base;
-		return reject_once("shared-global-lookup-failed");
-	}
-	if (!is_table(base->type))
-	{
-		state->outtop = base;
-		return reject_once("shared-global-not-table");
-	}
-	shared_table_identity = base->value.as_uintptr;
-	getfield(state, -1, "RENOVICE_TRACE");
-	luau_Closure* existing = nullptr;
-	const bool field_present = (base + 1)->type != LUAU_NIL;
-	const bool field_owned = field_present
-		&& readable_lua_closure(*(base + 1), existing)
-		&& existing->isC && existing->c.func == &diagnostic_trace_bridge;
-	const bool can_mutate = setfield != nullptr
-		&& (!diagnostics_enabled || luau_pushcclosurek != nullptr);
-	const auto action = classify_diagnostic_bridge_action(
-		diagnostics_enabled, field_present, field_owned, can_mutate);
-
-	if (action == DiagnosticBridgeAction::leave_absent
-		|| action == DiagnosticBridgeAction::leave_foreign_disabled)
-	{
-		if (!registry_root_required)
-			(void)clear_diagnostic_trace_registry_root(state);
-		state->outtop = base;
-		return true;
-	}
-	if (action == DiagnosticBridgeAction::keep_owned)
-	{
-		const auto existing_value = *(base + 1);
-		if (!write_diagnostic_trace_registry_root(state, existing_value))
+		const char* reason = "raw-protection";
+		switch (context.failure)
 		{
-			state->outtop = base;
-			return reject_once("diagnostic-registry-root-failed");
+		case SharedTableLeafFailure::prerequisite:
+			reason = "prerequisite-unavailable"; break;
+		case SharedTableLeafFailure::stack_capacity:
+			reason = "stack-capacity-unavailable"; break;
+		case SharedTableLeafFailure::shared_global_lookup:
+			reason = "shared-global-lookup-failed"; break;
+		case SharedTableLeafFailure::shared_global_not_table:
+			reason = "shared-global-not-table"; break;
+		case SharedTableLeafFailure::diagnostic_registry_root:
+			reason = "diagnostic-registry-root-failed"; break;
+		case SharedTableLeafFailure::shared_field_collision:
+			reason = "shared-field-collision"; break;
+		case SharedTableLeafFailure::diagnostic_prerequisite:
+			reason = "diagnostic-prerequisite-unavailable"; break;
+		case SharedTableLeafFailure::shared_field_remove:
+			reason = "shared-field-remove-failed"; break;
+		case SharedTableLeafFailure::shared_field_remove_readback:
+			reason = "shared-field-remove-readback-mismatch"; break;
+		case SharedTableLeafFailure::readback_mismatch:
+			reason = "readback-mismatch"; break;
+		case SharedTableLeafFailure::none:
+			break;
 		}
-		state->outtop = base;
-		return true;
+		return reject_once(reason);
 	}
-	if (action == DiagnosticBridgeAction::reject_collision)
+	if (context.bridge_removed)
 	{
-		if (!registry_root_required)
-			(void)clear_diagnostic_trace_registry_root(state);
-		state->outtop = base;
-		return reject_once("shared-field-collision");
-	}
-	if (action == DiagnosticBridgeAction::reject_prerequisite)
-	{
-		if (!registry_root_required)
-			(void)clear_diagnostic_trace_registry_root(state);
-		state->outtop = base;
-		return reject_once("diagnostic-prerequisite-unavailable");
-	}
-	if (action == DiagnosticBridgeAction::remove_owned)
-	{
-		if (preserve_owned_bridge)
-		{
-			state->outtop = base;
-			return true;
-		}
-		if (!registry_root_required)
-			(void)clear_diagnostic_trace_registry_root(state);
-		state->outtop = base + 1;
-		luau_TValue nil{};
-		nil.type = LUAU_NIL;
-		if (!table_set_value(state, -1, "RENOVICE_TRACE", nil))
-		{
-			state->outtop = base;
-			return reject_once("shared-field-remove-failed");
-		}
-		state->outtop = base + 1;
-		getfield(state, -1, "RENOVICE_TRACE");
-		const bool removed = (base + 1)->type == LUAU_NIL;
-		state->outtop = base;
-		if (!removed) return reject_once("shared-field-remove-readback-mismatch");
 		diagnostic_trace_sequence.store(0, std::memory_order_relaxed);
 		diagnostic_trace_suppression_logged.store(false, std::memory_order_relaxed);
 		diagnostic_trace_install_failure_logged.store(false, std::memory_order_relaxed);
@@ -5036,56 +6639,80 @@ bool prepare_target_shared_table(
 			false, std::memory_order_relaxed);
 		automatic_damage_runtime_failure_logged.store(
 			false, std::memory_order_relaxed);
-		lua_after_skip_trace_sequence.store(0, std::memory_order_relaxed);
 		config::diagnostic_log(
 			"RENOVICE trace bridge removed", config::DiagnosticsMode::trace);
 		return true;
 	}
-
-	state->outtop = base + 1;
-	luau_pushcclosurek(
-		state, &diagnostic_trace_bridge,
-		"RENOVICE exact-pipeline trace", 0, nullptr);
-	setfield(state, -2, "RENOVICE_TRACE");
-
-	state->outtop = base + 1;
-	getfield(state, -1, "RENOVICE_TRACE");
-	luau_Closure* installed = nullptr;
-	const bool pass = readable_lua_closure(*(base + 1), installed)
-		&& installed->isC && installed->c.func == &diagnostic_trace_bridge;
-	const auto installed_value = *(base + 1);
-	state->outtop = base;
-	if (!pass)
+	if (context.bridge_installed)
 	{
-		return reject_once("readback-mismatch");
+		diagnostic_trace_sequence.store(0, std::memory_order_relaxed);
+		diagnostic_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		diagnostic_trace_install_failure_logged.store(false, std::memory_order_relaxed);
+		diagnostic_trace_callback_failure_logged.store(false, std::memory_order_relaxed);
+		addon_trace_sequence.store(0, std::memory_order_relaxed);
+		addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
+		native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		std::ostringstream success;
+		success << "RENOVICE trace bridge PASS key=" << std::hex << target_key
+			<< std::dec << " vm=" << state->global_state
+			<< " env=" << environment
+			<< " shared=0x" << std::hex << shared_table_identity << std::dec;
+		config::diagnostic_log(success.str(), config::DiagnosticsMode::trace);
 	}
-	if (!write_diagnostic_trace_registry_root(state, installed_value))
-	{
-		state->outtop = base + 1;
-		luau_TValue nil{};
-		nil.type = LUAU_NIL;
-		(void)table_set_value(state, -1, "RENOVICE_TRACE", nil);
-		state->outtop = base;
-		return reject_once("diagnostic-registry-root-failed");
-	}
-
-	diagnostic_trace_sequence.store(0, std::memory_order_relaxed);
-	diagnostic_trace_suppression_logged.store(false, std::memory_order_relaxed);
-	diagnostic_trace_install_failure_logged.store(false, std::memory_order_relaxed);
-	diagnostic_trace_callback_failure_logged.store(false, std::memory_order_relaxed);
-	addon_trace_sequence.store(0, std::memory_order_relaxed);
-	addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
-	native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
-	native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);
-	lua_after_skip_trace_sequence.store(0, std::memory_order_relaxed);
-	std::ostringstream success;
-	success << "RENOVICE trace bridge PASS key=" << std::hex << target_key
-		<< std::dec << " vm=" << state->global_state
-		<< " env=" << environment
-		<< " shared=0x" << std::hex << shared_table_identity << std::dec;
-	config::diagnostic_log(success.str(), config::DiagnosticsMode::trace);
 	return true;
 }
+
+struct InspectSharedTableContext
+{
+	bool inspect_scripts_bridge = false;
+	bool completed = false;
+	bool passed = false;
+	bool scripts_bridge_present = false;
+	std::uintptr_t shared_table_identity = 0;
+};
+static_assert(std::is_trivially_copyable_v<InspectSharedTableContext>);
+
+// BEGIN INSPECT_SHARED_TABLE_PROTECTED_LEAF
+void inspect_current_shared_table_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<InspectSharedTableContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| check_stack == nullptr)
+	{
+		if (context != nullptr) context->completed = true;
+		return;
+	}
+	if (check_stack(state, 4) == 0)
+	{
+		context->completed = true;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!ui_leaf_push_vm_global(state, "_T"))
+	{
+		context->completed = true;
+		return;
+	}
+	auto* base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 1 || !is_table(base->type))
+	{
+		context->completed = true;
+		return;
+	}
+	context->shared_table_identity = base->value.as_uintptr;
+	if (context->inspect_scripts_bridge)
+	{
+		context->scripts_bridge_present = ui_leaf_push_hashed_table_field(
+			state, -1, scripts_settings_bridge_name)
+			&& state->outtop == base + 2 && is_function((base + 1)->type);
+	}
+	context->passed = context->shared_table_identity != 0;
+	context->completed = true;
+}
+// END INSPECT_SHARED_TABLE_PROTECTED_LEAF
 
 bool inspect_current_shared_table(
 	luau_State* state,
@@ -5095,65 +6722,70 @@ bool inspect_current_shared_table(
 {
 	shared_table_identity = 0;
 	scripts_bridge_present = false;
-	if (state == nullptr || state->outtop == nullptr || getfield == nullptr
-		|| check_stack == nullptr)
+	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr)
 	{
 		return false;
 	}
 
 	std::lock_guard execution_lock(lua_execution_mutex);
 	ScopedExecutionDepth execution_depth;
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 4);
-	auto* const base = state->outtop;
-	if (!push_vm_global(state, "_T") || !is_table(base->type))
-	{
-		state->outtop = base;
-		return false;
-	}
-	shared_table_identity = base->value.as_uintptr;
-	if (scripts_ui_enabled.load(std::memory_order_acquire))
-	{
-		scripts_bridge_present = push_hashed_table_field(
-			state, -1, scripts_settings_bridge_name)
-			&& state->outtop == base + 2 && is_function((base + 1)->type);
-	}
-	state->outtop = base;
-	return shared_table_identity != 0;
+	InspectSharedTableContext context{};
+	context.inspect_scripts_bridge = scripts_ui_enabled.load(
+		std::memory_order_acquire);
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &inspect_current_shared_table_protected_leaf, &context);
+	const bool passed = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed && context.passed;
+	if (!passed) return false;
+	shared_table_identity = context.shared_table_identity;
+	scripts_bridge_present = context.scripts_bridge_present;
+	return true;
 }
 
-bool read_target_card_values(
-	luau_State* state,
-	const luau_TValue& original,
-	luau_TValue (&arguments)[2]
-)
+struct TargetCardReadContext
 {
+	luau_TValue original{};
+	luau_TValue arguments[2]{};
+	bool succeeded = false;
+};
+static_assert(std::is_trivially_copyable_v<TargetCardReadContext>);
+
+void read_target_card_values_leaf(luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<TargetCardReadContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| getfield == nullptr) return;
 	luau_Closure* original_closure = nullptr;
-	if (!readable_lua_closure(original, original_closure)
-		|| original_closure->isC || original_closure->env == nullptr)
+	if (!readable_lua_closure(context->original, original_closure)
+		|| original_closure->isC || original_closure->env == nullptr
+		|| diagnostics::bad_read_ptr(
+			original_closure->env, sizeof(std::uint8_t)))
 	{
-		return false;
+		return;
 	}
 	auto* const base = state->outtop;
-	if (!push_environment_table(state, original_closure->env, base)) return false;
+	luau_TValue environment{};
+	environment.value.as_uintptr = reinterpret_cast<std::uintptr_t>(
+		original_closure->env);
+	environment.type = static_cast<std::uint32_t>(
+		*reinterpret_cast<const std::uint8_t*>(original_closure->env));
+	if (!is_table(environment.type)
+		|| !append_game_vm_stack_value(state, environment)) return;
 	getfield(state, -1, "_T");
 	if (!is_table((base + 1)->type))
 	{
-		state->outtop = base;
-		return false;
+		return;
 	}
 	getfield(state, -1, "AbilityUpgradeLevelInfo");
 	if (!is_table((base + 2)->type))
 	{
-		state->outtop = base;
-		return false;
+		return;
 	}
-	arguments[0] = *(base + 2);
+	context->arguments[0] = *(base + 2);
 	state->outtop = base + 2;
 	getfield(state, -1, "AbilityLevelQueryParms");
-	arguments[1] = *(base + 2);
-	state->outtop = base;
-	return is_table(arguments[1].type);
+	context->arguments[1] = *(base + 2);
+	context->succeeded = is_table(context->arguments[1].type);
 }
 
 int ability_card_wrapper(luau_State* state)
@@ -5172,93 +6804,552 @@ int ability_card_wrapper(luau_State* state)
 	const int argument_count = luau_gettop(state);
 	std::vector<luau_TValue> arguments(
 		state->intop, state->intop + argument_count);
-	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
 	if (!call_value(
 		state, original, arguments.data(), arguments.size(),
 		"original.GetAbilityUpgradeLevelInfo"))
 	{
 		return 0;
 	}
-	luau_TValue card_arguments[2]{};
-	if (generation_dispatch
-		&& read_target_card_values(state, original, card_arguments))
+	// The stock call and argument vector are complete before the generation
+	// lease is acquired. Read the two card tables in a destructor-free protected
+	// leaf so a DE field/metamethod error cannot strand the lease.
+	TargetCardReadContext card_read{};
+	card_read.original = original;
+	const auto protected_read = de_vm_authority::run_current_vm_protected(
+		state, &read_target_card_values_leaf, &card_read);
+	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+	if (generation_dispatch && protected_read.admitted
+		&& protected_read.restored && protected_read.status == 0
+		&& card_read.succeeded)
 	{
 		dispatch_target_hook(
-			state, target_key, "afterAbilityCard", card_arguments, 2);
+			state, target_key, "afterAbilityCard", card_read.arguments, 2);
 	}
 	return 0;
 }
 
-// Result remains rooted on the Lua stack until the caller restores its top.
-// All constructor/association operations execute through a real protected frame.
-bool call_callback_runtime(luau_State* state, std::uint64_t key,
-	const char* method, const luau_TValue (&arguments)[2], luau_TValue& result)
+bool same_lua_value(const luau_TValue& lhs, const luau_TValue& rhs) noexcept;
+
+enum class CallbackRuntimeLeafStage : std::uint8_t
+{
+	none,
+	reserve_stack,
+	lookup_runtime,
+	lookup_method,
+	push_argument,
+	invoke_method,
+	root_result,
+	read_root,
+	create_native_setter,
+	invoke_native_setter,
+	clear_root,
+};
+
+struct CallbackRuntimeResultRoot
+{
+	bool active = false;
+	luau_State* state = nullptr;
+	void* global_state = nullptr;
+	std::uint32_t owner_thread = 0;
+	std::uint64_t token = 0;
+	luau_TValue value{};
+	char registry_key[96]{};
+};
+static_assert(std::is_trivially_copyable_v<CallbackRuntimeResultRoot>);
+
+struct CallbackRuntimeLeafContext
+{
+	const char* runtime_registry_key = nullptr;
+	const char* method = nullptr;
+	const char* result_root_key = nullptr;
+	luau_TValue arguments[2]{};
+	luau_TValue result{};
+	SharedCallbackLeafContext callback{};
+	std::size_t actual_result_count = 0;
+	CallbackRuntimeLeafStage stage = CallbackRuntimeLeafStage::none;
+	bool runtime_present = false;
+	bool method_present = false;
+	bool result_present = false;
+	bool root_may_be_installed = false;
+	bool root_installed = false;
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<CallbackRuntimeLeafContext>);
+
+struct CallbackRuntimeRootClearContext
+{
+	const char* registry_key = nullptr;
+	bool cleared = false;
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<CallbackRuntimeRootClearContext>);
+
+struct DamageCallbackInstallLeafContext
+{
+	luau_CFunction native = nullptr;
+	const char* result_root_key = nullptr;
+	luau_TValue receiver{};
+	luau_TValue expected_callback{};
+	SharedCallbackLeafContext callback{};
+	CallbackRuntimeLeafStage stage = CallbackRuntimeLeafStage::none;
+	bool root_present = false;
+	bool root_cleared = false;
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<DamageCallbackInstallLeafContext>);
+
+std::atomic<std::uint64_t> callback_runtime_root_sequence{0};
+thread_local CallbackRuntimeResultRoot pending_callback_runtime_result_root;
+
+// BEGIN CALLBACK_RUNTIME_PROTECTED_LEAF
+// Callback-runtime lookup, Lua closure creation, registry rooting, native C
+// closure allocation, and both protected calls are all DE operations. Keep the
+// complete mutation path below one of these POD-only raw leaves.
+bool callback_runtime_leaf_reserve(luau_State* state, std::size_t slots)
+{
+	if (state == nullptr || state->stack == nullptr || state->stack_last == nullptr
+		|| state->outtop == nullptr || state->ci == nullptr
+		|| state->ci->top == nullptr || check_stack == nullptr
+		|| slots > static_cast<std::size_t>((std::numeric_limits<int>::max)())
+		|| check_stack(state, static_cast<int>(slots)) == 0
+		|| state->outtop < state->stack || state->outtop > state->stack_last
+		|| state->ci->top < state->outtop || state->ci->top > state->stack_last)
+	{
+		return false;
+	}
+	return slots <= static_cast<std::size_t>(state->stack_last - state->outtop)
+		&& slots <= static_cast<std::size_t>(state->ci->top - state->outtop);
+}
+
+bool callback_runtime_leaf_clear_root(luau_State* state, const char* key)
+{
+	if (state == nullptr || key == nullptr || *key == '\0' || setfield == nullptr
+		|| getfield == nullptr || !callback_runtime_leaf_reserve(state, 2))
+	{
+		return false;
+	}
+	const auto saved_top = luau_savestack(state, state->outtop);
+	luau_TValue nil{};
+	nil.type = LUAU_NIL;
+	if (!shared_callback_leaf_push_value(state, nil)) return false;
+	setfield(state, -10000, key);
+	state->outtop = luau_restorestack(state, saved_top);
+	getfield(state, -10000, key);
+	auto* const base = luau_restorestack(state, saved_top);
+	const bool cleared = state->outtop == base + 1 && base->type == LUAU_NIL;
+	state->outtop = base;
+	return cleared;
+}
+
+void callback_runtime_root_clear_protected_leaf(luau_State* state, void* opaque)
+{
+	auto* const context = static_cast<CallbackRuntimeRootClearContext*>(opaque);
+	if (context == nullptr || context->registry_key == nullptr) return;
+	context->cleared = callback_runtime_leaf_clear_root(
+		state, context->registry_key);
+	context->completed = true;
+}
+
+void callback_runtime_protected_leaf(luau_State* state, void* opaque)
+{
+	auto* const context = static_cast<CallbackRuntimeLeafContext*>(opaque);
+	if (state == nullptr || context == nullptr || context->runtime_registry_key == nullptr
+		|| context->method == nullptr || getfield == nullptr || setfield == nullptr
+		|| protected_call == nullptr || gc_barrierback == nullptr)
+	{
+		return;
+	}
+	context->stage = CallbackRuntimeLeafStage::reserve_stack;
+	if (!callback_runtime_leaf_reserve(state, 10)) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+
+	context->stage = CallbackRuntimeLeafStage::lookup_runtime;
+	getfield(state, -10000, context->runtime_registry_key);
+	auto* base = luau_restorestack(state, base_offset);
+	context->runtime_present = state->outtop == base + 1 && is_table(base->type);
+	if (!context->runtime_present)
+	{
+		context->completed = true;
+		return;
+	}
+
+	context->stage = CallbackRuntimeLeafStage::lookup_method;
+	getfield(state, -1, context->method);
+	base = luau_restorestack(state, base_offset);
+	context->method_present = state->outtop == base + 2
+		&& is_function((base + 1)->type);
+	if (!context->method_present)
+	{
+		context->completed = true;
+		return;
+	}
+
+	context->stage = CallbackRuntimeLeafStage::push_argument;
+	if (!shared_callback_leaf_push_value(state, context->arguments[0])
+		|| !shared_callback_leaf_push_value(state, context->arguments[1]))
+	{
+		return;
+	}
+	context->stage = CallbackRuntimeLeafStage::invoke_method;
+	context->callback.callback_status = protected_call(state, 2, 1, 0);
+	base = luau_restorestack(state, base_offset);
+	if (context->callback.callback_status != 0)
+	{
+		context->callback.stage = SharedCallbackLeafStage::capture_error;
+		shared_callback_leaf_capture_error(
+			state, base_offset + static_cast<std::ptrdiff_t>(sizeof(luau_TValue)),
+			&context->callback);
+		context->callback.completed = true;
+		context->completed = true;
+		return;
+	}
+	if (state->outtop == nullptr || state->outtop < base
+		|| state->outtop > state->stack_last)
+	{
+		return;
+	}
+	context->actual_result_count = static_cast<std::size_t>(state->outtop - base);
+	context->result_present = context->actual_result_count == 2;
+	if (!context->result_present)
+	{
+		context->completed = true;
+		return;
+	}
+	context->result = base[1];
+	context->callback.results[0] = context->result;
+	context->callback.actual_result_count = 1;
+	context->callback.copied_result_count = 1;
+	context->callback.completed = true;
+
+	if (context->result_root_key != nullptr && *context->result_root_key != '\0')
+	{
+		context->stage = CallbackRuntimeLeafStage::root_result;
+		if (!shared_callback_leaf_push_value(state, context->result)) return;
+		context->root_may_be_installed = true;
+		setfield(state, -10000, context->result_root_key);
+		base = luau_restorestack(state, base_offset);
+		state->outtop = base + 2;
+		context->stage = CallbackRuntimeLeafStage::read_root;
+		getfield(state, -10000, context->result_root_key);
+		base = luau_restorestack(state, base_offset);
+		context->root_installed = state->outtop == base + 3
+			&& same_lua_value(base[2], context->result);
+		state->outtop = base + 2;
+		if (!context->root_installed) return;
+	}
+	context->completed = true;
+}
+
+void damage_callback_install_protected_leaf(luau_State* state, void* opaque)
+{
+	auto* const context = static_cast<DamageCallbackInstallLeafContext*>(opaque);
+	if (state == nullptr || context == nullptr || context->native == nullptr
+		|| context->result_root_key == nullptr || *context->result_root_key == '\0'
+		|| getfield == nullptr || setfield == nullptr || luau_pushcclosurek == nullptr
+		|| protected_call == nullptr || gc_barrierback == nullptr)
+	{
+		return;
+	}
+	context->stage = CallbackRuntimeLeafStage::reserve_stack;
+	if (!callback_runtime_leaf_reserve(state, 10)) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	context->stage = CallbackRuntimeLeafStage::read_root;
+	getfield(state, -10000, context->result_root_key);
+	auto* base = luau_restorestack(state, base_offset);
+	context->root_present = state->outtop == base + 1
+		&& same_lua_value(*base, context->expected_callback);
+	if (!context->root_present)
+	{
+		context->stage = CallbackRuntimeLeafStage::clear_root;
+		context->root_cleared = callback_runtime_leaf_clear_root(
+			state, context->result_root_key);
+		context->completed = true;
+		return;
+	}
+
+	context->stage = CallbackRuntimeLeafStage::create_native_setter;
+	luau_pushcclosurek(
+		state, context->native, "RENOVICE protected SetDamageCallback", 0, nullptr);
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2 || !is_function((base + 1)->type)) return;
+	if (!shared_callback_leaf_push_value(state, context->receiver)
+		|| !shared_callback_leaf_push_value(state, *base))
+	{
+		return;
+	}
+	context->stage = CallbackRuntimeLeafStage::invoke_native_setter;
+	context->callback.callback_status = protected_call(state, 2, 0, 0);
+	base = luau_restorestack(state, base_offset);
+	if (context->callback.callback_status != 0)
+	{
+		context->callback.stage = SharedCallbackLeafStage::capture_error;
+		shared_callback_leaf_capture_error(
+			state, base_offset + static_cast<std::ptrdiff_t>(sizeof(luau_TValue)),
+			&context->callback);
+	}
+	context->callback.completed = true;
+	context->stage = CallbackRuntimeLeafStage::clear_root;
+	context->root_cleared = callback_runtime_leaf_clear_root(
+		state, context->result_root_key);
+	context->completed = true;
+}
+// END CALLBACK_RUNTIME_PROTECTED_LEAF
+
+const char* callback_runtime_leaf_stage_label(CallbackRuntimeLeafStage stage) noexcept
+{
+	switch (stage)
+	{
+	case CallbackRuntimeLeafStage::none: return "none";
+	case CallbackRuntimeLeafStage::reserve_stack: return "reserve-stack";
+	case CallbackRuntimeLeafStage::lookup_runtime: return "lookup-runtime";
+	case CallbackRuntimeLeafStage::lookup_method: return "lookup-method";
+	case CallbackRuntimeLeafStage::push_argument: return "push-argument";
+	case CallbackRuntimeLeafStage::invoke_method: return "invoke-method";
+	case CallbackRuntimeLeafStage::root_result: return "root-result";
+	case CallbackRuntimeLeafStage::read_root: return "read-root";
+	case CallbackRuntimeLeafStage::create_native_setter: return "create-native-setter";
+	case CallbackRuntimeLeafStage::invoke_native_setter: return "invoke-native-setter";
+	case CallbackRuntimeLeafStage::clear_root: return "clear-root";
+	}
+	return "unknown";
+}
+
+bool initialize_callback_runtime_result_root(
+	luau_State* state,
+	CallbackRuntimeResultRoot& root) noexcept
+{
+	root = {};
+	if (state == nullptr || state->global_state == nullptr) return false;
+	auto token = callback_runtime_root_sequence.fetch_add(
+		1, std::memory_order_relaxed) + 1;
+	if (token == 0)
+		token = callback_runtime_root_sequence.fetch_add(
+			1, std::memory_order_relaxed) + 1;
+	const auto owner_thread = static_cast<std::uint32_t>(GetCurrentThreadId());
+	const int written = std::snprintf(
+		root.registry_key, sizeof(root.registry_key),
+		"RENOVICE.callback-result.v109.%08x.%016llx",
+		static_cast<unsigned>(owner_thread),
+		static_cast<unsigned long long>(token));
+	if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(root.registry_key))
+	{
+		root = {};
+		return false;
+	}
+	root.state = state;
+	root.global_state = state->global_state;
+	root.owner_thread = owner_thread;
+	root.token = token;
+	return true;
+}
+
+bool clear_callback_runtime_result_root(
+	luau_State* state,
+	CallbackRuntimeResultRoot& root) noexcept
+{
+	if (!root.active) return true;
+	if (state == nullptr || root.state != state
+		|| root.global_state != state->global_state
+		|| root.owner_thread != static_cast<std::uint32_t>(GetCurrentThreadId())
+		|| root.registry_key[0] == '\0')
+	{
+		return false;
+	}
+	CallbackRuntimeRootClearContext context;
+	context.registry_key = root.registry_key;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &callback_runtime_root_clear_protected_leaf, &context);
+	const bool cleared = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed && context.cleared;
+	if (cleared) root = {};
+	return cleared;
+}
+
+bool clear_or_defer_callback_runtime_result_root(
+	luau_State* state,
+	CallbackRuntimeResultRoot& root) noexcept
+{
+	if (!root.active || clear_callback_runtime_result_root(state, root)) return true;
+	if (!pending_callback_runtime_result_root.active)
+	{
+		pending_callback_runtime_result_root = root;
+		root = {};
+	}
+	config::diagnostic_log(
+		"RENOVICE callback runtime root clear deferred until exact idle",
+		config::DiagnosticsMode::errors);
+	return false;
+}
+
+bool clear_pending_callback_runtime_result_root(luau_State* state) noexcept
+{
+	return !pending_callback_runtime_result_root.active
+		|| clear_callback_runtime_result_root(
+			state, pending_callback_runtime_result_root);
+}
+
+void clear_callback_runtime_result_root_at_exact_idle(luau_State* state) noexcept
+{
+	if (state != nullptr && pending_callback_runtime_result_root.active
+		&& pending_callback_runtime_result_root.state == state
+		&& pending_callback_runtime_result_root.global_state == state->global_state
+		&& pending_callback_runtime_result_root.owner_thread
+			== static_cast<std::uint32_t>(GetCurrentThreadId()))
+	{
+		clear_pending_callback_runtime_result_root(state);
+	}
+}
+
+bool call_callback_runtime(
+	luau_State* state,
+	std::uint64_t key,
+	const char* method,
+	const luau_TValue (&arguments)[2],
+	luau_TValue& result,
+	CallbackRuntimeResultRoot* result_root = nullptr)
 {
 	result = {};
-	if (!state || !state->outtop || !check_stack || !getfield || !protected_call)
-		return false;
-	const auto base_offset = luau_savestack(state, state->outtop);
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 6);
-	getfield(state, -10000, callback_runtime_registry_key.c_str());
-	if (!is_table(state->outtop[-1].type))
+	if (state == nullptr || state->outtop == nullptr || method == nullptr
+		|| !clear_pending_callback_runtime_result_root(state))
 	{
-		state->outtop = luau_restorestack(state, base_offset);
+		return false;
+	}
+	CallbackRuntimeResultRoot staged_root;
+	if (result_root != nullptr
+		&& !initialize_callback_runtime_result_root(state, staged_root))
+	{
+		return false;
+	}
+	CallbackRuntimeLeafContext context;
+	context.runtime_registry_key = callback_runtime_registry_key.c_str();
+	context.method = method;
+	context.result_root_key = result_root != nullptr
+		? staged_root.registry_key : nullptr;
+	context.arguments[0] = arguments[0];
+	context.arguments[1] = arguments[1];
+	const auto memory = capture_shared_callback_memory(state);
+	ScopedInjectedInterruptBudget interrupt_budget(state->interrupt_count);
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &callback_runtime_protected_leaf, &context);
+	report_shared_callback_memory(state, "DamageData.copy", memory);
+
+	if (result_root != nullptr && context.root_may_be_installed)
+	{
+		staged_root.active = true;
+		staged_root.value = context.result;
+	}
+	const bool transport_ok = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed;
+	if (!transport_ok)
+	{
+		std::ostringstream detail;
+		detail << "method=" << method
+			<< " admitted=" << protected_result.admitted
+			<< " restored=" << protected_result.restored
+			<< " raw_status=" << protected_result.status
+			<< " stage=" << callback_runtime_leaf_stage_label(context.stage);
+		trace_addon(state, key, "damage.factory.error", detail.str());
+		clear_or_defer_callback_runtime_result_root(state, staged_root);
+		return false;
+	}
+	if (!context.runtime_present)
+	{
 		trace_addon(state, key, "damage.factory.reject", "reason=runtime-not-loaded");
 		return false;
 	}
-	getfield(state, -1, method);
-	if (!is_function(state->outtop[-1].type))
+	if (!context.method_present)
 	{
-		state->outtop = luau_restorestack(state, base_offset);
 		trace_addon(state, key, "damage.factory.reject", "reason=missing-method");
 		return false;
 	}
-	push_stack_value(state, arguments[0]);
-	push_stack_value(state, arguments[1]);
-	const int status = protected_callback_call(state, 2, 1, 0, "DamageData.copy");
-	auto* base = luau_restorestack(state, base_offset);
-	if (status != 0)
+	if (context.callback.callback_status != 0)
 	{
+		SharedCallbackOutcome outcome;
+		outcome.leaf = context.callback;
 		trace_addon(state, key, "damage.factory.error", std::string("method=") + method
-			+ " pcall=" + std::to_string(status) + protected_call_error_details(state, base + 1));
-		state->outtop = luau_restorestack(state, base_offset);
+			+ " pcall=" + std::to_string(context.callback.callback_status)
+			+ shared_callback_error_details(outcome));
+		clear_or_defer_callback_runtime_result_root(state, staged_root);
 		return false;
 	}
-	if (state->outtop != base + 2)
+	if (!context.result_present
+		|| (result_root != nullptr && !context.root_installed))
 	{
-		state->outtop = base;
-		trace_addon(state, key, "damage.factory.reject", "reason=result-count");
+		trace_addon(state, key, "damage.factory.reject", "reason=result-count-or-root");
+		clear_or_defer_callback_runtime_result_root(state, staged_root);
 		return false;
 	}
-	result = base[1];
+	result = context.result;
+	if (result_root != nullptr) *result_root = staged_root;
 	trace_addon(state, key, "damage.factory.return", std::string("method=") + method);
 	return true;
 }
 
-bool set_damage_callback_protected(luau_State* state, std::uint64_t key,
-	const luau_TValue& receiver, const luau_TValue& callback)
+bool set_damage_callback_protected(
+	luau_State* state,
+	std::uint64_t key,
+	const luau_TValue& receiver,
+	const luau_TValue& callback,
+	CallbackRuntimeResultRoot& result_root)
 {
 	luau_Closure* closure = nullptr;
-	if (!readable_lua_closure(callback, closure) || closure->isC)
+	if (!result_root.active || result_root.state != state
+		|| result_root.global_state != (state != nullptr ? state->global_state : nullptr)
+		|| !same_lua_value(result_root.value, callback)
+		|| !readable_lua_closure(callback, closure) || closure->isC)
 	{
-		trace_addon(state, key, "damage.install.reject", "reason=callback-not-lua");
+		trace_addon(state, key, "damage.install.reject", "reason=callback-not-rooted-lua");
+		clear_or_defer_callback_runtime_result_root(state, result_root);
 		return false;
 	}
 	const auto native = set_damage_callback_native_hook.isCreated()
 		? reinterpret_cast<luau_CFunction>(set_damage_callback_native_hook.original)
 		: original_set_damage_callback;
-	if (!native || !luau_pushcclosurek) return false;
-	const auto base_offset = luau_savestack(state, state->outtop);
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 6);
-	luau_pushcclosurek(state, native, "RENOVICE protected SetDamageCallback", 0, nullptr);
-	const auto setter = state->outtop[-1];
+	if (native == nullptr || luau_pushcclosurek == nullptr)
+	{
+		clear_or_defer_callback_runtime_result_root(state, result_root);
+		return false;
+	}
 	const luau_TValue arguments[]{receiver, callback};
-	trace_addon(state, key, "damage.install.native-enter", "callback_isC=0 protected=1", arguments, 2);
-	const bool passed = call_value(state, setter, arguments, 2, "SetDamageCallback.install");
-	state->outtop = luau_restorestack(state, base_offset);
-	trace_addon(state, key, "damage.install.native-return", std::string("status=") + (passed ? "ok" : "error"));
+	trace_addon(state, key, "damage.install.native-enter",
+		"callback_isC=0 protected=1 rooted=1", arguments, 2);
+	DamageCallbackInstallLeafContext context;
+	context.native = native;
+	context.result_root_key = result_root.registry_key;
+	context.receiver = receiver;
+	context.expected_callback = callback;
+	const auto memory = capture_shared_callback_memory(state);
+	ScopedInjectedInterruptBudget interrupt_budget(state->interrupt_count);
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &damage_callback_install_protected_leaf, &context);
+	report_shared_callback_memory(state, "SetDamageCallback.install", memory);
+	if (context.root_cleared) result_root = {};
+	else clear_or_defer_callback_runtime_result_root(state, result_root);
+	const bool passed = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed
+		&& context.root_present && context.root_cleared
+		&& context.callback.callback_status == 0;
+	if (!passed && context.callback.callback_status != 0)
+	{
+		SharedCallbackOutcome outcome;
+		outcome.leaf = context.callback;
+		trace_addon(state, key, "damage.install.native-error",
+			"pcall=" + std::to_string(context.callback.callback_status)
+			+ shared_callback_error_details(outcome));
+	}
+	else if (!passed)
+	{
+		std::ostringstream detail;
+		detail << "admitted=" << protected_result.admitted
+			<< " restored=" << protected_result.restored
+			<< " raw_status=" << protected_result.status
+			<< " stage=" << callback_runtime_leaf_stage_label(context.stage)
+			<< " rooted=" << context.root_present
+			<< " cleared=" << context.root_cleared;
+		trace_addon(state, key, "damage.install.native-error", detail.str());
+	}
+	trace_addon(state, key, "damage.install.native-return",
+		std::string("status=") + (passed ? "ok" : "error"));
 	return passed;
 }
 
@@ -5439,8 +7530,19 @@ bool install_addon_damage_callback(
 		"RENOVICE additive damage dispatcher", 4, nullptr);
 	const luau_TValue arguments[]{receiver, state->outtop[-1]};
 	luau_TValue callback{};
-	bool passed = call_callback_runtime(state, target_key, "prepareSource", arguments, callback)
-		&& set_damage_callback_protected(state, target_key, receiver, callback);
+	CallbackRuntimeResultRoot callback_root;
+	bool passed = call_callback_runtime(
+		state, target_key, "prepareSource", arguments, callback, &callback_root);
+	if (passed)
+	{
+		passed = set_damage_callback_protected(
+			state, target_key, receiver, callback, callback_root);
+	}
+	if (callback_root.active
+		&& !clear_or_defer_callback_runtime_result_root(state, callback_root))
+	{
+		passed = false;
+	}
 	if (passed)
 	{
 		luau_TValue ignored{};
@@ -5459,68 +7561,97 @@ int set_source_object_adapter(luau_State* state)
 		? reinterpret_cast<luau_CFunction>(set_source_object_native_hook.original)
 		: original_set_source_object;
 	if (original == nullptr) return 0;
-	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
-	if (!generation_dispatch) return original(state);
-	if (state == nullptr || !target_snapshot_requests_native_damage(
-		state->global_state))
+
+	prepare_stock_native_finalize_entry(state);
+	const auto previous_boundary = active_stock_native_finalize;
+	ActiveStockNativeFinalize plan;
 	{
-		return original(state);
-	}
-	AddonTraceScope trace_scope;
-	AddonDetailScope detail_scope(addon_trace_attempt <= 4 || addon_trace_attempt % 128 == 0);
-	trace_addon(state, 0, "source.enter", {}, state ? state->intop : nullptr,
-		state && state->intop ? static_cast<std::size_t>(luau_gettop(state)) : 0);
-	log_native_hook_once(state, 0, "SetSourceObject.detour-entry");
-	luau_TValue receiver{};
-	luau_TValue source_ability{};
-	const bool arguments_valid = state != nullptr && state->intop != nullptr
-		&& luau_gettop(state) >= 2;
-	if (arguments_valid)
-	{
-		receiver = state->intop[0];
-		source_ability = state->intop[1];
-	}
-	std::uint64_t target_key = 0;
-	// Native calls require actual caller evidence, not a broad VM execution scope.
-	if (target_key == 0)
-	{
-		target_key = target_key_for_active_call_stack(state);
-		if (target_key != 0)
+		// Prepare every addon decision, trace owner, and generation borrow before
+		// entering stock. Only a POD frame fingerprint crosses the stock call.
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		if (generation_dispatch && state != nullptr && state->intop != nullptr
+			&& target_snapshot_requests_native_damage(state->global_state)
+			&& luau_gettop(state) >= 2)
 		{
-			log_native_hook_once(
-				state, target_key, "SetSourceObject.targetCallStack.match");
+			AddonTraceScope trace_scope;
+			const auto trace_attempt = addon_trace_attempt;
+			const bool detailed_trace = trace_attempt <= 4
+				|| trace_attempt % 128 == 0;
+			AddonDetailScope detail_scope(detailed_trace);
+			trace_addon(
+				state, 0, "source.enter", {}, state->intop,
+				static_cast<std::size_t>(luau_gettop(state)));
+			log_native_hook_once(state, 0, "SetSourceObject.detour-entry");
+			// Native calls require actual caller evidence, not a broad VM scope.
+			const auto target_key = target_key_for_active_call_stack(state);
+			if (target_key != 0)
+			{
+				log_native_hook_once(
+					state, target_key, "SetSourceObject.targetCallStack.match");
+			}
+			trace_addon(state, target_key, "source.native-enter");
+			plan = make_stock_native_finalize(
+				StockNativeFinalizeKind::set_source_object,
+				state, active_generation, target_key, trace_attempt,
+				detailed_trace);
 		}
 	}
-	trace_addon(state, target_key, "source.native-enter");
-	const int result_count = original != nullptr ? original(state) : 0;
-	trace_addon(state, target_key, "source.native-return",
-		"results=" + std::to_string(result_count));
-	if (!arguments_valid || result_count != 0)
-	{
-		trace_addon(state, target_key, "source.reject", "reason=arguments-or-native-results");
-		return result_count;
-	}
+	if (plan.active) active_stock_native_finalize = plan;
 
-	if (target_key == 0)
+	// Intentionally naked: stock errors propagate with no RENOVICE lease,
+	// trace/detail RAII owner, snapshot, string, or unrooted TValue copy alive.
+	const int result_count = original(state);
+
+	if (plan.active)
 	{
-		target_key = target_key_for_matcher(
-			state, source_ability, "matchesDamageSource");
+		finish_stock_native_finalize(plan.token, previous_boundary, state);
 	}
-	if (target_key == 0)
+	if (!plan.active) return result_count;
+
 	{
-		trace_addon(state, 0, "source.reject", "reason=no-exact-target");
-		log_native_hook_once(state, 0, "SetSourceObject.target.missing");
-		return result_count;
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		luau_TValue arguments[2]{};
+		if (!generation_dispatch || active_generation != plan.generation
+			|| !stock_native_finalize_arguments(plan, state, arguments))
+		{
+			return result_count;
+		}
+
+		AddonTraceScope trace_scope(plan.trace_attempt);
+		AddonDetailScope detail_scope(plan.detailed_trace);
+		auto target_key = plan.target_key;
+		trace_addon(state, target_key, "source.native-return",
+			"results=" + std::to_string(result_count));
+		if (result_count != 0)
+		{
+			trace_addon(
+				state, target_key, "source.reject",
+				"reason=arguments-or-native-results");
+			return result_count;
+		}
+
+		if (target_key == 0)
+		{
+			target_key = target_key_for_matcher(
+				state, arguments[1], "matchesDamageSource");
+		}
+		if (target_key == 0)
+		{
+			trace_addon(state, 0, "source.reject", "reason=no-exact-target");
+			log_native_hook_once(state, 0, "SetSourceObject.target.missing");
+			return result_count;
+		}
+		log_native_hook_once(state, target_key, "SetSourceObject.target.match");
+		if (install_addon_damage_callback(
+				state, target_key, arguments[0], arguments[1]))
+		{
+			log_native_hook_once(
+				state, target_key, "SetSourceObject.attachDamageCallback");
+			trace_addon(state, target_key, "source.attach-return");
+		}
+		else trace_addon(state, target_key, "source.attach-failed");
+		trace_addon(state, target_key, "source.return");
 	}
-	log_native_hook_once(state, target_key, "SetSourceObject.target.match");
-	if (install_addon_damage_callback(
-		state, target_key, receiver, source_ability))
-	{
-		log_native_hook_once(state, target_key, "SetSourceObject.attachDamageCallback");
-		trace_addon(state, target_key, "source.attach-return");
-	}
-	else trace_addon(state, target_key, "source.attach-failed");
-	trace_addon(state, target_key, "source.return");
 	return result_count;
 }
 
@@ -5530,40 +7661,79 @@ int set_damage_callback_adapter(luau_State* state)
 		? reinterpret_cast<luau_CFunction>(set_damage_callback_native_hook.original)
 		: original_set_damage_callback;
 	if (original == nullptr) return 0;
-	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
-	if (!generation_dispatch) return original(state);
-	if (state == nullptr || !target_snapshot_requests_native_damage(
-		state->global_state))
+
+	prepare_stock_native_finalize_entry(state);
+	const auto previous_boundary = active_stock_native_finalize;
+	ActiveStockNativeFinalize plan;
 	{
-		return original(state);
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		if (generation_dispatch && state != nullptr && state->intop != nullptr
+			&& target_snapshot_requests_native_damage(state->global_state)
+			&& luau_gettop(state) >= 2)
+		{
+			AddonTraceScope trace_scope;
+			const auto trace_attempt = addon_trace_attempt;
+			log_native_hook_once(state, 0, "SetDamageCallback.detour-entry");
+			auto target_key = target_key_for_published_closure(
+				state, state->intop[1]);
+			if (target_key == 0)
+				target_key = target_key_for_active_call_stack(state);
+			plan = make_stock_native_finalize(
+				StockNativeFinalizeKind::set_damage_callback,
+				state, active_generation, target_key, trace_attempt, true);
+		}
 	}
-	AddonTraceScope trace_scope;
-	log_native_hook_once(state, 0, "SetDamageCallback.detour-entry");
-	const bool valid = state && state->intop && luau_gettop(state) >= 2;
-	const luau_TValue arguments[]{valid ? state->intop[0] : luau_TValue{},
-		valid ? state->intop[1] : luau_TValue{}};
-	std::uint64_t target_key = 0;
-	if (valid)
-	{
-		target_key = target_key_for_published_closure(state, arguments[1]);
-		if (!target_key) target_key = target_key_for_active_call_stack(state);
-	}
+	if (plan.active) active_stock_native_finalize = plan;
+
 	// First perform the exact stock request. A failed optional decoration must
-	// leave this callback installed, not change its argument to a C closure.
-	const int result_count = original ? original(state) : 0;
-	if (!valid || result_count != 0 || !target_key) return result_count;
-	const auto base_offset = luau_savestack(state, state->outtop);
-	luau_TValue callback{}, ignored{};
-	if (call_callback_runtime(state, target_key, "commitOriginal", arguments, ignored)
-		&& call_callback_runtime(state, target_key, "prepareOriginal", arguments, callback))
+	// leave this callback installed. This call is intentionally naked.
+	const int result_count = original(state);
+
+	if (plan.active)
 	{
-		if (callback.value.as_uintptr == arguments[1].value.as_uintptr)
-			trace_addon(state, target_key, "damage.stock.deferred", "reason=no-source-association stock-preserved=1");
-		else if (set_damage_callback_protected(state, target_key, arguments[0], callback))
-			trace_addon(state, target_key, "damage.stock.attached", "stock-preserved=1");
-		else trace_addon(state, target_key, "damage.stock.attach-failed", "stock-preserved=1");
+		finish_stock_native_finalize(plan.token, previous_boundary, state);
 	}
-	state->outtop = luau_restorestack(state, base_offset);
+	if (!plan.active) return result_count;
+
+	{
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		luau_TValue arguments[2]{};
+		if (!generation_dispatch || active_generation != plan.generation
+			|| plan.target_key == 0 || result_count != 0
+			|| !stock_native_finalize_arguments(plan, state, arguments))
+		{
+			return result_count;
+		}
+		AddonTraceScope trace_scope(plan.trace_attempt);
+		const auto base_offset = luau_savestack(state, state->outtop);
+		luau_TValue callback{}, ignored{};
+		CallbackRuntimeResultRoot callback_root;
+		if (call_callback_runtime(
+				state, plan.target_key, "commitOriginal", arguments, ignored)
+			&& call_callback_runtime(
+				state, plan.target_key, "prepareOriginal", arguments, callback,
+				&callback_root))
+		{
+			if (callback.value.as_uintptr == arguments[1].value.as_uintptr)
+			{
+				clear_or_defer_callback_runtime_result_root(state, callback_root);
+				trace_addon(
+					state, plan.target_key, "damage.stock.deferred",
+					"reason=no-source-association stock-preserved=1");
+			}
+			else if (set_damage_callback_protected(
+					state, plan.target_key, arguments[0], callback, callback_root))
+				trace_addon(
+					state, plan.target_key, "damage.stock.attached",
+					"stock-preserved=1");
+			else trace_addon(
+				state, plan.target_key, "damage.stock.attach-failed",
+				"stock-preserved=1");
+		}
+		if (callback_root.active)
+			clear_or_defer_callback_runtime_result_root(state, callback_root);
+		state->outtop = luau_restorestack(state, base_offset);
+	}
 	return result_count;
 }
 
@@ -5634,39 +7804,420 @@ luau_TValue target_diagnostic_trace_callback_value(
 	return result;
 }
 
-// The VM execution hook is inside a stock Lua frame. Execute inserted Lua API
-// work through a real protected C frame; changing L->base alone would be undone
-// by nested pcall and would misrepresent the parent's register window.
-struct LuaCallPhaseContext {
-    luau_State* state;
-    const TargetLuaCall* call;
-    const char* phase;
-    std::vector<luau_TValue>* arguments;
-    std::ptrdiff_t stock_base_offset;
-    int stock_argument_count;
-    const char* argument_root_key;
-    bool* argument_root_created;
-    bool result = false;
-};
-thread_local LuaCallPhaseContext* lua_call_phase_context = nullptr;
-
-bool dispatch_lua_call_phase_impl(
-	luau_State* state,
-	const TargetLuaCall& call,
-	const char* phase,
-	std::vector<luau_TValue>& arguments
-)
+enum class LuaCallBeforeLeafStage : std::uint8_t
 {
-	if (lua_call_hook_running) return true;
-	if (!call.callsite.exact || call.closure == nullptr || call.closure->isC
-		|| state == nullptr || state->outtop == nullptr || check_stack == nullptr
-		|| luau_createtable == nullptr || phase == nullptr)
+	none,
+	reserve_stack,
+	create_arguments_table,
+	write_argument,
+	create_upvalues_table,
+	write_upvalue,
+	lookup_provider,
+	invoke_provider,
+	read_argument,
+	read_upvalue,
+};
+
+struct LuaCallBeforeLeafContext
+{
+	std::ptrdiff_t base_offset = 0;
+	std::int32_t prototype = -1;
+	const char* const* provider_registry_keys = nullptr;
+	std::size_t provider_count = 0;
+	const luau_TValue* stock_arguments = nullptr;
+	std::size_t argument_count = 0;
+	const luau_TValue* stock_upvalues = nullptr;
+	std::size_t upvalue_count = 0;
+	luau_TValue* candidate_arguments = nullptr;
+	luau_TValue* candidate_upvalues = nullptr;
+	const char* trace_registry_key = nullptr;
+	bool trace_requested = false;
+	bool trace_available = false;
+	bool invoked = false;
+	bool completed = false;
+	LuaCallBeforeLeafStage stage = LuaCallBeforeLeafStage::none;
+	std::size_t failure_index = 0;
+	int callback_status = 0;
+};
+static_assert(std::is_trivially_copyable_v<LuaCallBeforeLeafContext>);
+
+// BEGIN LUA_CALL_BEFORE_PROTECTED_LEAF
+// Everything in this region runs below DE's raw protected boundary. These
+// helpers intentionally own only scalar values, raw pointers, and TValues: a
+// DE Luau error longjmps out of this region and skips C++ destructors here.
+bool lua_call_before_leaf_reserve(luau_State* state, int slots)
+{
+	return state != nullptr && check_stack != nullptr && slots >= 0
+		&& check_stack(state, slots) != 0;
+}
+
+bool lua_call_before_leaf_push_value(
+	luau_State* state,
+	const luau_TValue& value)
+{
+	if (state == nullptr || state->outtop == nullptr || gc_barrierback == nullptr
+		|| !lua_call_before_leaf_reserve(state, 1)
+		|| state->outtop >= state->stack_last)
 	{
 		return false;
 	}
+	if ((state->marked & native_gc_black_mask_u43) != 0)
+	{
+		gc_barrierback(
+			state, reinterpret_cast<luau_GCObject*>(state), &state->gclist);
+	}
+	*state->outtop = value;
+	++state->outtop;
+	return true;
+}
+
+bool lua_call_before_leaf_push_number(luau_State* state, float value)
+{
+	if (state == nullptr || state->outtop == nullptr
+		|| !lua_call_before_leaf_reserve(state, 1)
+		|| state->outtop >= state->stack_last)
+	{
+		return false;
+	}
+	state->outtop->value.as_float = value;
+	state->outtop->type = LUAU_NUMBER;
+	++state->outtop;
+	return true;
+}
+
+bool lua_call_before_leaf_set_array(
+	luau_State* state,
+	int table_index,
+	std::size_t index,
+	const luau_TValue& value)
+{
+	if (luau_settable == nullptr || index > (1u << 24)
+		|| !lua_call_before_leaf_push_number(state, static_cast<float>(index))
+		|| !lua_call_before_leaf_push_value(state, value))
+	{
+		return false;
+	}
+	luau_settable(state, table_index < 0 ? table_index - 2 : table_index);
+	return true;
+}
+
+bool lua_call_before_leaf_get_array(
+	luau_State* state,
+	int table_index,
+	std::size_t index,
+	luau_TValue* output)
+{
+	if (state == nullptr || state->outtop == nullptr || output == nullptr
+		|| luau_gettable == nullptr || index > (1u << 24))
+	{
+		return false;
+	}
+	const auto saved_top = luau_savestack(state, state->outtop);
+	if (!lua_call_before_leaf_push_number(state, static_cast<float>(index)))
+		return false;
+	luau_gettable(state, table_index < 0 ? table_index - 1 : table_index);
+	auto* const base = luau_restorestack(state, saved_top);
+	if (state->outtop != base + 1) return false;
+	*output = *base;
+	state->outtop = base;
+	return true;
+}
+
+bool lua_call_before_leaf_provider(
+	luau_State* state,
+	const char* registry_key,
+	std::int32_t prototype,
+	luau_TValue* output)
+{
+	if (state == nullptr || state->outtop == nullptr || registry_key == nullptr
+		|| output == nullptr || getfield == nullptr || luau_gettable == nullptr
+		|| prototype < 0)
+	{
+		return false;
+	}
+	const auto saved_top = luau_savestack(state, state->outtop);
+	getfield(state, -10000, registry_key);
+	auto* base = luau_restorestack(state, saved_top);
+	if (!is_table(base->type)) { state->outtop = base; return false; }
+	getfield(state, -1, "hooks");
+	base = luau_restorestack(state, saved_top);
+	if (!is_table((base + 1)->type)) { state->outtop = base; return false; }
+	getfield(state, -1, "luaCalls");
+	base = luau_restorestack(state, saved_top);
+	if (!is_table((base + 2)->type)) { state->outtop = base; return false; }
+	if (!lua_call_before_leaf_push_number(state, static_cast<float>(prototype)))
+	{
+		state->outtop = base;
+		return false;
+	}
+	luau_gettable(state, -2);
+	base = luau_restorestack(state, saved_top);
+	if (!is_table((base + 3)->type)) { state->outtop = base; return false; }
+	getfield(state, -1, "before");
+	base = luau_restorestack(state, saved_top);
+	if (!is_function((base + 4)->type)) { state->outtop = base; return false; }
+	*output = *(base + 4);
+	state->outtop = base;
+	return true;
+}
+
+luau_TValue lua_call_before_leaf_trace(
+	luau_State* state,
+	LuaCallBeforeLeafContext* context)
+{
+	luau_TValue result{};
+	result.type = LUAU_NIL;
+	if (state == nullptr || context == nullptr || !context->trace_requested
+		|| context->trace_registry_key == nullptr || getfield == nullptr)
+	{
+		return result;
+	}
+	const auto saved_top = luau_savestack(state, state->outtop);
+	getfield(state, -10000, context->trace_registry_key);
+	auto* base = luau_restorestack(state, saved_top);
+	luau_Closure* closure = nullptr;
+	if (readable_lua_closure(*base, closure) && closure->isC
+		&& closure->c.func == &diagnostic_trace_bridge)
+	{
+		result = *base;
+		context->trace_available = true;
+		state->outtop = base;
+		return result;
+	}
+	state->outtop = base;
+
+	if (wf_hash != nullptr && luau_gettable != nullptr
+		&& lua_call_before_leaf_reserve(state, 1))
+	{
+		base = luau_restorestack(state, saved_top);
+		base->value.as_bool = wf_hash("_T");
+		base->type = LUAU_BOOL;
+		state->outtop = base + 1;
+		luau_gettable(state, -10002);
+	}
+	else
+	{
+		getfield(state, -10002, "_T");
+	}
+	base = luau_restorestack(state, saved_top);
+	if (state->outtop == base + 1 && is_table(base->type))
+	{
+		getfield(state, -1, "RENOVICE_TRACE");
+		base = luau_restorestack(state, saved_top);
+		closure = nullptr;
+		if (state->outtop == base + 2
+			&& readable_lua_closure(*(base + 1), closure) && closure->isC
+			&& closure->c.func == &diagnostic_trace_bridge)
+		{
+			result = *(base + 1);
+			context->trace_available = true;
+		}
+	}
+	state->outtop = luau_restorestack(state, saved_top);
+	return result;
+}
+
+void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<LuaCallBeforeLeafContext*>(raw_context);
+	if (state == nullptr || context == nullptr || luau_createtable == nullptr
+		|| protected_call == nullptr || context->prototype < 0
+		|| context->provider_registry_keys == nullptr
+		|| (context->argument_count != 0
+			&& (context->stock_arguments == nullptr
+				|| context->candidate_arguments == nullptr))
+		|| (context->upvalue_count != 0
+			&& (context->stock_upvalues == nullptr
+				|| context->candidate_upvalues == nullptr)))
+	{
+		return;
+	}
+
+	context->stage = LuaCallBeforeLeafStage::reserve_stack;
+	if (!lua_call_before_leaf_reserve(state, 16)) return;
+	state->outtop = luau_restorestack(state, context->base_offset);
+
+	context->stage = LuaCallBeforeLeafStage::create_arguments_table;
+	luau_createtable(state, static_cast<int>(context->argument_count), 0);
+	for (std::size_t index = 0; index != context->argument_count; ++index)
+	{
+		context->stage = LuaCallBeforeLeafStage::write_argument;
+		context->failure_index = index;
+		if (!lua_call_before_leaf_set_array(
+				state, -1, index + 1, context->stock_arguments[index])) return;
+	}
+	const auto arguments_table_offset = luau_savestack(state, state->outtop - 1);
+
+	context->stage = LuaCallBeforeLeafStage::create_upvalues_table;
+	luau_createtable(state, static_cast<int>(context->upvalue_count), 0);
+	for (std::size_t index = 0; index != context->upvalue_count; ++index)
+	{
+		context->stage = LuaCallBeforeLeafStage::write_upvalue;
+		context->failure_index = index;
+		if (!lua_call_before_leaf_set_array(
+				state, -1, index + 1, context->stock_upvalues[index])) return;
+	}
+	const auto upvalues_table_offset = luau_savestack(state, state->outtop - 1);
+
+	for (std::size_t index = 0; index != context->provider_count; ++index)
+	{
+		context->stage = LuaCallBeforeLeafStage::lookup_provider;
+		context->failure_index = index;
+		luau_TValue callback{};
+		if (!lua_call_before_leaf_provider(
+				state, context->provider_registry_keys[index],
+				context->prototype, &callback))
+		{
+			continue;
+		}
+		context->invoked = true;
+
+		luau_TValue callback_arguments[4]{};
+		callback_arguments[0].type = LUAU_NUMBER;
+		callback_arguments[0].value.as_float =
+			static_cast<float>(context->prototype);
+		callback_arguments[1] = *luau_restorestack(
+			state, arguments_table_offset);
+		callback_arguments[2] = *luau_restorestack(
+			state, upvalues_table_offset);
+		callback_arguments[3] = lua_call_before_leaf_trace(state, context);
+
+		context->stage = LuaCallBeforeLeafStage::invoke_provider;
+		const auto callback_base_offset = luau_savestack(state, state->outtop);
+		if (!lua_call_before_leaf_push_value(state, callback)) return;
+		for (std::size_t argument = 0; argument != 4; ++argument)
+		{
+			if (!lua_call_before_leaf_push_value(
+					state, callback_arguments[argument])) return;
+		}
+		state->interrupt_count = 0;
+		context->callback_status = protected_call(state, 4, 0, 0);
+		state->outtop = luau_restorestack(state, callback_base_offset);
+		if (context->callback_status != 0) return;
+	}
+
+	if (!context->invoked)
+	{
+		context->stage = LuaCallBeforeLeafStage::none;
+		context->completed = true;
+		return;
+	}
+	for (std::size_t index = 0; index != context->argument_count; ++index)
+	{
+		context->stage = LuaCallBeforeLeafStage::read_argument;
+		context->failure_index = index;
+		state->outtop = luau_restorestack(state, arguments_table_offset) + 1;
+		if (!lua_call_before_leaf_get_array(
+				state, -1, index + 1, &context->candidate_arguments[index])) return;
+	}
+	for (std::size_t index = 0; index != context->upvalue_count; ++index)
+	{
+		context->stage = LuaCallBeforeLeafStage::read_upvalue;
+		context->failure_index = index;
+		state->outtop = luau_restorestack(state, upvalues_table_offset) + 1;
+		if (!lua_call_before_leaf_get_array(
+				state, -1, index + 1, &context->candidate_upvalues[index])) return;
+	}
+	context->stage = LuaCallBeforeLeafStage::none;
+	context->completed = true;
+}
+// END LUA_CALL_BEFORE_PROTECTED_LEAF
+
+const char* lua_call_before_leaf_stage_label(
+	LuaCallBeforeLeafStage stage) noexcept
+{
+	switch (stage)
+	{
+	case LuaCallBeforeLeafStage::none: return "none";
+	case LuaCallBeforeLeafStage::reserve_stack: return "reserve-stack";
+	case LuaCallBeforeLeafStage::create_arguments_table: return "create-arguments-table";
+	case LuaCallBeforeLeafStage::write_argument: return "write-argument";
+	case LuaCallBeforeLeafStage::create_upvalues_table: return "create-upvalues-table";
+	case LuaCallBeforeLeafStage::write_upvalue: return "write-upvalue";
+	case LuaCallBeforeLeafStage::lookup_provider: return "lookup-provider";
+	case LuaCallBeforeLeafStage::invoke_provider: return "invoke-provider";
+	case LuaCallBeforeLeafStage::read_argument: return "read-argument";
+	case LuaCallBeforeLeafStage::read_upvalue: return "read-upvalue";
+	}
+	return "unknown";
+}
+
+bool lua_call_stack_span_is_live(
+	const luau_State* state,
+	std::ptrdiff_t offset,
+	std::size_t count) noexcept
+{
+	if (state == nullptr || state->stack == nullptr || state->stack_last == nullptr
+		|| offset < 0) return false;
+	const auto begin = reinterpret_cast<std::uintptr_t>(state->stack);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->stack_last);
+	const auto byte_offset = static_cast<std::uintptr_t>(offset);
+	if (end < begin || byte_offset > end - begin
+		|| byte_offset % alignof(luau_TValue) != 0) return false;
+	const auto remaining = end - begin - byte_offset;
+	return count <= remaining / sizeof(luau_TValue);
+}
+
+bool lua_call_frame_offset_is_live(
+	const luau_State* state,
+	std::ptrdiff_t offset) noexcept
+{
+	if (state == nullptr || state->base_ci == nullptr || state->end_ci == nullptr
+		|| offset < 0) return false;
+	const auto begin = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	const auto byte_offset = static_cast<std::uintptr_t>(offset);
+	return end >= begin && byte_offset <= end - begin
+		&& byte_offset % alignof(luau_CallInfo) == 0
+		&& sizeof(luau_CallInfo) <= end - begin - byte_offset;
+}
+
+bool dispatch_lua_call_phase(
+	luau_State* state,
+	const TargetLuaCall& call,
+	const char* phase,
+	std::vector<luau_TValue>& arguments,
+	luau_TValue* stock_argument_base)
+{
+	if (lua_call_hook_running) return true;
+	if (!call.callsite.exact || call.closure == nullptr || call.closure->isC
+		|| state == nullptr || state->stack == nullptr || state->stack_last == nullptr
+		|| state->intop == nullptr || state->outtop == nullptr
+		|| state->ci == nullptr || state->base_ci == nullptr
+		|| state->end_ci == nullptr || state->ci->top == nullptr
+		|| check_stack == nullptr || gc_barrierback == nullptr
+		|| getfield == nullptr || luau_gettable == nullptr
+		|| luau_settable == nullptr || luau_createtable == nullptr
+		|| protected_call == nullptr || phase == nullptr
+		|| std::strcmp(phase, "before") != 0
+		|| arguments.size() > (1u << 24))
+	{
+		return false;
+	}
+
 	const auto& providers = hook_addons_snapshot(
 		call.callsite.target_key, state->global_state);
 	if (providers.empty()) return true;
+	const auto frame_begin = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	const auto frame_end = reinterpret_cast<std::uintptr_t>(state->end_ci);
+	const auto current_frame = reinterpret_cast<std::uintptr_t>(state->ci);
+	if (frame_end < frame_begin || current_frame < frame_begin
+		|| current_frame > frame_end
+		|| sizeof(luau_CallInfo) > frame_end - current_frame)
+	{
+		return false;
+	}
+	const auto original_intop_offset = luau_savestack(state, state->intop);
+	const auto base_offset = luau_savestack(state, state->outtop);
+	const auto original_frame_offset = static_cast<std::ptrdiff_t>(
+		current_frame - frame_begin);
+	const auto original_frame_limit_offset = luau_savestack(
+		state, state->ci->top);
+	const auto stock_argument_base_offset = stock_argument_base == nullptr
+		? std::ptrdiff_t{-1} : luau_savestack(state, stock_argument_base);
+	if (!lua_call_stack_span_is_live(
+			state, stock_argument_base_offset, arguments.size())) return false;
+
 	struct ScopedLuaCallHook
 	{
 		ScopedLuaCallHook() noexcept { lua_call_hook_running = true; }
@@ -5674,6 +8225,11 @@ bool dispatch_lua_call_phase_impl(
 	} hook_scope;
 	std::lock_guard execution_lock(lua_execution_mutex);
 	ScopedExecutionDepth execution_depth;
+
+	std::vector<const char*> provider_registry_keys;
+	provider_registry_keys.reserve(providers.size());
+	for (const auto& addon : providers)
+		provider_registry_keys.push_back(addon.registry_key.c_str());
 
 	std::vector<luau_TValue> stock_upvalues;
 	stock_upvalues.reserve(call.closure->nupvalues);
@@ -5683,254 +8239,450 @@ bool dispatch_lua_call_phase_impl(
 		if (slot == nullptr) return false;
 		stock_upvalues.push_back(*slot);
 	}
+	std::vector<luau_TValue> candidate_arguments(arguments.size());
+	std::vector<luau_TValue> candidate_upvalues(stock_upvalues.size());
 
-	const auto base_offset = luau_savestack(state, state->outtop);
+	const auto flags = config::flags();
+	const bool trace_requested = diagnostic_snapshot_capacity_available(flags)
+		&& flags.diagnostics_method.empty() && flags.diagnostics_addon.empty()
+		&& diagnostic_trace_selected(
+			flags, call.callsite.target_key, "target.trace.callback", {});
+	LuaCallBeforeLeafContext context;
+	context.base_offset = base_offset;
+	context.prototype = call.callsite.prototype;
+	context.provider_registry_keys = provider_registry_keys.data();
+	context.provider_count = provider_registry_keys.size();
+	context.stock_arguments = arguments.data();
+	context.argument_count = arguments.size();
+	context.stock_upvalues = stock_upvalues.data();
+	context.upvalue_count = stock_upvalues.size();
+	context.candidate_arguments = candidate_arguments.data();
+	context.candidate_upvalues = candidate_upvalues.data();
+	context.trace_registry_key = diagnostic_trace_registry_key.c_str();
+	context.trace_requested = trace_requested;
+
 	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 12);
-	luau_createtable(state, static_cast<int>(arguments.size()), 0);
-	for (std::size_t index = 0; index != arguments.size(); ++index)
-	{
-		if (!table_set_array_value(state, -1, index + 1, arguments[index]))
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-	}
-	const auto arguments_table_offset = luau_savestack(state, state->outtop - 1);
-	// Copies in a C++ vector are not GC roots. Stock execution can release its
-	// argument registers before the after hook runs; keep the snapshot alive.
-	if (std::string_view(phase) == "before" && lua_call_phase_context != nullptr)
-	{
-		push_stack_value(state, state->outtop[-1]);
-		setfield(state, -10000, lua_call_phase_context->argument_root_key);
-		*lua_call_phase_context->argument_root_created = true;
-	}
-	luau_createtable(state, static_cast<int>(stock_upvalues.size()), 0);
-	for (std::size_t index = 0; index != stock_upvalues.size(); ++index)
-	{
-		if (!table_set_array_value(state, -1, index + 1, stock_upvalues[index]))
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-	}
-	const auto upvalues_table_offset = luau_savestack(state, state->outtop - 1);
+	ScopedInjectedInterruptBudget interrupt_budget(state->interrupt_count);
+	const auto protected_result =
+		de_vm_authority::run_current_vm_protected(
+			state, &lua_call_before_protected_leaf, &context);
 
-	bool invoked = false;
-	for (const auto& addon : providers)
+	// DE's raw runner restores only its error-jump chain. The shared wrapper has
+	// already relocation-safely restored ci, ci->top, intop, and outtop here;
+	// retain the outer offsets and frame guard as an independent exact check.
+	const bool stack_offsets_live =
+		lua_call_stack_span_is_live(state, original_intop_offset, 0)
+		&& lua_call_stack_span_is_live(state, base_offset, 0)
+		&& lua_call_stack_span_is_live(
+			state, stock_argument_base_offset, arguments.size());
+	const bool frame_offset_live = lua_call_frame_offset_is_live(
+		state, original_frame_offset);
+	auto* const expected_frame = frame_offset_live
+		? reinterpret_cast<luau_CallInfo*>(
+			reinterpret_cast<char*>(state->base_ci) + original_frame_offset)
+		: nullptr;
+	const bool exact_frame_return = expected_frame != nullptr
+		&& state->ci == expected_frame;
+	if (stack_offsets_live)
 	{
-		luau_TValue callback{};
-		if (!lua_call_hook_value(
-				state, addon, call.callsite.prototype, phase, callback))
-		{
-			continue;
-		}
-		invoked = true;
-		luau_TValue callback_arguments[4]{};
-		callback_arguments[0].type = LUAU_NUMBER;
-		callback_arguments[0].value.as_float =
-			static_cast<float>(call.callsite.prototype);
-		callback_arguments[1] = *luau_restorestack(state, arguments_table_offset);
-		callback_arguments[2] = *luau_restorestack(state, upvalues_table_offset);
-		callback_arguments[lua_provider_trace_argument_index()] =
-			target_diagnostic_trace_callback_value(
-				state, call.callsite.target_key);
-		const std::string label = "luaCalls."
-			+ std::to_string(call.callsite.prototype) + '.' + phase;
-		if (!call_value(
-				state, callback, callback_arguments,
-				lua_provider_callback_argument_count(), label.c_str()))
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-	}
-	if (!invoked)
-	{
+		state->intop = luau_restorestack(state, original_intop_offset);
 		state->outtop = luau_restorestack(state, base_offset);
-		return true;
 	}
+	frame_capacity.restore();
+	const auto expected_frame_limit = (std::max)(
+		original_frame_limit_offset, base_offset);
+	const bool exact_frame_limit = exact_frame_return
+		&& lua_call_stack_span_is_live(state, expected_frame_limit, 0)
+		&& state->ci->top == luau_restorestack(state, expected_frame_limit);
+	if (!stack_offsets_live || !exact_frame_return || !exact_frame_limit)
+		return false;
+	auto* const live_argument_base = luau_restorestack(
+		state, stock_argument_base_offset);
 
-	const bool before_phase = std::string_view(phase) == "before";
-	std::vector<luau_TValue> transformed_arguments(arguments.size());
-	for (std::size_t index = 0; index != transformed_arguments.size(); ++index)
+	std::vector<luau_TValue*> live_upvalue_slots(
+		stock_upvalues.size(), nullptr);
+	bool live_stock_exact = true;
+	for (std::size_t index = 0; index != live_upvalue_slots.size(); ++index)
 	{
-		state->outtop = luau_restorestack(state, arguments_table_offset) + 1;
-		if (!table_get_array_value(
-				state, -1, index + 1, transformed_arguments[index]))
+		live_upvalue_slots[index] = writable_upvalue_slot(call.closure, index);
+		if (live_upvalue_slots[index] == nullptr
+			|| !same_lua_value(*live_upvalue_slots[index], stock_upvalues[index]))
 		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
+			live_stock_exact = false;
 		}
-		if (!same_lua_value(arguments[index], transformed_arguments[index])
-			&& !target_lua_argument_mutation_allowed(
-				before_phase,
-				arguments[index].type,
-				transformed_arguments[index].type,
-				transformed_arguments[index].type == LUAU_NUMBER
-					&& std::isfinite(transformed_arguments[index].value.as_float)))
+	}
+	for (std::size_t index = 0; index != arguments.size(); ++index)
+		if (!same_lua_value(live_argument_base[index], arguments[index]))
+			live_stock_exact = false;
+
+	const auto restore_stock = [&]() noexcept
+	{
+		for (std::size_t index = 0; index != arguments.size(); ++index)
+			live_argument_base[index] = arguments[index];
+		for (std::size_t index = 0; index != live_upvalue_slots.size(); ++index)
+			if (live_upvalue_slots[index] != nullptr)
+				*live_upvalue_slots[index] = stock_upvalues[index];
+	};
+	if (!protected_result.admitted || !protected_result.restored
+		|| protected_result.status != 0
+		|| !context.completed || !live_stock_exact)
+	{
+		restore_stock();
+		static std::atomic<std::uint64_t> errors = 0;
+		const auto sequence = errors.fetch_add(1, std::memory_order_relaxed) + 1;
+		if (sample_vm_host_error(sequence))
 		{
+			std::ostringstream failure;
+			failure << "RENOVICE luaCalls.before protected leaf FAIL key=0x"
+				<< std::hex << call.callsite.target_key << std::dec
+				<< " prototype=" << call.callsite.prototype
+				<< " admitted=" << protected_result.admitted
+				<< " restored=" << protected_result.restored
+				<< " raw_status=" << protected_result.status
+				<< " stage=" << lua_call_before_leaf_stage_label(context.stage)
+				<< " index=" << context.failure_index
+				<< " callback_status=" << context.callback_status
+				<< " stock_exact=" << live_stock_exact
+				<< " occurrence=" << sequence
+				<< " stock-restored=1";
+			config::log(failure.str());
+		}
+		return false;
+	}
+	if (!context.invoked) return true;
+
+	for (std::size_t index = 0; index != candidate_arguments.size(); ++index)
+	{
+		if (same_lua_value(arguments[index], candidate_arguments[index])) continue;
+		if (!target_lua_argument_mutation_allowed(
+				true, arguments[index].type, candidate_arguments[index].type,
+				candidate_arguments[index].type == LUAU_NUMBER
+					&& std::isfinite(candidate_arguments[index].value.as_float)))
+		{
+			restore_stock();
 			std::ostringstream failure;
 			failure << "RENOVICE luaCalls mutation rejected key=0x" << std::hex
 				<< call.callsite.target_key << std::dec
 				<< " prototype=" << call.callsite.prototype
-				<< " phase=" << phase << " argument=" << (index + 1)
+				<< " phase=before argument=" << (index + 1)
 				<< " original_tag=" << arguments[index].type
-				<< " candidate_tag=" << transformed_arguments[index].type;
+				<< " candidate_tag=" << candidate_arguments[index].type;
 			config::log(failure.str());
-			state->outtop = luau_restorestack(state, base_offset);
 			return false;
 		}
 	}
-
-	std::vector<luau_TValue> transformed_upvalues(stock_upvalues.size());
-	for (std::size_t index = 0; index != transformed_upvalues.size(); ++index)
+	for (std::size_t index = 0; index != candidate_upvalues.size(); ++index)
 	{
-		state->outtop = luau_restorestack(state, upvalues_table_offset) + 1;
-		if (!table_get_array_value(
-				state, -1, index + 1, transformed_upvalues[index]))
+		if (same_lua_value(stock_upvalues[index], candidate_upvalues[index])) continue;
+		if (!target_lua_scalar_mutation_allowed(
+				stock_upvalues[index].type, candidate_upvalues[index].type,
+				candidate_upvalues[index].type == LUAU_NUMBER
+					&& std::isfinite(candidate_upvalues[index].value.as_float)))
 		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-		if (!same_lua_value(stock_upvalues[index], transformed_upvalues[index])
-			&& !target_lua_scalar_mutation_allowed(
-				stock_upvalues[index].type,
-				transformed_upvalues[index].type,
-				transformed_upvalues[index].type == LUAU_NUMBER
-					&& std::isfinite(transformed_upvalues[index].value.as_float)))
-		{
+			restore_stock();
 			std::ostringstream failure;
 			failure << "RENOVICE luaCalls mutation rejected key=0x" << std::hex
 				<< call.callsite.target_key << std::dec
 				<< " prototype=" << call.callsite.prototype
-				<< " phase=" << phase << " upvalue=" << (index + 1)
+				<< " phase=before upvalue=" << (index + 1)
 				<< " original_tag=" << stock_upvalues[index].type
-				<< " candidate_tag=" << transformed_upvalues[index].type;
+				<< " candidate_tag=" << candidate_upvalues[index].type;
 			config::log(failure.str());
-			state->outtop = luau_restorestack(state, base_offset);
 			return false;
 		}
 	}
-	state->outtop = luau_restorestack(state, base_offset);
-	if (before_phase)
+
+	for (std::size_t index = 0; index != candidate_upvalues.size(); ++index)
+		*live_upvalue_slots[index] = candidate_upvalues[index];
+	for (std::size_t index = 0; index != candidate_arguments.size(); ++index)
 	{
-		const auto* context = lua_call_phase_context;
-		const int live_argument_count = context != nullptr ? context->stock_argument_count : -1;
-		if (live_argument_count < 0
-			|| static_cast<std::size_t>(live_argument_count) != arguments.size()
-			|| context->state != state)
-		{
-			return false;
-		}
+		live_argument_base[index] = candidate_arguments[index];
+		arguments[index] = candidate_arguments[index];
 	}
-	std::vector<luau_TValue*> transformed_upvalue_slots(
-		transformed_upvalues.size(), nullptr);
-	for (std::size_t index = 0; index != transformed_upvalues.size(); ++index)
+	if (trace_requested && !context.trace_available
+		&& !diagnostic_trace_callback_failure_logged.exchange(
+			true, std::memory_order_relaxed))
 	{
-		if (same_lua_value(stock_upvalues[index], transformed_upvalues[index])) continue;
-		transformed_upvalue_slots[index] = writable_upvalue_slot(call.closure, index);
-		if (transformed_upvalue_slots[index] == nullptr)
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
+		config::diagnostic_log(
+			"RENOVICE target trace callback unavailable in luaCalls.before protected leaf",
+			config::DiagnosticsMode::errors);
 	}
-	for (std::size_t index = 0; index != transformed_upvalues.size(); ++index)
-	{
-		if (transformed_upvalue_slots[index] == nullptr) continue;
-		*transformed_upvalue_slots[index] = transformed_upvalues[index];
-	}
-	if (before_phase)
-	{
-		for (std::size_t index = 0; index != transformed_arguments.size(); ++index)
-		{
-			if (same_lua_value(arguments[index], transformed_arguments[index])) continue;
-			luau_restorestack(state, lua_call_phase_context->stock_base_offset)[index] = transformed_arguments[index];
-			arguments[index] = transformed_arguments[index];
-		}
-	}
-	state->outtop = luau_restorestack(state, base_offset);
 	const std::string event = "luaCalls."
-		+ std::to_string(call.callsite.prototype) + '.' + phase;
+		+ std::to_string(call.callsite.prototype) + ".before";
 	log_native_hook_once(state, call.callsite.target_key, event.c_str());
 	return true;
 }
 
-int protected_lua_call_phase_callback(luau_State* state)
+enum class NativeCallPhaseLeafStage : std::uint8_t
 {
-    auto* context = lua_call_phase_context;
-    if (context == nullptr || context->state != state) return 0;
-    context->result = dispatch_lua_call_phase_impl(
-        state, *context->call, context->phase, *context->arguments);
-    return 0;
+	none,
+	reserve_stack,
+	create_arguments_table,
+	write_argument,
+	create_results_table,
+	write_result,
+	lookup_trace,
+	lookup_provider,
+	invoke_provider,
+	read_value,
+};
+
+struct NativeCallPhaseLeafContext
+{
+	std::ptrdiff_t base_offset = 0;
+	std::int32_t prototype = -1;
+	std::uint32_t instruction = 0;
+	const char* method_name = nullptr;
+	const char* phase = nullptr;
+	const char* trace_registry_key = nullptr;
+	const char* const* provider_registry_keys = nullptr;
+	std::uint8_t* provider_invoked = nullptr;
+	std::size_t provider_count = 0;
+	const luau_TValue* arguments = nullptr;
+	std::size_t argument_count = 0;
+	const luau_TValue* results = nullptr;
+	std::size_t result_count = 0;
+	luau_TValue* transformed = nullptr;
+	bool after_phase = false;
+	bool trace_requested = false;
+	bool trace_available = false;
+	bool invoked = false;
+	bool completed = false;
+	NativeCallPhaseLeafStage stage = NativeCallPhaseLeafStage::none;
+	std::size_t failure_index = 0;
+	int callback_status = 0;
+};
+static_assert(std::is_trivially_copyable_v<NativeCallPhaseLeafContext>);
+
+// BEGIN NATIVE_CALL_PHASE_PROTECTED_LEAF
+// The raw runner can escape any VM primitive below through DE's longjmp.  This
+// leaf therefore owns no mutex, lease, string, vector, smart pointer, or other
+// destructor-dependent C++ state.  Every pointer targets storage retained by
+// the outer transaction until run_current_vm_protected returns.
+bool native_call_phase_leaf_set_array(
+	luau_State* state,
+	std::ptrdiff_t table_offset,
+	std::size_t index,
+	const luau_TValue& value) noexcept
+{
+	if (state == nullptr || luau_settable == nullptr || index > (1u << 24)
+		|| !lua_call_stack_span_is_live(state, table_offset, 1)) return false;
+	state->outtop = luau_restorestack(state, table_offset) + 1;
+	if (!lua_call_before_leaf_push_number(state, static_cast<float>(index))
+		|| !lua_call_before_leaf_push_value(state, value)) return false;
+	luau_settable(state, -3);
+	return true;
 }
 
-bool dispatch_lua_call_phase(
-    luau_State* state, const TargetLuaCall& call, const char* phase,
-    std::vector<luau_TValue>& arguments, const char* argument_root_key, bool* argument_root_created)
+bool native_call_phase_leaf_get_array(
+	luau_State* state,
+	std::ptrdiff_t table_offset,
+	std::size_t index,
+	luau_TValue& value) noexcept
 {
-    if (lua_call_hook_running) return true;
-    if (state == nullptr || state->stack == nullptr || state->intop == nullptr
-        || state->outtop == nullptr || check_stack == nullptr || getfield == nullptr
-        || setfield == nullptr || luau_pushcclosurek == nullptr || protected_call == nullptr)
-        return false;
-    LuaCallPhaseContext context{state, &call, phase, &arguments,
-        luau_savestack(state, state->intop), luau_gettop(state), argument_root_key, argument_root_created};
-    const auto top_offset = luau_savestack(state, state->outtop);
-    ScopedVmApiFrame frame_capacity(state);
-    // Only two slots in the stock frame. The provider's tables and callbacks
-    // execute in the VM-created C frame, whose base/CallInfo agree throughout GC.
-    if (!check_stack(state, 2)) {
-        config::log("RENOVICE VM_FRAME build=V95 event=host-frame-entry-rejected slots=2 stock-frame-preserved=1");
-        return false;
-    }
-    static constexpr const char* registry_key = "RENOVICE_LuaCallHostFrame_V95";
-    getfield(state, -10000, registry_key);
-    luau_Closure* closure = nullptr;
-    if (!readable_lua_closure(state->outtop[-1], closure) || !closure->isC
-        || closure->c.func != &protected_lua_call_phase_callback) {
-        state->outtop = luau_restorestack(state, top_offset);
-        luau_pushcclosurek(state, &protected_lua_call_phase_callback,
-            "RENOVICE protected Lua-call host frame", 0, nullptr);
-        push_stack_value(state, state->outtop[-1]);
-        setfield(state, -10000, registry_key); // keep one copy as the callable
-    }
-    struct ScopedContext {
-        LuaCallPhaseContext* previous;
-        explicit ScopedContext(LuaCallPhaseContext* value) noexcept
-            : previous(lua_call_phase_context) { lua_call_phase_context = value; }
-        ~ScopedContext() noexcept { lua_call_phase_context = previous; }
-    } context_scope(&context);
-    const int status = protected_callback_call(state, 0, 0, 0, "luaCalls.host-frame");
-    // Native pcall leaves its error at the saved call slot. Decode it before
-    // restoring top; querying error-table fields here could throw another error.
-    if (status != 0) {
-        static std::atomic<std::uint64_t> errors = 0;
-        const auto sequence = errors.fetch_add(1, std::memory_order_relaxed) + 1;
-        if (sample_vm_host_error(sequence)) {
-            try {
-                std::ostringstream out;
-                out << "RENOVICE VM_FRAME build=V96 event=host-callback-error pid="
-                    << GetCurrentProcessId() << " vm=" << state->global_state
-                    << " thread=" << GetCurrentThreadId() << " tick_ms=" << GetTickCount64()
-                    << " key=0x" << std::hex << call.callsite.target_key << std::dec
-                    << " prototype=" << call.callsite.prototype << " phase=" << phase
-                    << " pcall=" << status << " occurrence=" << sequence;
-                const auto* error = luau_restorestack(state, top_offset);
-                if (state->outtop != nullptr && state->outtop > error)
-                    append_error_value(out, "error", *error);
-                else out << " error_result=missing";
-                out << " stock-frame-restored-on-return=1";
-                config::log(out.str());
-            } catch (...) { config::log("RENOVICE VM_FRAME build=V96 event=host-error-format-failed stock-recovery-retained=1"); }
-        } else if (sequence == 9) {
-            config::log("RENOVICE VM_FRAME build=V96 event=host-error-suppression after=8 policy=powers-of-two decoded-context-retained=1");
-        }
-    }
-    state->intop = luau_restorestack(state, context.stock_base_offset);
-    state->outtop = luau_restorestack(state, top_offset);
-    return status == 0 && context.result;
+	value = {};
+	if (state == nullptr || luau_gettable == nullptr || index > (1u << 24)
+		|| !lua_call_stack_span_is_live(state, table_offset, 1)) return false;
+	state->outtop = luau_restorestack(state, table_offset) + 1;
+	if (!lua_call_before_leaf_push_number(state, static_cast<float>(index))) return false;
+	luau_gettable(state, -2);
+	if (state->outtop == nullptr || state->outtop <= state->stack) return false;
+	value = state->outtop[-1];
+	return true;
+}
+
+bool native_call_phase_leaf_callback(
+	luau_State* state,
+	std::ptrdiff_t lookup_base_offset,
+	const char* registry_key,
+	const char* method_name,
+	const char* phase,
+	luau_TValue& callback) noexcept
+{
+	callback = {};
+	callback.type = LUAU_NIL;
+	if (state == nullptr || getfield == nullptr || registry_key == nullptr
+		|| method_name == nullptr || phase == nullptr
+		|| !lua_call_stack_span_is_live(state, lookup_base_offset, 0)) return false;
+	state->outtop = luau_restorestack(state, lookup_base_offset);
+	getfield(state, -10000, registry_key);
+	auto* const base = luau_restorestack(state, lookup_base_offset);
+	if (!is_table(base[0].type)) return false;
+	getfield(state, -1, "hooks");
+	if (!is_table(base[1].type)) return false;
+	getfield(state, -1, "nativeCalls");
+	if (!is_table(base[2].type)) return false;
+	getfield(state, -1, method_name);
+	if (!is_table(base[3].type)) return false;
+	getfield(state, -1, phase);
+	if (!is_function(base[4].type)) return false;
+	callback = base[4];
+	return true;
+}
+
+void native_call_phase_protected_leaf(luau_State* state, void* opaque)
+{
+	auto* const context = static_cast<NativeCallPhaseLeafContext*>(opaque);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| state->stack == nullptr || state->stack_last == nullptr
+		|| check_stack == nullptr || gc_barrierback == nullptr
+		|| getfield == nullptr || luau_gettable == nullptr
+		|| luau_settable == nullptr || luau_createtable == nullptr
+		|| protected_call == nullptr || context->method_name == nullptr
+		|| context->phase == nullptr || context->provider_registry_keys == nullptr
+		|| (context->provider_count != 0 && context->provider_invoked == nullptr)
+		|| (context->argument_count != 0 && context->arguments == nullptr)
+		|| ((context->after_phase ? context->result_count : context->argument_count) != 0
+			&& context->transformed == nullptr))
+	{
+		return;
+	}
+	context->stage = NativeCallPhaseLeafStage::reserve_stack;
+	// Table entries are written two stack values at a time; their array storage
+	// is owned by the table, so argument/result counts do not consume an equal
+	// number of live stack slots here.
+	if (!lua_call_before_leaf_reserve(state, 32)) return;
+
+	context->stage = NativeCallPhaseLeafStage::create_arguments_table;
+	luau_createtable(state, static_cast<int>(context->argument_count), 0);
+	const auto arguments_table_offset = luau_savestack(state, state->outtop - 1);
+	for (std::size_t index = 0; index != context->argument_count; ++index)
+	{
+		context->stage = NativeCallPhaseLeafStage::write_argument;
+		context->failure_index = index;
+		if (!native_call_phase_leaf_set_array(
+				state, arguments_table_offset, index + 1,
+				context->arguments[index])) return;
+	}
+	state->outtop = luau_restorestack(state, arguments_table_offset) + 1;
+
+	std::ptrdiff_t results_table_offset = -1;
+	if (context->after_phase)
+	{
+		context->stage = NativeCallPhaseLeafStage::create_results_table;
+		luau_createtable(state, static_cast<int>(context->result_count), 0);
+		results_table_offset = luau_savestack(state, state->outtop - 1);
+		for (std::size_t index = 0; index != context->result_count; ++index)
+		{
+			context->stage = NativeCallPhaseLeafStage::write_result;
+			context->failure_index = index;
+			if (!native_call_phase_leaf_set_array(
+					state, results_table_offset, index + 1,
+					context->results[index])) return;
+		}
+		state->outtop = luau_restorestack(state, results_table_offset) + 1;
+	}
+
+	luau_TValue trace{};
+	trace.type = LUAU_NIL;
+	if (context->trace_requested && context->trace_registry_key != nullptr)
+	{
+		context->stage = NativeCallPhaseLeafStage::lookup_trace;
+		const auto trace_base_offset = luau_savestack(state, state->outtop);
+		getfield(state, -10000, context->trace_registry_key);
+		auto* const trace_base = luau_restorestack(state, trace_base_offset);
+		luau_Closure* trace_closure = nullptr;
+		if (readable_lua_closure(trace_base[0], trace_closure)
+			&& trace_closure->isC
+			&& trace_closure->c.func == &diagnostic_trace_bridge)
+		{
+			trace = trace_base[0];
+			context->trace_available = true;
+		}
+		else
+		{
+			// Preserve the previous lazy shared-global fallback without allocating
+			// or rooting from C++ inside the raw leaf. The shared table itself roots
+			// the owned bridge for the duration of this callback.
+			state->outtop = trace_base;
+			getfield(state, -10000, "_T");
+			if (is_table(trace_base[0].type))
+			{
+				getfield(state, -1, "RENOVICE_TRACE");
+				trace_closure = nullptr;
+				if (readable_lua_closure(trace_base[1], trace_closure)
+					&& trace_closure->isC
+					&& trace_closure->c.func == &diagnostic_trace_bridge)
+				{
+					trace = trace_base[1];
+					context->trace_available = true;
+				}
+			}
+		}
+		state->outtop = trace_base;
+	}
+
+	for (std::size_t provider = 0; provider != context->provider_count; ++provider)
+	{
+		context->stage = NativeCallPhaseLeafStage::lookup_provider;
+		context->failure_index = provider;
+		const auto lookup_base_offset = luau_savestack(state, state->outtop);
+		luau_TValue callback{};
+		if (!native_call_phase_leaf_callback(
+				state, lookup_base_offset,
+				context->provider_registry_keys[provider],
+				context->method_name, context->phase, callback))
+		{
+			state->outtop = luau_restorestack(state, lookup_base_offset);
+			continue;
+		}
+		state->outtop = luau_restorestack(state, lookup_base_offset);
+		context->invoked = true;
+		context->provider_invoked[provider] = 1;
+		luau_TValue callback_arguments[5]{};
+		callback_arguments[0].type = LUAU_NUMBER;
+		callback_arguments[0].value.as_float = static_cast<float>(context->prototype);
+		callback_arguments[1].type = LUAU_NUMBER;
+		callback_arguments[1].value.as_float = static_cast<float>(context->instruction);
+		callback_arguments[2] = *luau_restorestack(state, arguments_table_offset);
+		if (context->after_phase)
+			callback_arguments[3] = *luau_restorestack(state, results_table_offset);
+		callback_arguments[native_provider_trace_argument_index(
+			context->after_phase)] = trace;
+		const auto callback_argument_count =
+			native_provider_callback_argument_count(context->after_phase);
+		context->stage = NativeCallPhaseLeafStage::invoke_provider;
+		if (!lua_call_before_leaf_push_value(state, callback)) return;
+		for (std::size_t index = 0; index != callback_argument_count; ++index)
+			if (!lua_call_before_leaf_push_value(state, callback_arguments[index])) return;
+		context->callback_status = protected_call(
+			state, static_cast<int>(callback_argument_count), 0, 0);
+		state->outtop = luau_restorestack(state, lookup_base_offset);
+		if (context->callback_status != 0) return;
+	}
+
+	const auto table_offset = context->after_phase
+		? results_table_offset : arguments_table_offset;
+	const auto transformed_count = context->after_phase
+		? context->result_count : context->argument_count;
+	for (std::size_t index = 0; index != transformed_count; ++index)
+	{
+		context->stage = NativeCallPhaseLeafStage::read_value;
+		context->failure_index = index;
+		if (!native_call_phase_leaf_get_array(
+				state, table_offset, index + 1, context->transformed[index])) return;
+	}
+	context->completed = true;
+}
+// END NATIVE_CALL_PHASE_PROTECTED_LEAF
+
+const char* native_call_phase_leaf_stage_label(
+	NativeCallPhaseLeafStage stage) noexcept
+{
+	switch (stage)
+	{
+	case NativeCallPhaseLeafStage::none: return "none";
+	case NativeCallPhaseLeafStage::reserve_stack: return "reserve-stack";
+	case NativeCallPhaseLeafStage::create_arguments_table: return "create-arguments-table";
+	case NativeCallPhaseLeafStage::write_argument: return "write-argument";
+	case NativeCallPhaseLeafStage::create_results_table: return "create-results-table";
+	case NativeCallPhaseLeafStage::write_result: return "write-result";
+	case NativeCallPhaseLeafStage::lookup_trace: return "lookup-trace";
+	case NativeCallPhaseLeafStage::lookup_provider: return "lookup-provider";
+	case NativeCallPhaseLeafStage::invoke_provider: return "invoke-provider";
+	case NativeCallPhaseLeafStage::read_value: return "read-value";
+	}
+	return "unknown";
 }
 
 bool dispatch_native_call_phase(
@@ -5957,108 +8709,100 @@ bool dispatch_native_call_phase(
 		return false;
 	}
 
-	const auto base_offset = luau_savestack(state, state->outtop);
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 12);
-	luau_createtable(state, static_cast<int>(arguments.size()), 0);
-	for (std::size_t i = 0; i != arguments.size(); ++i)
-	{
-		if (!table_set_array_value(state, -1, i + 1, arguments[i]))
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-	}
-	const auto arguments_table_offset = luau_savestack(
-		state, state->outtop - 1);
-	std::ptrdiff_t results_table_offset = 0;
-	if (results != nullptr)
-	{
-		luau_createtable(state, static_cast<int>(results->size()), 0);
-		for (std::size_t i = 0; i != results->size(); ++i)
-		{
-			if (!table_set_array_value(state, -1, i + 1, (*results)[i]))
-			{
-				state->outtop = luau_restorestack(state, base_offset);
-				return false;
-			}
-		}
-		results_table_offset = luau_savestack(state, state->outtop - 1);
-	}
-
-	bool invoked = false;
+	std::vector<const char*> provider_registry_keys;
+	provider_registry_keys.reserve(providers.size());
 	for (const auto& addon : providers)
+		provider_registry_keys.push_back(addon.registry_key.c_str());
+	std::vector<std::uint8_t> provider_invoked(providers.size(), 0);
+	auto& values = results == nullptr ? arguments : *results;
+	std::vector<luau_TValue> candidate(values.size());
+	const auto flags = config::flags();
+	const bool trace_requested = diagnostic_snapshot_capacity_available(flags)
+		&& flags.diagnostics_method.empty() && flags.diagnostics_addon.empty()
+		&& diagnostic_trace_selected(
+			flags, callsite.target_key, "target.trace.callback", {});
+
+	NativeCallPhaseLeafContext context;
+	context.base_offset = luau_savestack(state, state->outtop);
+	context.prototype = callsite.prototype;
+	context.instruction = callsite.instruction;
+	context.method_name = method_name;
+	context.phase = phase;
+	context.trace_registry_key = diagnostic_trace_registry_key.c_str();
+	context.provider_registry_keys = provider_registry_keys.data();
+	context.provider_invoked = provider_invoked.data();
+	context.provider_count = provider_registry_keys.size();
+	context.arguments = arguments.data();
+	context.argument_count = arguments.size();
+	context.results = results == nullptr ? nullptr : results->data();
+	context.result_count = results == nullptr ? 0 : results->size();
+	context.transformed = candidate.data();
+	context.after_phase = results != nullptr;
+	context.trace_requested = trace_requested;
+
+	std::lock_guard execution_lock(lua_execution_mutex);
+	ScopedExecutionDepth execution_depth;
+	ScopedVmApiFrame frame_capacity(state);
+	ScopedInjectedInterruptBudget interrupt_budget(state->interrupt_count);
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &native_call_phase_protected_leaf, &context);
+	frame_capacity.restore();
+	for (std::size_t index = 0; index != providers.size(); ++index)
 	{
-		luau_TValue callback{};
-		if (!native_call_hook_value(
-				state, addon, method_name, phase, callback))
-		{
-			continue;
-		}
-		invoked = true;
-		const bool after_phase = results != nullptr;
-		luau_TValue callback_arguments[5]{};
-		callback_arguments[0].type = LUAU_NUMBER;
-		callback_arguments[0].value.as_float =
-			static_cast<float>(callsite.prototype);
-		callback_arguments[1].type = LUAU_NUMBER;
-		callback_arguments[1].value.as_float =
-			static_cast<float>(callsite.instruction);
-		callback_arguments[2] = *luau_restorestack(
-			state, arguments_table_offset);
-		const std::size_t callback_argument_count =
-			native_provider_callback_argument_count(after_phase);
-		if (results != nullptr)
-		{
-			callback_arguments[3] = *luau_restorestack(
-				state, results_table_offset);
-		}
-		callback_arguments[native_provider_trace_argument_index(after_phase)] =
-			target_diagnostic_trace_callback_value(
-				state, callsite.target_key);
-		const std::string label = std::string("nativeCalls.")
-			+ method_name + '.' + phase;
+		if (provider_invoked[index] == 0) continue;
+		const auto& addon = (*providers.addons)[index];
 		const std::string provider_detail = std::string("method=") + method_name
 			+ " phase=" + phase + " addon=" + addon.name
 			+ " registry=" + addon.registry_key;
-		trace_addon(
-			state, callsite.target_key, "native.call.provider.enter", provider_detail);
-		if (!call_value(
-				state, callback, callback_arguments,
-				callback_argument_count, label.c_str()))
-		{
-			trace_addon(
-				state, callsite.target_key, "native.call.provider.error", provider_detail);
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-		trace_addon(
-			state, callsite.target_key, "native.call.provider.return", provider_detail);
+		trace_addon(state, callsite.target_key,
+			"native.call.provider.enter", provider_detail);
+		const bool this_provider_failed =
+			(!protected_result.admitted || !protected_result.restored
+				|| protected_result.status != 0 || !context.completed)
+			&& context.failure_index == index;
+		trace_addon(state, callsite.target_key,
+			this_provider_failed ? "native.call.provider.error"
+				: "native.call.provider.return", provider_detail);
 	}
-	if (!invoked)
+	if (!protected_result.admitted || !protected_result.restored
+		|| protected_result.status != 0 || !context.completed)
 	{
-		state->outtop = luau_restorestack(state, base_offset);
-		return true;
+		std::ostringstream failure;
+		failure << "RENOVICE nativeCalls protected leaf FAIL method=" << method_name
+			<< " phase=" << phase
+			<< " admitted=" << protected_result.admitted
+			<< " restored=" << protected_result.restored
+			<< " raw_status=" << protected_result.status
+			<< " stage=" << native_call_phase_leaf_stage_label(context.stage)
+			<< " index=" << context.failure_index
+			<< " callback_status=" << context.callback_status
+			<< " stock-retained=1";
+		config::log(failure.str());
+		trace_addon(state, callsite.target_key,
+			"native.call.provider.error", failure.str());
+		return false;
 	}
-
-	const auto table_offset = results == nullptr
-		? arguments_table_offset : results_table_offset;
-	auto& transformed = results == nullptr ? arguments : *results;
-	for (std::size_t i = 0; i != transformed.size(); ++i)
+	if (context.invoked) values = std::move(candidate);
+	if (trace_requested && !context.trace_available
+		&& !diagnostic_trace_callback_failure_logged.exchange(
+			true, std::memory_order_relaxed))
 	{
-		state->outtop = luau_restorestack(state, table_offset) + 1;
-		luau_TValue value{};
-		if (!table_get_array_value(state, -1, i + 1, value))
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-		transformed[i] = value;
+		config::diagnostic_log(
+			"RENOVICE target trace callback unavailable in nativeCalls protected leaf",
+			config::DiagnosticsMode::errors);
 	}
-	state->outtop = luau_restorestack(state, base_offset);
+	std::ostringstream detail;
+	detail << "method=" << method_name << " phase=" << phase
+		<< " providers=" << providers.size()
+		<< " invoked=" << (context.invoked ? 1 : 0)
+		<< " protected=1";
+	trace_addon(state, callsite.target_key,
+		"native.call.provider.return", detail.str());
 	return true;
 }
 
+// Used only by the accepted lifecycle reset path. Native-call observers below
+// use the destructor-free raw lookup instead.
 bool automatic_damage_runtime_method(
 	luau_State* state,
 	const char* method,
@@ -6075,136 +8819,18 @@ bool automatic_damage_runtime_method(
 	ScopedVmApiFrame frame_capacity(state);
 	require_stack(state, 2);
 	getfield(state, -10000, automatic_damage_runtime_registry_key.c_str());
-	auto* const base = luau_restorestack(state, base_offset);
+	auto* base = luau_restorestack(state, base_offset);
 	if (!is_table(base->type))
 	{
 		state->outtop = base;
 		return false;
 	}
 	getfield(state, -1, method);
-	auto* const live_base = luau_restorestack(state, base_offset);
-	const bool valid = is_function((live_base + 1)->type);
-	if (valid) output = *(live_base + 1);
-	state->outtop = live_base;
+	base = luau_restorestack(state, base_offset);
+	const bool valid = is_function((base + 1)->type);
+	if (valid) output = *(base + 1);
+	state->outtop = base;
 	return valid;
-}
-
-bool call_automatic_damage_runtime_before(
-	luau_State* state,
-	const DiagnosticDamageCallsite& source,
-	const std::vector<luau_TValue>& arguments,
-	const config::Flags& flags,
-	float& transaction)
-{
-	transaction = 0;
-	if (automatic_damage_runtime_running || state == nullptr
-		|| state->outtop == nullptr || check_stack == nullptr
-		|| luau_createtable == nullptr
-		|| arguments.size() > static_cast<std::size_t>(
-			(std::numeric_limits<int>::max)()))
-	{
-		return false;
-	}
-	luau_TValue callback{};
-	luau_TValue trace{};
-	if (!automatic_damage_runtime_method(state, "before", callback)
-		|| !read_diagnostic_trace_registry_root(state, trace))
-	{
-		return false;
-	}
-
-	struct ScopedAutomaticRuntime
-	{
-		ScopedAutomaticRuntime() noexcept { automatic_damage_runtime_running = true; }
-		~ScopedAutomaticRuntime() noexcept { automatic_damage_runtime_running = false; }
-	} runtime_scope;
-
-	const auto base_offset = luau_savestack(state, state->outtop);
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>((std::max)(
-		arguments.size() * 2 + 12,
-		static_cast<std::size_t>(16))));
-	luau_createtable(state, static_cast<int>(arguments.size()), 0);
-	for (std::size_t index = 0; index != arguments.size(); ++index)
-	{
-		if (!table_set_array_value(state, -1, index + 1, arguments[index]))
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-	}
-	auto* const base = luau_restorestack(state, base_offset);
-	luau_TValue callback_arguments[5]{};
-	callback_arguments[0] = trace;
-	callback_arguments[1].type = LUAU_NUMBER;
-	callback_arguments[1].value.as_float =
-		static_cast<float>(source.callsite.prototype);
-	callback_arguments[2].type = LUAU_NUMBER;
-	callback_arguments[2].value.as_float =
-		static_cast<float>(source.callsite.instruction);
-	callback_arguments[3] = *base;
-	if (flags.diagnostics_damage_type_filter_set)
-	{
-		callback_arguments[4].type = LUAU_NUMBER;
-		callback_arguments[4].value.as_float =
-			static_cast<float>(flags.diagnostics_damage_type);
-	}
-	else callback_arguments[4].type = LUAU_NIL;
-	const bool passed = call_number_value(
-		state, callback, callback_arguments, std::size(callback_arguments),
-		"automaticDamage.before", transaction);
-	state->outtop = luau_restorestack(state, base_offset);
-	return passed;
-}
-
-bool call_automatic_damage_runtime_after(
-	luau_State* state,
-	float transaction,
-	const std::vector<luau_TValue>& results,
-	const char* method = "after")
-{
-	if (automatic_damage_runtime_running || transaction <= 0
-		|| !std::isfinite(transaction) || state == nullptr
-		|| state->outtop == nullptr || check_stack == nullptr
-		|| luau_createtable == nullptr
-		|| results.size() > static_cast<std::size_t>(
-			(std::numeric_limits<int>::max)()))
-	{
-		return false;
-	}
-	luau_TValue callback{};
-	if (!automatic_damage_runtime_method(state, method, callback)) return false;
-
-	struct ScopedAutomaticRuntime
-	{
-		ScopedAutomaticRuntime() noexcept { automatic_damage_runtime_running = true; }
-		~ScopedAutomaticRuntime() noexcept { automatic_damage_runtime_running = false; }
-	} runtime_scope;
-
-	const auto base_offset = luau_savestack(state, state->outtop);
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>((std::max)(
-		results.size() * 2 + 8,
-		static_cast<std::size_t>(12))));
-	luau_createtable(state, static_cast<int>(results.size()), 0);
-	for (std::size_t index = 0; index != results.size(); ++index)
-	{
-		if (!table_set_array_value(state, -1, index + 1, results[index]))
-		{
-			state->outtop = luau_restorestack(state, base_offset);
-			return false;
-		}
-	}
-	auto* const base = luau_restorestack(state, base_offset);
-	luau_TValue callback_arguments[2]{};
-	callback_arguments[0].type = LUAU_NUMBER;
-	callback_arguments[0].value.as_float = transaction;
-	callback_arguments[1] = *base;
-	const bool passed = call_value(
-		state, callback, callback_arguments, std::size(callback_arguments),
-		method);
-	state->outtop = luau_restorestack(state, base_offset);
-	return passed;
 }
 
 std::atomic<std::uint64_t> caster_stats_sequence{0};
@@ -6212,44 +8838,6 @@ std::atomic<std::uint64_t> caster_stats_budget_used{0};
 std::atomic<std::uint64_t> caster_calculation_budget_used{0};
 std::atomic<std::uint64_t> caster_hud_budget_used{0};
 std::atomic<bool> caster_stats_failure_logged{false};
-
-bool call_caster_stats_before(luau_State* state, float id, const std::string& method,
-	const std::vector<luau_TValue>& arguments, float& snapshot)
-{
-	snapshot = 0;
-	if (automatic_damage_runtime_running || state == nullptr || state->outtop == nullptr
-		|| check_stack == nullptr || luau_createtable == nullptr || luau_pushstring == nullptr
-		|| arguments.size() > 1024) return false;
-	luau_TValue callback{}, trace{};
-	if (!automatic_damage_runtime_method(state, "casterBefore", callback)
-		|| !read_diagnostic_trace_registry_root(state, trace)) return false;
-	struct Scope {
-		Scope() { automatic_damage_runtime_running = true; }
-		~Scope() { automatic_damage_runtime_running = false; }
-	} scope;
-	const auto offset = luau_savestack(state, state->outtop);
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, static_cast<int>(arguments.size() * 2 + 16));
-	luau_createtable(state, static_cast<int>(arguments.size()), 0);
-	for (std::size_t index = 0; index != arguments.size(); ++index) {
-		if (!table_set_array_value(state, -1, index + 1, arguments[index])) {
-			state->outtop = luau_restorestack(state, offset); return false;
-		}
-	}
-	luau_TValue values[5]{};
-	values[4].type = LUAU_BOOL; values[4].value.as_bool = config::flags().diagnostics_buffs;
-	values[0] = trace;
-	values[1].type = LUAU_NUMBER; values[1].value.as_float = id;
-	values[3] = *luau_restorestack(state, offset);
-	if (luau_pushstring(state, method.c_str()) == nullptr) {
-		state->outtop = luau_restorestack(state, offset); return false;
-	}
-	values[2] = *(state->outtop - 1);
-	const bool passed = call_number_value(state, callback, values, std::size(values),
-		"casterStats.before", snapshot);
-	state->outtop = luau_restorestack(state, offset);
-	return passed;
-}
 
 struct ScopedAutomaticDamageTraceContext
 {
@@ -6270,6 +8858,253 @@ struct ScopedAutomaticDamageTraceContext
 		automatic_damage_trace_context = std::move(previous);
 	}
 };
+
+enum class NativeObserverProtectedKind : std::uint8_t
+{
+	automatic_before,
+	automatic_after,
+	caster_before,
+	caster_after,
+};
+
+enum class NativeObserverProtectedStage : std::uint8_t
+{
+	none,
+	lookup_callback,
+	lookup_trace,
+	create_values,
+	write_value,
+	push_method,
+	invoke_callback,
+	read_result,
+};
+
+struct NativeObserverProtectedContext
+{
+	NativeObserverProtectedKind kind = NativeObserverProtectedKind::automatic_before;
+	const luau_TValue* values = nullptr;
+	std::size_t value_count = 0;
+	const char* runtime_registry_key = nullptr;
+	const char* trace_registry_key = nullptr;
+	const char* callback_method = nullptr;
+	const char* method = nullptr;
+	std::int32_t prototype = -1;
+	std::uint32_t instruction = 0;
+	std::int32_t damage_type = 0;
+	float identifier = 0;
+	float output = 0;
+	bool damage_type_filter_set = false;
+	bool diagnostics_buffs = false;
+	bool passed = false;
+	bool completed = false;
+	NativeObserverProtectedStage stage = NativeObserverProtectedStage::none;
+	std::size_t failure_index = 0;
+	int callback_status = 0;
+};
+static_assert(std::is_trivially_copyable_v<NativeObserverProtectedContext>);
+
+// BEGIN NATIVE_OBSERVER_PROTECTED_LEAF
+// This entire path is below DE's raw protected boundary. It owns only scalars,
+// raw pointers, and TValues. A DE longjmp skips no C++ destructor here; the
+// shared raw wrapper restores the exact CallInfo and stack window.
+bool native_observer_leaf_lookup(
+	luau_State* state,
+	std::ptrdiff_t base_offset,
+	const char* registry_key,
+	const char* method,
+	luau_TValue& callback) noexcept
+{
+	callback = {};
+	callback.type = LUAU_NIL;
+	if (state == nullptr || registry_key == nullptr || method == nullptr
+		|| getfield == nullptr
+		|| !lua_call_stack_span_is_live(state, base_offset, 0)) return false;
+	state->outtop = luau_restorestack(state, base_offset);
+	getfield(state, -10000, registry_key);
+	auto* base = luau_restorestack(state, base_offset);
+	if (!is_table(base[0].type)) return false;
+	getfield(state, -1, method);
+	base = luau_restorestack(state, base_offset);
+	if (!is_function(base[1].type)) return false;
+	callback = base[1];
+	state->outtop = base;
+	return true;
+}
+
+bool native_observer_leaf_trace(
+	luau_State* state,
+	std::ptrdiff_t base_offset,
+	const char* registry_key,
+	luau_TValue& trace) noexcept
+{
+	trace = {};
+	trace.type = LUAU_NIL;
+	if (state == nullptr || registry_key == nullptr || getfield == nullptr
+		|| !lua_call_stack_span_is_live(state, base_offset, 0)) return false;
+	state->outtop = luau_restorestack(state, base_offset);
+	getfield(state, -10000, registry_key);
+	auto* const base = luau_restorestack(state, base_offset);
+	luau_Closure* root = nullptr;
+	const bool owned = readable_lua_closure(base[0], root)
+		&& root->isC && root->c.func == &diagnostic_trace_bridge;
+	if (owned) trace = base[0];
+	state->outtop = base;
+	return owned;
+}
+
+void native_observer_protected_leaf(luau_State* state, void* opaque)
+{
+	auto* const context = static_cast<NativeObserverProtectedContext*>(opaque);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| state->stack == nullptr || state->stack_last == nullptr
+		|| context->runtime_registry_key == nullptr
+		|| context->callback_method == nullptr
+		|| getfield == nullptr || luau_createtable == nullptr
+		|| protected_call == nullptr || gc_barrierback == nullptr
+		|| !injected_interrupt_contract_ready
+		|| (context->value_count != 0 && context->values == nullptr)
+		|| context->value_count > static_cast<std::size_t>(
+			(std::numeric_limits<int>::max)())
+		|| (context->kind == NativeObserverProtectedKind::caster_before
+			&& (context->trace_registry_key == nullptr
+				|| context->method == nullptr || luau_pushstring == nullptr
+				|| context->value_count > 1024))
+		|| (context->kind == NativeObserverProtectedKind::automatic_before
+			&& context->trace_registry_key == nullptr)
+		|| !lua_call_before_leaf_reserve(state, 32)) return;
+
+	const auto base_offset = luau_savestack(state, state->outtop);
+	context->stage = NativeObserverProtectedStage::lookup_callback;
+	luau_TValue callback{};
+	if (!native_observer_leaf_lookup(
+			state, base_offset, context->runtime_registry_key,
+			context->callback_method, callback))
+	{
+		context->completed = true;
+		state->outtop = luau_restorestack(state, base_offset);
+		return;
+	}
+
+	luau_TValue trace{};
+	trace.type = LUAU_NIL;
+	const bool before = context->kind == NativeObserverProtectedKind::automatic_before
+		|| context->kind == NativeObserverProtectedKind::caster_before;
+	if (before)
+	{
+		context->stage = NativeObserverProtectedStage::lookup_trace;
+		if (!native_observer_leaf_trace(
+				state, base_offset, context->trace_registry_key, trace))
+		{
+			context->completed = true;
+			state->outtop = luau_restorestack(state, base_offset);
+			return;
+		}
+	}
+
+	context->stage = NativeObserverProtectedStage::create_values;
+	state->outtop = luau_restorestack(state, base_offset);
+	luau_createtable(state, static_cast<int>(context->value_count), 0);
+	const auto values_table_offset = luau_savestack(state, state->outtop - 1);
+	for (std::size_t index = 0; index != context->value_count; ++index)
+	{
+		context->stage = NativeObserverProtectedStage::write_value;
+		context->failure_index = index;
+		if (!native_call_phase_leaf_set_array(
+				state, values_table_offset, index + 1,
+				context->values[index])) return;
+	}
+	state->outtop = luau_restorestack(state, values_table_offset) + 1;
+
+	luau_TValue callback_arguments[5]{};
+	std::size_t callback_argument_count = 0;
+	int result_count = 0;
+	if (context->kind == NativeObserverProtectedKind::automatic_before)
+	{
+		callback_argument_count = 5;
+		result_count = 1;
+		callback_arguments[0] = trace;
+		callback_arguments[1].type = LUAU_NUMBER;
+		callback_arguments[1].value.as_float =
+			static_cast<float>(context->prototype);
+		callback_arguments[2].type = LUAU_NUMBER;
+		callback_arguments[2].value.as_float =
+			static_cast<float>(context->instruction);
+		callback_arguments[3] = *luau_restorestack(state, values_table_offset);
+		if (context->damage_type_filter_set)
+		{
+			callback_arguments[4].type = LUAU_NUMBER;
+			callback_arguments[4].value.as_float =
+				static_cast<float>(context->damage_type);
+		}
+		else callback_arguments[4].type = LUAU_NIL;
+	}
+	else if (context->kind == NativeObserverProtectedKind::caster_before)
+	{
+		callback_argument_count = 5;
+		result_count = 1;
+		callback_arguments[0] = trace;
+		callback_arguments[1].type = LUAU_NUMBER;
+		callback_arguments[1].value.as_float = context->identifier;
+		context->stage = NativeObserverProtectedStage::push_method;
+		if (luau_pushstring(state, context->method) == nullptr) return;
+		callback_arguments[2] = state->outtop[-1];
+		callback_arguments[3] = *luau_restorestack(state, values_table_offset);
+		callback_arguments[4].type = LUAU_BOOL;
+		callback_arguments[4].value.as_bool = context->diagnostics_buffs;
+	}
+	else
+	{
+		callback_argument_count = 2;
+		callback_arguments[0].type = LUAU_NUMBER;
+		callback_arguments[0].value.as_float = context->identifier;
+		callback_arguments[1] = *luau_restorestack(state, values_table_offset);
+	}
+
+	const auto call_offset = luau_savestack(state, state->outtop);
+	context->stage = NativeObserverProtectedStage::invoke_callback;
+	if (!lua_call_before_leaf_push_value(state, callback)) return;
+	for (std::size_t index = 0; index != callback_argument_count; ++index)
+		if (!lua_call_before_leaf_push_value(
+				state, callback_arguments[index])) return;
+	automatic_damage_runtime_running = true;
+	context->callback_status = protected_call(
+		state, static_cast<int>(callback_argument_count), result_count, 0);
+	automatic_damage_runtime_running = false;
+	auto* const call_base = luau_restorestack(state, call_offset);
+	if (context->callback_status == 0)
+	{
+		if (result_count == 0)
+		{
+			context->passed = state->outtop == call_base;
+		}
+		else
+		{
+			context->stage = NativeObserverProtectedStage::read_result;
+			context->passed = state->outtop == call_base + 1
+				&& call_base[0].type == LUAU_NUMBER
+				&& std::isfinite(call_base[0].value.as_float);
+			if (context->passed) context->output = call_base[0].value.as_float;
+		}
+	}
+	state->outtop = luau_restorestack(state, base_offset);
+	context->completed = true;
+}
+// END NATIVE_OBSERVER_PROTECTED_LEAF
+
+bool run_native_observer_protected(
+	luau_State* state,
+	NativeObserverProtectedContext& context) noexcept
+{
+	if (state == nullptr) return false;
+	ScopedInjectedInterruptBudget interrupt_budget(state->interrupt_count);
+	const auto result = de_vm_authority::run_current_vm_protected(
+		state, &native_observer_protected_leaf, &context);
+	// A raw VM escape may skip the diagnostic helper's scalar recursion guard.
+	// The shared raw wrapper has already restored the exact game frame here.
+	automatic_damage_runtime_running = false;
+	return result.admitted && result.restored && result.status == 0
+		&& context.completed && context.passed;
+}
 
 // Bounded native getter evidence shares the existing diagnostics toggle. The
 // observer's own getter calls have a separate budget from calls made by stock.
@@ -6343,342 +9178,633 @@ NativeBuffProbe begin_native_buff_probe(const config::Flags& flags,
     return probe;
 }
 
+struct NativeCallOriginalPlan
+{
+	bool active = false;
+	bool provider_selected = false;
+	bool automatic_selected = false;
+	bool caster_selected = false;
+	bool buffs_selected = false;
+	bool diagnostics_buffs = false;
+	std::size_t slot = 0;
+	std::uint64_t generation = 0;
+	TargetCallsite provider_callsite{};
+	TargetCallsite diagnostic_callsite{};
+	std::ptrdiff_t argument_base_offset = -1;
+	std::ptrdiff_t argument_top_offset = -1;
+	std::size_t argument_count = 0;
+	std::uint64_t argument_fingerprint = 0;
+	std::uint64_t automatic_sequence = 0;
+	float automatic_transaction = 0;
+	float caster_snapshot = 0;
+	NativeBuffProbe buff_probe{};
+	std::uint64_t boundary_token = 0;
+};
+static_assert(std::is_trivially_copyable_v<NativeCallOriginalPlan>);
+static_assert(std::is_trivially_copyable_v<NativeBuffProbe>);
+
+std::uint64_t native_call_value_fingerprint(
+	const luau_TValue* values,
+	std::size_t count) noexcept
+{
+	if (values == nullptr && count != 0) return 0;
+	std::uint64_t hash = 1469598103934665603ull;
+	for (std::size_t index = 0; index != count; ++index)
+	{
+		hash ^= static_cast<std::uint64_t>(values[index].type);
+		hash *= 1099511628211ull;
+		hash ^= static_cast<std::uint64_t>(values[index].value.as_uintptr);
+		hash *= 1099511628211ull;
+	}
+	hash ^= static_cast<std::uint64_t>(count);
+	hash *= 1099511628211ull;
+	return hash;
+}
+
+bool native_call_arguments_live(
+	const NativeCallOriginalPlan& plan,
+	luau_State* state,
+	std::vector<luau_TValue>& arguments) noexcept
+{
+	arguments.clear();
+	if (!plan.active || state == nullptr || state->intop == nullptr
+		|| plan.argument_base_offset < 0
+		|| !lua_call_stack_span_is_live(
+			state, plan.argument_base_offset, plan.argument_count)
+		|| luau_savestack(state, state->intop) != plan.argument_base_offset)
+	{
+		return false;
+	}
+	auto* const base = luau_restorestack(state, plan.argument_base_offset);
+	if (native_call_value_fingerprint(base, plan.argument_count)
+		!= plan.argument_fingerprint) return false;
+	try
+	{
+		arguments.assign(base, base + plan.argument_count);
+		return true;
+	}
+	catch (...)
+	{
+		arguments.clear();
+		return false;
+	}
+}
+
 int native_call_adapter(luau_State* state, std::size_t slot)
 {
-	std::unique_lock hook_lock(native_call_hook_mutex);
-	if (slot >= native_call_hooks.size() || native_call_hooks[slot] == nullptr)
+	luau_CFunction original = nullptr;
 	{
-		return 0;
+		std::lock_guard hook_lock(native_call_hook_mutex);
+		if (slot < native_call_hooks.size() && native_call_hooks[slot] != nullptr)
+		{
+			const auto& record = *native_call_hooks[slot];
+			original = record.hook.isCreated()
+				? reinterpret_cast<luau_CFunction>(record.hook.original)
+				: record.target;
+		}
 	}
-	const auto& record = *native_call_hooks[slot];
-	const auto original = record.hook.isCreated()
-		? reinterpret_cast<luau_CFunction>(record.hook.original)
-		: record.target;
 	if (original == nullptr) return 0;
-	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
-	if (!generation_dispatch) return original(state);
-	const auto flags = config::flags();
-	const auto* global_state = state == nullptr
-		? nullptr : state->global_state;
-	if (native_call_hook_running
-		|| (!diagnostics_claims_native_method(flags, record.name)
-			&& !any_target_provider_claims_native_method(
-				global_state, record.name)))
-	{
-		return original(state);
-	}
-	TargetCallsite callsite;
-	DiagnosticDamageCallsite diagnostic_source;
-	const auto buff_probe = begin_native_buff_probe(flags, record.name, slot, state);
-	if (state != nullptr)
-	{
-		if (observe_target_addons.load(std::memory_order_acquire))
-			callsite = target_callsite_for_active_call_stack(state);
-		if (universal_observer_requested(flags))
-			diagnostic_source = diagnostic_damage_callsite_for_active_stack(state);
-	}
-	trace_native_call_ingress(
-		state, slot, record, original, callsite, native_call_hook_running);
-	engine_damage::Source native_source;
-	native_source.body = diagnostic_source.callsite.target_key;
-	native_source.prototype = diagnostic_source.callsite.prototype;
-	native_source.instruction = diagnostic_source.callsite.instruction;
-	native_source.vm = state == nullptr ? nullptr : state->global_state;
-	native_source.path = diagnostic_source.module_path;
-	native_source.name = diagnostic_source.module_name;
-	native_source.method = record.name;
-	engine_damage::SourceScope native_source_scope(
-		flags.diagnostics_damage_capture == config::DamageCaptureMode::engine
-			? &native_source : nullptr);
-	if (native_call_hook_running || state == nullptr || state->intop == nullptr
-		|| state->outtop == nullptr)
-	{
-		log_native_buff_probe(buff_probe, "selection", "stock-only-reentrant-or-invalid-frame", state);
-		const int returned = original(state);
-		log_native_buff_probe(buff_probe, "return", "stock-only", state, returned);
-		return returned;
-	}
-	const int argument_count = luau_gettop(state);
-	if (argument_count < 0) return original(state);
-	const auto argument_base_offset = luau_savestack(state, state->intop);
-	const auto argument_top_offset = luau_savestack(state, state->outtop);
-	std::vector<luau_TValue> arguments(
-		state->intop, state->intop + argument_count);
-	const auto stock_arguments = arguments;
-	const auto target_type = arguments.empty()
-		? std::string{} : engine_object_type_name(arguments[0]);
-	const bool provider_selected = callsite.exact
-		&& target_provider_claims_native_method(
-			callsite.target_key, state->global_state, record.name);
-	const bool observer_capacity = diagnostic_snapshot_capacity_available(flags);
-	const bool caster_selected = observer_capacity && flags.diagnostics_caster_stats
-		&& automatic_scripted_damage_requested(flags)
-		&& !automatic_damage_runtime_running
-		&& (record.name == "SetSource" || record.name == "DamageDD"
-			|| record.name == "RadialDamage" || record.name == "ModifyValue"
-			|| record.name == "GetUpgradeModifiedValue")
-		&& flags.diagnostics_addon.empty()
-		&& (!flags.diagnostics_target_filter_set || (flags.diagnostics_target_filter_valid
-			&& diagnostic_source.callsite.target_key == flags.diagnostics_target_key))
-		&& (flags.diagnostics_damage_source.empty()
-			|| config::ascii_lower(diagnostic_source.module_path) == flags.diagnostics_damage_source
-			|| config::ascii_lower(diagnostic_source.module_name) == flags.diagnostics_damage_source)
-		&& (record.name == "SetSource" || record.name == "ModifyValue"
-			|| record.name == "GetUpgradeModifiedValue"
-			|| flags.diagnostics_method.empty()
-			|| config::ascii_lower(record.name) == flags.diagnostics_method)
-		&& (record.name != "DamageDD" || flags.diagnostics_damage_target_type.empty()
-			|| config::ascii_lower(target_type) == flags.diagnostics_damage_target_type);
-	bool automatic_selected = observer_capacity && arguments.size() >= 2
-		&& automatic_scripted_damage_selected(
-			flags, record.name,
-			diagnostic_source.callsite.target_key,
-			diagnostic_source.module_path,
-			diagnostic_source.module_name,
-			target_type);
-	if (automatic_selected && provider_selected)
-	{
-		automatic_selected = false;
-		if (!automatic_damage_duplicate_suppression_logged.exchange(
-				true, std::memory_order_relaxed))
-		{
-			std::ostringstream suppressed;
-			suppressed << "RENOVICE AUTO_DAMAGE build=V79 event=suppressed"
-				<< " reason=exact-target-provider-owns-method"
-				<< " method=" << record.name
-				<< " source_body=0x" << std::hex
-				<< diagnostic_source.callsite.target_key << std::dec;
-			config::diagnostic_log(
-				suppressed.str(), config::DiagnosticsMode::battle);
-		}
-	}
-    // Observe the stock native getter's returned list, never clear it or change
-    // its entries. This shared HUD lane includes effects created by native code.
-    const bool buffs_selected = observer_capacity && universal_buffs_requested(flags)
-        && !automatic_damage_runtime_running
-        && (record.name == "GetBuffNotifications" || record.name == "GetHudStatus")
-        && flags.diagnostics_addon.empty()
-        && (!flags.diagnostics_target_filter_set || (flags.diagnostics_target_filter_valid
-            && diagnostic_source.callsite.target_key == flags.diagnostics_target_key))
-        && (flags.diagnostics_method.empty() || flags.diagnostics_method == config::ascii_lower(record.name))
-        && (flags.diagnostics_damage_source.empty()
-            || config::ascii_lower(diagnostic_source.module_path) == flags.diagnostics_damage_source
-            || config::ascii_lower(diagnostic_source.module_name) == flags.diagnostics_damage_source);
-    const char* buff_selection_reason = buffs_selected ? "buff-observer-selected"
-        : automatic_damage_runtime_running ? "observer-self-call"
-        : !flags.diagnostics_addon.empty() ? "addon-filter"
-        : flags.diagnostics_target_filter_set && (!flags.diagnostics_target_filter_valid
-            || diagnostic_source.callsite.target_key != flags.diagnostics_target_key) ? "body-filter"
-        : !flags.diagnostics_method.empty() && flags.diagnostics_method != config::ascii_lower(record.name) ? "method-filter"
-        : !flags.diagnostics_damage_source.empty() ? "source-filter" : "capture-not-requested";
-    log_native_buff_probe(buff_probe, "selection", buff_selection_reason, state);
-    if (!provider_selected && !automatic_selected && !caster_selected && !buffs_selected) {
-        const int returned = original(state);
-        log_native_buff_probe(buff_probe, "return", "stock-only-filtered", state, returned);
-        return returned;
-    }
 
-	struct ScopedNativeCallHook
+	const bool reentrant = prepare_native_call_boundary_entry(state);
+	const auto previous_boundary = active_native_call_boundary;
+	NativeCallOriginalPlan plan;
+	try
 	{
-		ScopedNativeCallHook() noexcept { native_call_hook_running = true; }
-		~ScopedNativeCallHook() noexcept { native_call_hook_running = false; }
-	} hook_scope;
-
-	if (provider_selected)
-	{
-		std::ostringstream before_details;
-		before_details << "method=" << record.name
-			<< " phase=before prototype=" << callsite.prototype
-			<< " instruction=" << callsite.instruction
-			<< " values=arguments";
-		trace_addon(
-			state, callsite.target_key, "native.call.before", before_details.str(),
-			arguments.data(), arguments.size());
-		if (dispatch_native_call_phase(
-				state, callsite, record.name.c_str(), "before", arguments, nullptr))
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		if (generation_dispatch && !reentrant && state != nullptr
+			&& state->intop != nullptr && state->outtop != nullptr)
 		{
-			state->intop = luau_restorestack(state, argument_base_offset);
-			state->outtop = luau_restorestack(state, argument_top_offset);
-			prepare_stack_write(state);
-			std::copy(arguments.begin(), arguments.end(), state->intop);
-		}
-		else
-		{
-			state->intop = luau_restorestack(state, argument_base_offset);
-			state->outtop = luau_restorestack(state, argument_top_offset);
-			prepare_stack_write(state);
-			std::copy(stock_arguments.begin(), stock_arguments.end(), state->intop);
-			arguments = stock_arguments;
-			trace_addon(state, callsite.target_key, "native.call.before.reject",
-				"method=" + record.name + " stock_arguments_restored=1");
-		}
-	}
-
-	std::uint64_t automatic_sequence_value = 0;
-	float automatic_transaction = 0;
-	if (automatic_selected)
-	{
-		automatic_sequence_value = automatic_damage_sequence.fetch_add(
-			1, std::memory_order_relaxed) + 1;
-		const auto transaction_budget = (std::max)(
-			std::uint64_t{1}, (std::min)(
-				std::uint64_t{4096}, flags.diagnostics_max_events / 10));
-		if (automatic_sequence_value > transaction_budget)
-		{
-			automatic_selected = false;
-			if (!automatic_damage_budget_suppression_logged.exchange(
-					true, std::memory_order_relaxed))
+			std::lock_guard hook_lock(native_call_hook_mutex);
+			if (slot < native_call_hooks.size() && native_call_hooks[slot] != nullptr)
 			{
-				std::ostringstream suppressed;
-				suppressed << "RENOVICE AUTO_DAMAGE build=V79 event=suppressed"
-					<< " reason=transaction-budget-exhausted limit="
-					<< transaction_budget;
-				config::diagnostic_log(
-					suppressed.str(), config::DiagnosticsMode::battle);
+				const auto& record = *native_call_hooks[slot];
+				const auto current_original = record.hook.isCreated()
+					? reinterpret_cast<luau_CFunction>(record.hook.original)
+					: record.target;
+				if (current_original == original)
+				{
+					const auto flags = config::flags();
+					const auto* global_state = state->global_state;
+					const bool method_requested =
+						diagnostics_claims_native_method(flags, record.name)
+						|| any_target_provider_claims_native_method(
+							global_state, record.name);
+					if (method_requested)
+					{
+						TargetCallsite callsite;
+						DiagnosticDamageCallsite diagnostic_source;
+						const auto buff_probe = begin_native_buff_probe(
+							flags, record.name, slot, state);
+						if (observe_target_addons.load(std::memory_order_acquire))
+							callsite = target_callsite_for_active_call_stack(state);
+						if (universal_observer_requested(flags))
+							diagnostic_source = diagnostic_damage_callsite_for_active_stack(state);
+						trace_native_call_ingress(
+							state, slot, record, original, callsite, false);
+						const int argument_count = luau_gettop(state);
+						if (argument_count >= 0)
+						{
+							const auto argument_base_offset = luau_savestack(state, state->intop);
+							const auto argument_top_offset = luau_savestack(state, state->outtop);
+							std::vector<luau_TValue> arguments(
+								state->intop, state->intop + argument_count);
+							const auto stock_arguments = arguments;
+							const auto target_type = arguments.empty()
+								? std::string{} : engine_object_type_name(arguments[0]);
+							const bool provider_selected = callsite.exact
+								&& target_provider_claims_native_method(
+									callsite.target_key, state->global_state, record.name);
+							const bool observer_capacity = diagnostic_snapshot_capacity_available(flags);
+							const bool caster_selected = observer_capacity &&
+								flags.diagnostics_caster_stats
+								&& automatic_scripted_damage_requested(flags)
+								&& !automatic_damage_runtime_running
+								&& (record.name == "SetSource" || record.name == "DamageDD"
+									|| record.name == "RadialDamage" || record.name == "ModifyValue"
+									|| record.name == "GetUpgradeModifiedValue")
+								&& flags.diagnostics_addon.empty()
+								&& (!flags.diagnostics_target_filter_set
+									|| (flags.diagnostics_target_filter_valid
+										&& diagnostic_source.callsite.target_key
+											== flags.diagnostics_target_key))
+								&& (flags.diagnostics_damage_source.empty()
+									|| config::ascii_lower(diagnostic_source.module_path)
+										== flags.diagnostics_damage_source
+									|| config::ascii_lower(diagnostic_source.module_name)
+										== flags.diagnostics_damage_source)
+								&& (record.name == "SetSource" || record.name == "ModifyValue"
+									|| record.name == "GetUpgradeModifiedValue"
+									|| flags.diagnostics_method.empty()
+									|| config::ascii_lower(record.name) == flags.diagnostics_method)
+								&& (record.name != "DamageDD"
+									|| flags.diagnostics_damage_target_type.empty()
+									|| config::ascii_lower(target_type)
+										== flags.diagnostics_damage_target_type);
+							bool automatic_selected = observer_capacity &&
+								arguments.size() >= 2
+								&& automatic_scripted_damage_selected(
+									flags, record.name,
+									diagnostic_source.callsite.target_key,
+									diagnostic_source.module_path,
+									diagnostic_source.module_name,
+									target_type);
+							if (automatic_selected && provider_selected)
+							{
+								automatic_selected = false;
+								if (!automatic_damage_duplicate_suppression_logged.exchange(
+										true, std::memory_order_relaxed))
+								{
+									std::ostringstream suppressed;
+									suppressed << "RENOVICE AUTO_DAMAGE build=V79 event=suppressed"
+										<< " reason=exact-target-provider-owns-method"
+										<< " method=" << record.name
+										<< " source_body=0x" << std::hex
+										<< diagnostic_source.callsite.target_key << std::dec;
+									config::diagnostic_log(
+										suppressed.str(), config::DiagnosticsMode::battle);
+								}
+							}
+							const bool buffs_selected = observer_capacity &&
+								universal_buffs_requested(flags)
+								&& !automatic_damage_runtime_running
+								&& (record.name == "GetBuffNotifications"
+									|| record.name == "GetHudStatus")
+								&& flags.diagnostics_addon.empty()
+								&& (!flags.diagnostics_target_filter_set
+									|| (flags.diagnostics_target_filter_valid
+										&& diagnostic_source.callsite.target_key
+											== flags.diagnostics_target_key))
+								&& (flags.diagnostics_method.empty()
+									|| flags.diagnostics_method
+										== config::ascii_lower(record.name))
+								&& (flags.diagnostics_damage_source.empty()
+									|| config::ascii_lower(diagnostic_source.module_path)
+										== flags.diagnostics_damage_source
+									|| config::ascii_lower(diagnostic_source.module_name)
+										== flags.diagnostics_damage_source);
+							const bool engine_capture =
+								flags.diagnostics_damage_capture
+									== config::DamageCaptureMode::engine;
+							const char* buff_selection_reason = buffs_selected
+								? "buff-observer-selected"
+								: automatic_damage_runtime_running ? "observer-self-call"
+								: !flags.diagnostics_addon.empty() ? "addon-filter"
+								: flags.diagnostics_target_filter_set
+									&& (!flags.diagnostics_target_filter_valid
+										|| diagnostic_source.callsite.target_key
+											!= flags.diagnostics_target_key) ? "body-filter"
+								: !flags.diagnostics_method.empty()
+									&& flags.diagnostics_method
+										!= config::ascii_lower(record.name) ? "method-filter"
+								: !flags.diagnostics_damage_source.empty()
+									? "source-filter" : "capture-not-requested";
+							log_native_buff_probe(
+								buff_probe, "selection", buff_selection_reason, state);
+
+							const bool needs_boundary = provider_selected
+								|| automatic_selected || caster_selected || buffs_selected
+								|| engine_capture || buff_probe.sampled;
+							if (needs_boundary)
+							{
+								const auto boundary = make_native_call_boundary(
+									state, active_generation);
+								if (boundary.active)
+								{
+									active_native_call_boundary = boundary;
+									native_call_hook_running = true;
+									plan.active = true;
+									plan.slot = slot;
+									plan.generation = active_generation;
+									plan.provider_selected = provider_selected;
+									plan.automatic_selected = automatic_selected;
+									plan.caster_selected = caster_selected;
+									plan.buffs_selected = buffs_selected;
+									plan.diagnostics_buffs = flags.diagnostics_buffs;
+									plan.provider_callsite = callsite;
+									plan.diagnostic_callsite = diagnostic_source.callsite;
+									plan.argument_base_offset = argument_base_offset;
+									plan.argument_top_offset = argument_top_offset;
+									plan.argument_count = arguments.size();
+									plan.buff_probe = buff_probe;
+									plan.boundary_token = boundary.token;
+
+									if (provider_selected)
+									{
+										std::ostringstream before_details;
+										before_details << "method=" << record.name
+											<< " phase=before prototype=" << callsite.prototype
+											<< " instruction=" << callsite.instruction
+											<< " values=arguments";
+										trace_addon(state, callsite.target_key,
+											"native.call.before", before_details.str(),
+											arguments.data(), arguments.size());
+										if (dispatch_native_call_phase(
+												state, callsite, record.name.c_str(),
+												"before", arguments, nullptr))
+										{
+											state->intop = luau_restorestack(
+												state, argument_base_offset);
+											state->outtop = luau_restorestack(
+												state, argument_top_offset);
+											prepare_stack_write(state);
+											std::copy(arguments.begin(), arguments.end(), state->intop);
+										}
+										else
+										{
+											state->intop = luau_restorestack(
+												state, argument_base_offset);
+											state->outtop = luau_restorestack(
+												state, argument_top_offset);
+											prepare_stack_write(state);
+											std::copy(stock_arguments.begin(),
+												stock_arguments.end(), state->intop);
+											arguments = stock_arguments;
+											trace_addon(state, callsite.target_key,
+												"native.call.before.reject",
+												"method=" + record.name
+													+ " stock_arguments_restored=1");
+										}
+									}
+
+									if (plan.automatic_selected)
+									{
+										plan.automatic_sequence = automatic_damage_sequence.fetch_add(
+											1, std::memory_order_relaxed) + 1;
+										const auto transaction_budget = (std::max)(
+											std::uint64_t{1}, (std::min)(
+												std::uint64_t{4096},
+												flags.diagnostics_max_events / 10));
+										if (plan.automatic_sequence > transaction_budget)
+										{
+											plan.automatic_selected = false;
+											if (!automatic_damage_budget_suppression_logged.exchange(
+													true, std::memory_order_relaxed))
+											{
+												std::ostringstream suppressed;
+												suppressed << "RENOVICE AUTO_DAMAGE build=V79 event=suppressed"
+													<< " reason=transaction-budget-exhausted limit="
+													<< transaction_budget;
+												config::diagnostic_log(
+													suppressed.str(), config::DiagnosticsMode::battle);
+											}
+										}
+									}
+									if (plan.automatic_selected)
+									{
+										ScopedAutomaticDamageTraceContext automatic_context(
+											plan.automatic_sequence, diagnostic_source, target_type);
+										NativeObserverProtectedContext observer;
+										observer.kind = NativeObserverProtectedKind::automatic_before;
+										observer.values = arguments.data();
+										observer.value_count = arguments.size();
+										observer.runtime_registry_key =
+											automatic_damage_runtime_registry_key.c_str();
+										observer.trace_registry_key =
+											diagnostic_trace_registry_key.c_str();
+										observer.callback_method = "before";
+										observer.prototype =
+											diagnostic_source.callsite.prototype;
+										observer.instruction =
+											diagnostic_source.callsite.instruction;
+										observer.damage_type_filter_set =
+											flags.diagnostics_damage_type_filter_set;
+										observer.damage_type = flags.diagnostics_damage_type;
+										if (!run_native_observer_protected(state, observer)
+											&& !automatic_damage_runtime_failure_logged.exchange(
+												true, std::memory_order_relaxed))
+										{
+											config::diagnostic_log(
+												"RENOVICE AUTO_DAMAGE build=V79 event=runtime-failure phase=before",
+												config::DiagnosticsMode::errors);
+										}
+										plan.automatic_transaction = observer.output;
+									}
+
+									if (plan.caster_selected || plan.buffs_selected)
+									{
+										const auto lane = caster_diagnostic_lane(record.name);
+										const bool calculation =
+											lane == CasterDiagnosticLane::calculation;
+										auto& budget = lane == CasterDiagnosticLane::hud
+											? caster_hud_budget_used
+											: calculation ? caster_calculation_budget_used
+												: caster_stats_budget_used;
+										const auto used = budget.fetch_add(
+											1, std::memory_order_relaxed) + 1;
+										const auto limit = caster_diagnostic_limit(
+											lane, flags.diagnostics_max_events);
+										if (used <= limit)
+										{
+											const auto id = caster_stats_sequence.fetch_add(
+												1, std::memory_order_relaxed) + 1;
+											if (id <= 16777215)
+											{
+												ScopedAutomaticDamageTraceContext context(
+													id, diagnostic_source, target_type);
+												NativeObserverProtectedContext observer;
+												observer.kind = NativeObserverProtectedKind::caster_before;
+												observer.values = arguments.data();
+												observer.value_count = arguments.size();
+												observer.runtime_registry_key =
+													automatic_damage_runtime_registry_key.c_str();
+												observer.trace_registry_key =
+													diagnostic_trace_registry_key.c_str();
+												observer.callback_method = "casterBefore";
+												observer.method = record.name.c_str();
+												observer.identifier = static_cast<float>(id);
+												observer.diagnostics_buffs = flags.diagnostics_buffs;
+												if (!run_native_observer_protected(state, observer)
+													&& !caster_stats_failure_logged.exchange(true))
+													config::diagnostic_log(
+														"RENOVICE CASTER_STATS build=V82 event=failed phase=before",
+														config::DiagnosticsMode::errors);
+												plan.caster_snapshot = observer.output;
+											}
+											else if (id == 16777216)
+												config::diagnostic_log(
+													"RENOVICE CASTER_STATS build=V86 event=suppressed reason=exact-float-id-exhausted",
+													config::DiagnosticsMode::errors);
+										}
+										else if (used == limit + 1)
+										{
+											config::diagnostic_log(
+												std::string("RENOVICE CASTER_STATS build=V88 event=suppressed lane=")
+												+ (lane == CasterDiagnosticLane::hud ? "hud"
+													: calculation ? "calculation" : "combat")
+												+ " reason=snapshot-budget-exhausted limit="
+												+ std::to_string(limit), config::DiagnosticsMode::battle);
+										}
+										log_native_buff_probe(buff_probe, "observer-before",
+											plan.caster_snapshot > 0
+												? "callback-pending-root-ready"
+												: "callback-unavailable-or-rejected", state);
+									}
+
+									state->intop = luau_restorestack(
+										state, argument_base_offset);
+									state->outtop = luau_restorestack(
+										state, argument_top_offset);
+									plan.argument_fingerprint = native_call_value_fingerprint(
+										state->intop, plan.argument_count);
+									if (engine_capture)
+									{
+										engine_damage::Source native_source;
+										native_source.body = diagnostic_source.callsite.target_key;
+										native_source.caster_snapshot =
+											std::isfinite(plan.caster_snapshot)
+											&& plan.caster_snapshot > 0
+											? static_cast<std::uint64_t>(plan.caster_snapshot) : 0;
+										native_source.prototype = diagnostic_source.callsite.prototype;
+										native_source.instruction = diagnostic_source.callsite.instruction;
+										native_source.vm = state->global_state;
+										native_source.path = diagnostic_source.module_path;
+										native_source.name = diagnostic_source.module_name;
+										native_source.method = record.name;
+										if (engine_damage::publish_source(&native_source))
+											active_native_call_boundary.engine_source_published = true;
+										else config::diagnostic_log(
+											"RENOVICE ENGINE_DAMAGE event=source-publish-failed stock-retained=1",
+											config::DiagnosticsMode::errors);
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}
-	if (automatic_selected)
+	catch (...)
 	{
-		ScopedAutomaticDamageTraceContext automatic_context(
-			automatic_sequence_value, diagnostic_source, target_type);
-		if (!call_automatic_damage_runtime_before(
-				state, diagnostic_source, arguments, flags,
-				automatic_transaction)
-			&& !automatic_damage_runtime_failure_logged.exchange(
-				true, std::memory_order_relaxed))
-		{
-			config::diagnostic_log(
-				"RENOVICE AUTO_DAMAGE build=V79 event=runtime-failure phase=before",
-				config::DiagnosticsMode::errors);
-		}
+		if (plan.active)
+			finish_native_call_boundary(
+				plan.boundary_token, previous_boundary, state);
+		plan = {};
+		config::diagnostic_log(
+			"RENOVICE nativeCalls preflight failed; stock retained",
+			config::DiagnosticsMode::errors);
 	}
 
-	float caster_snapshot = 0;
-	if (caster_selected || buffs_selected) {
-        // Queue getters run at the game's existing HUD update boundary. Empty
-        // lists must not consume the combat snapshot budget. The Lua pending
-        // entry roots the receiver before stock may overwrite its argument slot.
-        const auto lane = caster_diagnostic_lane(record.name);
-        const bool calculation = lane == CasterDiagnosticLane::calculation;
-        auto& budget = lane == CasterDiagnosticLane::hud ? caster_hud_budget_used
-            : calculation ? caster_calculation_budget_used : caster_stats_budget_used;
-        const auto used = budget.fetch_add(1, std::memory_order_relaxed) + 1;
-		const auto limit = caster_diagnostic_limit(lane, flags.diagnostics_max_events);
-		if (used <= limit) {
-			const auto id = caster_stats_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
-			if (id <= 16777215) {
-				ScopedAutomaticDamageTraceContext context(id, diagnostic_source, target_type);
-				if (!call_caster_stats_before(state, static_cast<float>(id), record.name, arguments, caster_snapshot)
-					&& !caster_stats_failure_logged.exchange(true))
-					config::diagnostic_log("RENOVICE CASTER_STATS build=V82 event=failed phase=before", config::DiagnosticsMode::errors);
-			} else if (id == 16777216) {
-                config::diagnostic_log("RENOVICE CASTER_STATS build=V86 event=suppressed reason=exact-float-id-exhausted", config::DiagnosticsMode::errors);
-            }
-		} else if (used == limit + 1) {
-			config::diagnostic_log(std::string("RENOVICE CASTER_STATS build=V88 event=suppressed lane=")
-                + (lane == CasterDiagnosticLane::hud ? "hud" : calculation ? "calculation" : "combat") + " reason=snapshot-budget-exhausted limit="
-				+ std::to_string(limit), config::DiagnosticsMode::battle);
-		}
-		log_native_buff_probe(buff_probe, "observer-before", caster_snapshot > 0
-            ? "callback-pending-root-ready" : "callback-unavailable-or-rejected", state);
-	}
-	native_source.caster_snapshot = std::isfinite(caster_snapshot) && caster_snapshot > 0
-		? static_cast<std::uint64_t>(caster_snapshot) : 0;
-	// Diagnostic callbacks may grow the VM stack. Restore the authoritative
-	// native argument frame before calling stock, just as the addon phase does.
-	state->intop = luau_restorestack(state, argument_base_offset);
-	state->outtop = luau_restorestack(state, argument_top_offset);
+	// Intentionally naked. Every mutex, generation lease, vector, string,
+	// diagnostic scope, and source staging object has ended. DE keeps exact
+	// ownership of stock error propagation; only the POD boundary and copied
+	// process-owned engine source remain recoverable after a longjmp.
 	const int result_count = original(state);
-	log_native_buff_probe(buff_probe, "return", "stock-result-before-observer", state, result_count);
-	std::vector<luau_TValue> results;
-	bool results_valid = false;
-	if (result_count >= 0 && state->outtop >= state->intop + result_count)
+
+	if (!plan.active) return result_count;
+
+	try
 	{
-		results_valid = true;
-		const auto result_base_offset = luau_savestack(
-			state, state->outtop - result_count);
-		const auto result_top_offset = luau_savestack(state, state->outtop);
-		results.assign(
-			state->outtop - result_count, state->outtop);
-		if (caster_snapshot > 0) {
-			const auto result_intop_offset = luau_savestack(state, state->intop);
-			ScopedAutomaticDamageTraceContext context(static_cast<std::uint64_t>(caster_snapshot), diagnostic_source, target_type);
-			if (!call_automatic_damage_runtime_after(state, caster_snapshot, results, "casterAfter")
-				&& !caster_stats_failure_logged.exchange(true))
-				config::diagnostic_log("RENOVICE CASTER_STATS build=V82 event=failed phase=after", config::DiagnosticsMode::errors);
-			state->intop = luau_restorestack(state, result_intop_offset);
-			state->outtop = luau_restorestack(state, result_top_offset);
-			log_native_buff_probe(buff_probe, "observer-after", "callback-returned", state);
-		}
-		if (automatic_transaction > 0)
+		log_native_buff_probe(
+			plan.buff_probe, "return", "stock-result-before-observer",
+			state, result_count);
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		std::string method;
+		if (generation_dispatch && active_generation == plan.generation
+			&& native_call_boundary_is_live(active_native_call_boundary, state)
+			&& active_native_call_boundary.token == plan.boundary_token)
 		{
-			ScopedAutomaticDamageTraceContext automatic_context(
-				automatic_sequence_value, diagnostic_source, target_type);
-			if (!call_automatic_damage_runtime_after(
-					state, automatic_transaction, results)
-				&& !automatic_damage_runtime_failure_logged.exchange(
-					true, std::memory_order_relaxed))
 			{
-				config::diagnostic_log(
-					"RENOVICE AUTO_DAMAGE build=V79 event=runtime-failure phase=after",
-					config::DiagnosticsMode::errors);
+				std::lock_guard hook_lock(native_call_hook_mutex);
+				if (plan.slot < native_call_hooks.size()
+					&& native_call_hooks[plan.slot] != nullptr)
+				{
+					const auto& record = *native_call_hooks[plan.slot];
+					const auto current_original = record.hook.isCreated()
+						? reinterpret_cast<luau_CFunction>(record.hook.original)
+						: record.target;
+					if (current_original == original) method = record.name;
+				}
 			}
-		}
-		if (provider_selected)
-		{
-			std::ostringstream after_details;
-			after_details << "method=" << record.name
-				<< " phase=after prototype=" << callsite.prototype
-				<< " instruction=" << callsite.instruction
-				<< " values=results";
-			trace_addon(
-				state, callsite.target_key, "native.call.after", after_details.str(),
-				results.data(), results.size());
-			if (dispatch_native_call_phase(
-					state, callsite, record.name.c_str(), "after", arguments, &results))
+			std::vector<luau_TValue> arguments;
+			if (!method.empty() && native_call_arguments_live(plan, state, arguments))
 			{
-				state->outtop = luau_restorestack(state, result_top_offset);
-				prepare_stack_write(state);
-				std::copy(results.begin(), results.end(),
-					luau_restorestack(state, result_base_offset));
-			}
-			else
-			{
-				state->outtop = luau_restorestack(state, result_top_offset);
-				trace_addon(state, callsite.target_key, "native.call.after.reject",
-					"method=" + record.name + " stock_results_retained=1");
+				DiagnosticDamageCallsite diagnostic_source =
+					diagnostic_damage_callsite_for_active_stack(state);
+				diagnostic_source.callsite = plan.diagnostic_callsite;
+				const auto target_type = arguments.empty()
+					? std::string{} : engine_object_type_name(arguments[0]);
+				std::vector<luau_TValue> results;
+				bool results_valid = false;
+				const bool result_count_available = result_count >= 0
+					&& state->intop != nullptr && state->outtop != nullptr
+					&& state->outtop >= state->intop
+					&& static_cast<std::size_t>(result_count)
+						<= static_cast<std::size_t>(state->outtop - state->intop);
+				const auto result_base_offset = result_count_available
+					? luau_savestack(state, state->outtop - result_count) : -1;
+				const auto result_top_offset = result_count_available
+					? luau_savestack(state, state->outtop) : -1;
+				const bool result_window_live = result_count_available
+					&& lua_call_stack_span_is_live(
+						state, result_base_offset,
+						static_cast<std::size_t>(result_count));
+				if (result_window_live)
+				{
+					results_valid = true;
+					results.assign(state->outtop - result_count, state->outtop);
+					if (plan.caster_snapshot > 0)
+					{
+						const auto result_intop_offset = luau_savestack(state, state->intop);
+						ScopedAutomaticDamageTraceContext context(
+							static_cast<std::uint64_t>(plan.caster_snapshot),
+							diagnostic_source, target_type);
+						NativeObserverProtectedContext observer;
+						observer.kind = NativeObserverProtectedKind::caster_after;
+						observer.values = results.data();
+						observer.value_count = results.size();
+						observer.runtime_registry_key =
+							automatic_damage_runtime_registry_key.c_str();
+						observer.callback_method = "casterAfter";
+						observer.identifier = plan.caster_snapshot;
+						if (!run_native_observer_protected(state, observer)
+							&& !caster_stats_failure_logged.exchange(true))
+							config::diagnostic_log(
+								"RENOVICE CASTER_STATS build=V82 event=failed phase=after",
+								config::DiagnosticsMode::errors);
+						state->intop = luau_restorestack(state, result_intop_offset);
+						state->outtop = luau_restorestack(state, result_top_offset);
+						log_native_buff_probe(plan.buff_probe, "observer-after",
+							"callback-returned", state);
+					}
+					if (plan.automatic_transaction > 0)
+					{
+						ScopedAutomaticDamageTraceContext context(
+							plan.automatic_sequence, diagnostic_source, target_type);
+						NativeObserverProtectedContext observer;
+						observer.kind = NativeObserverProtectedKind::automatic_after;
+						observer.values = results.data();
+						observer.value_count = results.size();
+						observer.runtime_registry_key =
+							automatic_damage_runtime_registry_key.c_str();
+						observer.callback_method = "after";
+						observer.identifier = plan.automatic_transaction;
+						if (!run_native_observer_protected(state, observer)
+							&& !automatic_damage_runtime_failure_logged.exchange(
+								true, std::memory_order_relaxed))
+							config::diagnostic_log(
+								"RENOVICE AUTO_DAMAGE build=V79 event=runtime-failure phase=after",
+								config::DiagnosticsMode::errors);
+					}
+					if (plan.provider_selected)
+					{
+						std::ostringstream after_details;
+						after_details << "method=" << method
+							<< " phase=after prototype="
+							<< plan.provider_callsite.prototype
+							<< " instruction=" << plan.provider_callsite.instruction
+							<< " values=results";
+						trace_addon(state, plan.provider_callsite.target_key,
+							"native.call.after", after_details.str(),
+							results.data(), results.size());
+						if (dispatch_native_call_phase(
+								state, plan.provider_callsite, method.c_str(),
+								"after", arguments, &results))
+						{
+							state->outtop = luau_restorestack(state, result_top_offset);
+							prepare_stack_write(state);
+							std::copy(results.begin(), results.end(),
+								luau_restorestack(state, result_base_offset));
+						}
+						else
+						{
+							state->outtop = luau_restorestack(state, result_top_offset);
+							trace_addon(state, plan.provider_callsite.target_key,
+								"native.call.after.reject",
+								"method=" + method + " stock_results_retained=1");
+						}
+					}
+				}
+				else if (plan.automatic_transaction > 0)
+				{
+					ScopedAutomaticDamageTraceContext context(
+						plan.automatic_sequence, diagnostic_source, target_type);
+					NativeObserverProtectedContext observer;
+					observer.kind = NativeObserverProtectedKind::automatic_after;
+					observer.values = results.data();
+					observer.value_count = results.size();
+					observer.runtime_registry_key =
+						automatic_damage_runtime_registry_key.c_str();
+					observer.callback_method = "after";
+					observer.identifier = plan.automatic_transaction;
+					if (!run_native_observer_protected(state, observer)
+						&& !automatic_damage_runtime_failure_logged.exchange(
+							true, std::memory_order_relaxed))
+						config::diagnostic_log(
+							"RENOVICE AUTO_DAMAGE build=V79 event=runtime-failure phase=after-invalid-results",
+							config::DiagnosticsMode::errors);
+				}
+				if (plan.provider_selected)
+				{
+					const std::string event = std::string("nativeCalls.") + method;
+					std::ostringstream details;
+					details << "method=" << method
+						<< " prototype=" << plan.provider_callsite.prototype
+						<< " instruction=" << plan.provider_callsite.instruction
+						<< " arguments=" << plan.argument_count
+						<< " results=" << result_count
+						<< " results_valid=" << (results_valid ? 1 : 0);
+					log_native_hook_once(
+						state, plan.provider_callsite.target_key, event.c_str());
+					trace_addon(state, plan.provider_callsite.target_key,
+						"native.call.return", details.str());
+				}
 			}
 		}
 	}
-	else if (automatic_transaction > 0)
+	catch (...)
 	{
-		ScopedAutomaticDamageTraceContext automatic_context(
-			automatic_sequence_value, diagnostic_source, target_type);
-		if (!call_automatic_damage_runtime_after(
-				state, automatic_transaction, results)
-			&& !automatic_damage_runtime_failure_logged.exchange(
-				true, std::memory_order_relaxed))
-		{
-			config::diagnostic_log(
-				"RENOVICE AUTO_DAMAGE build=V79 event=runtime-failure phase=after-invalid-results",
-				config::DiagnosticsMode::errors);
-		}
+		config::diagnostic_log(
+			"RENOVICE nativeCalls post phase failed; stock result retained",
+			config::DiagnosticsMode::errors);
 	}
-	hook_lock.unlock();
-	if (provider_selected)
+	if (active_native_call_boundary.engine_source_published)
 	{
-		const std::string event = std::string("nativeCalls.") + record.name;
-		std::ostringstream details;
-		details << "method=" << record.name
-			<< " prototype=" << callsite.prototype
-			<< " instruction=" << callsite.instruction
-			<< " arguments=" << argument_count
-			<< " results=" << result_count
-			<< " results_valid=" << (results_valid ? 1 : 0);
-		log_native_hook_once(state, callsite.target_key, event.c_str());
-		trace_addon(state, callsite.target_key, "native.call.return", details.str());
+		engine_damage::clear_source();
+		active_native_call_boundary.engine_source_published = false;
 	}
+	finish_native_call_boundary(
+		plan.boundary_token, previous_boundary, state);
 	return result_count;
 }
 
@@ -6704,64 +9830,78 @@ int push_float_arg_adapter(luau_State* state)
 		? reinterpret_cast<luau_CFunction>(push_float_arg_native_hook.original)
 		: original_push_float_arg;
 	if (original == nullptr) return 0;
-	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
-	if (!generation_dispatch) return original(state);
-	if (state == nullptr || !target_snapshot_requests_native_callsite(
-		state->global_state))
 	{
-		return original(state);
-	}
-	if (float_argument_transform_running || state == nullptr || state->intop == nullptr
-		|| luau_gettop(state) < 2 || state->intop[1].type != LUAU_NUMBER)
-	{
-		return original(state);
+		// Every lease, provider snapshot, recursion marker, and log owner ends
+		// before the stock C callback. A DE Lua error may longjmp out of stock.
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		if (generation_dispatch && state != nullptr && state->intop != nullptr
+			&& target_snapshot_requests_native_callsite(state->global_state)
+			&& !float_argument_transform_running
+			&& luau_gettop(state) >= 2 && state->intop[1].type == LUAU_NUMBER)
+		{
+			const auto callsite = target_callsite_for_active_call_stack(state);
+			if (callsite.exact)
+			{
+				const auto& providers = hook_addons_snapshot(
+					callsite.target_key, state->global_state);
+				if (!providers.empty())
+				{
+					struct ScopedTransform
+					{
+						ScopedTransform() noexcept
+						{
+							float_argument_transform_running = true;
+						}
+						~ScopedTransform() noexcept
+						{
+							float_argument_transform_running = false;
+						}
+					} transform_scope;
+					const float stock_value = state->intop[1].value.as_float;
+					float transformed_value = stock_value;
+					for (const auto& addon : providers)
+					{
+						luau_TValue transform{};
+						if (!lifecycle_hook_value(
+								state, addon, "transformFloatArgument", transform))
+						{
+							continue;
+						}
+						luau_TValue arguments[3]{};
+						for (auto& argument : arguments) argument.type = LUAU_NUMBER;
+						arguments[0].value.as_float = static_cast<float>(callsite.prototype);
+						arguments[1].value.as_float = static_cast<float>(callsite.instruction);
+						arguments[2].value.as_float = transformed_value;
+						float candidate = transformed_value;
+						if (call_number_value(
+								state, transform, arguments, std::size(arguments),
+								"transformFloatArgument", candidate))
+						{
+							transformed_value = candidate;
+						}
+					}
+					if (transformed_value != stock_value)
+					{
+						state->intop[1].value.as_float = transformed_value;
+						log_native_hook_once(
+							state, callsite.target_key,
+							"PushFloatArg.instruction-transform");
+						std::ostringstream details;
+						details << "prototype=" << callsite.prototype
+							<< " instruction=" << callsite.instruction
+							<< " stock=" << stock_value
+							<< " transformed=" << transformed_value;
+						trace_addon(
+							state, callsite.target_key,
+							"native.float.transform", details.str());
+					}
+				}
+			}
+		}
 	}
 
-	const auto callsite = target_callsite_for_active_call_stack(state);
-	if (!callsite.exact) return original(state);
-	const auto& providers = hook_addons_snapshot(
-		callsite.target_key, state->global_state);
-	if (providers.empty()) return original(state);
-
-	struct ScopedTransform
-	{
-		ScopedTransform() { float_argument_transform_running = true; }
-		~ScopedTransform() { float_argument_transform_running = false; }
-	} transform_scope;
-	const float stock_value = state->intop[1].value.as_float;
-	float transformed_value = stock_value;
-	for (const auto& addon : providers)
-	{
-		luau_TValue transform{};
-		if (!lifecycle_hook_value(
-				state, addon, "transformFloatArgument", transform))
-		{
-			continue;
-		}
-		luau_TValue arguments[3]{};
-		for (auto& argument : arguments) argument.type = LUAU_NUMBER;
-		arguments[0].value.as_float = static_cast<float>(callsite.prototype);
-		arguments[1].value.as_float = static_cast<float>(callsite.instruction);
-		arguments[2].value.as_float = transformed_value;
-		float candidate = transformed_value;
-		if (call_number_value(
-				state, transform, arguments, std::size(arguments),
-				"transformFloatArgument", candidate))
-		{
-			transformed_value = candidate;
-		}
-	}
-	if (transformed_value != stock_value)
-	{
-		state->intop[1].value.as_float = transformed_value;
-		log_native_hook_once(
-			state, callsite.target_key, "PushFloatArg.instruction-transform");
-		std::ostringstream details;
-		details << "prototype=" << callsite.prototype
-			<< " instruction=" << callsite.instruction
-			<< " stock=" << stock_value << " transformed=" << transformed_value;
-		trace_addon(state, callsite.target_key, "native.float.transform", details.str());
-	}
+	// Intentionally naked: no RENOVICE lease, snapshot, TLS guard, string,
+	// stream, or other destructor-owned state crosses the stock callback.
 	return original(state);
 }
 
@@ -6771,156 +9911,224 @@ int run_script_observer_adapter(luau_State* state)
 		? reinterpret_cast<luau_CFunction>(run_script_native_hook.original)
 		: original_run_script;
 	if (original == nullptr) return 0;
-	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
-	if (!generation_dispatch) return original(state);
 
-	const bool enabled = observe_target_addons.load(std::memory_order_acquire);
-	const bool reentrant = run_script_observer_active;
-	const int argument_count = state != nullptr && state->intop != nullptr
-		&& state->outtop != nullptr ? luau_gettop(state) : 0;
-	const bool synchronous_flag_is_boolean = argument_count == 4
-		&& state->intop[3].type == LUAU_BOOL;
-	const bool synchronous_flag = synchronous_flag_is_boolean
-		&& state->intop[3].value.as_bool != 0;
-	const bool binding_candidate = run_script_target_binding_candidate(
-		enabled,
-		argument_count < 0 ? 0 : static_cast<std::size_t>(argument_count),
-		synchronous_flag_is_boolean,
-		synchronous_flag,
-		argument_count >= 2 ? state->intop[1].value.as_uintptr : 0);
-	const auto entry_sequence = enabled && !reentrant
-		? run_script_entry_sequence.fetch_add(1, std::memory_order_acq_rel) + 1 : 0;
-	const auto candidate_sequence = enabled && !reentrant
-		&& argument_count == 4 && synchronous_flag_is_boolean && synchronous_flag
-		? run_script_candidate_sequence.fetch_add(1, std::memory_order_acq_rel) + 1 : 0;
-	AbilityCardQueryObservation query;
-	const bool query_is_table = enabled && !reentrant && argument_count == 4
-		&& synchronous_flag_is_boolean && synchronous_flag
-		&& read_ability_card_query(state, query);
-	const auto decision = classify_run_script_observation(
-		enabled, reentrant,
-		argument_count < 0 ? 0 : static_cast<std::size_t>(argument_count),
-		synchronous_flag_is_boolean, synchronous_flag,
-		query_is_table, query.has_ability);
-	if (enabled && !reentrant && should_sample_run_script_entry(
-		entry_sequence, candidate_sequence,
-		argument_count < 0 ? 0 : static_cast<std::size_t>(argument_count),
-		synchronous_flag_is_boolean, synchronous_flag))
+	struct RunScriptOriginalPlan
 	{
-		std::ostringstream entry;
-		entry << "RENOVICE RunScript ENTRY seq=" << entry_sequence
-			<< " candidate_seq=" << candidate_sequence
-			<< " vm=" << (state != nullptr ? state->global_state : nullptr)
-			<< " thread=" << GetCurrentThreadId()
-			<< " args=" << argument_count << " tags=";
-		const int recorded_arguments = std::min(argument_count, 6);
-		for (int i = 0; i < recorded_arguments; ++i)
+		bool observe_ability_card = false;
+		bool install_boundary = false;
+		std::uint64_t generation = 0;
+		std::uint64_t sequence = 0;
+		void* before_global_state = nullptr;
+		std::uint32_t owner_thread = 0;
+		std::uint32_t argument_tags[4]{};
+		std::uintptr_t argument_values[4]{};
+		AbilityCardQueryObservation query{};
+		ActiveRunScriptBoundary previous_boundary{};
+		ActiveRunScriptBoundary boundary{};
+	};
+	static_assert(std::is_trivially_copyable_v<RunScriptOriginalPlan>);
+	RunScriptOriginalPlan plan;
+	const bool reentrant = prepare_run_script_boundary_entry(state);
+	plan.previous_boundary = active_run_script_boundary;
+
+	{
+		// The admission lease protects only RENOVICE's before-phase inspection.
+		// It is deliberately destroyed before the stock RunScript callback.
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		if (generation_dispatch)
 		{
-			if (i != 0) entry << ',';
-			entry << state->intop[i].type;
+			plan.generation = active_generation;
+			const bool enabled = observe_target_addons.load(
+				std::memory_order_acquire);
+			const int argument_count = state != nullptr && state->intop != nullptr
+				&& state->outtop != nullptr ? luau_gettop(state) : 0;
+			const bool synchronous_flag_is_boolean = argument_count == 4
+				&& state->intop[3].type == LUAU_BOOL;
+			const bool synchronous_flag = synchronous_flag_is_boolean
+				&& state->intop[3].value.as_bool != 0;
+			const auto script_resource_identity = argument_count >= 2
+				? state->intop[1].value.as_uintptr : 0;
+			const bool binding_candidate = run_script_target_binding_candidate(
+				enabled,
+				argument_count < 0 ? 0 : static_cast<std::size_t>(argument_count),
+				synchronous_flag_is_boolean,
+				synchronous_flag,
+				script_resource_identity);
+			const auto entry_sequence = enabled && !reentrant
+				? run_script_entry_sequence.fetch_add(
+					1, std::memory_order_acq_rel) + 1 : 0;
+			const auto candidate_sequence = enabled && !reentrant
+				&& argument_count == 4 && synchronous_flag_is_boolean
+				&& synchronous_flag
+				? run_script_candidate_sequence.fetch_add(
+					1, std::memory_order_acq_rel) + 1 : 0;
+			const bool query_is_table = enabled && !reentrant
+				&& argument_count == 4 && synchronous_flag_is_boolean
+				&& synchronous_flag
+				&& read_ability_card_query(state, plan.query);
+			const auto decision = classify_run_script_observation(
+				enabled, reentrant,
+				argument_count < 0 ? 0 : static_cast<std::size_t>(argument_count),
+				synchronous_flag_is_boolean, synchronous_flag,
+				query_is_table, plan.query.has_ability);
+			if (enabled && !reentrant && should_sample_run_script_entry(
+				entry_sequence, candidate_sequence,
+				argument_count < 0
+					? 0 : static_cast<std::size_t>(argument_count),
+				synchronous_flag_is_boolean, synchronous_flag))
+			{
+				std::ostringstream entry;
+				entry << "RENOVICE RunScript ENTRY seq=" << entry_sequence
+					<< " candidate_seq=" << candidate_sequence
+					<< " vm=" << (state != nullptr ? state->global_state : nullptr)
+					<< " thread=" << GetCurrentThreadId()
+					<< " args=" << argument_count << " tags=";
+				const int recorded_arguments = std::min(argument_count, 6);
+				for (int i = 0; i < recorded_arguments; ++i)
+				{
+					if (i != 0) entry << ',';
+					entry << state->intop[i].type;
+				}
+				entry << " sync_bool="
+					<< (synchronous_flag_is_boolean ? 1 : 0)
+					<< " sync=" << (synchronous_flag ? 1 : 0)
+					<< " query_table=" << (query_is_table ? 1 : 0)
+					<< " ability=" << (plan.query.has_ability ? 1 : 0)
+					<< " decision=" << static_cast<unsigned int>(decision);
+				conout << entry.str() << std::endl;
+				config::log(entry.str());
+			}
+
+			if (binding_candidate
+				|| decision == RunScriptObservationDecision::ObserveAbilityCard)
+			{
+				const auto ability_identity = decision
+					== RunScriptObservationDecision::ObserveAbilityCard
+					? plan.query.ability_identity : 0;
+				plan.boundary = make_run_script_boundary(
+					state, script_resource_identity, ability_identity,
+					plan.generation);
+				plan.install_boundary = plan.boundary.active;
+			}
+
+			if (decision == RunScriptObservationDecision::ObserveAbilityCard)
+			{
+				plan.observe_ability_card = true;
+				for (std::size_t i = 0; i != 4; ++i)
+				{
+					plan.argument_tags[i] = state->intop[i].type;
+					plan.argument_values[i] = state->intop[i].value.as_uintptr;
+				}
+				plan.sequence = run_script_observation_sequence.fetch_add(
+					1, std::memory_order_acq_rel) + 1;
+				plan.before_global_state = state->global_state;
+				plan.owner_thread = static_cast<std::uint32_t>(
+					GetCurrentThreadId());
+
+				std::ostringstream before;
+				before << "RENOVICE card query OBSERVE phase=before seq="
+					<< plan.sequence
+					<< " vm=" << plan.before_global_state
+					<< " thread=" << plan.owner_thread
+					<< " args=" << argument_count
+					<< " tags=" << plan.argument_tags[0] << ','
+					<< plan.argument_tags[1] << ',' << plan.argument_tags[2]
+					<< ',' << plan.argument_tags[3]
+					<< " values="
+					<< reinterpret_cast<void*>(plan.argument_values[0]) << ','
+					<< reinterpret_cast<void*>(plan.argument_values[1]) << ','
+					<< reinterpret_cast<void*>(plan.argument_values[2]) << ','
+					<< reinterpret_cast<void*>(plan.argument_values[3])
+					<< " query_tag=" << plan.query.query_tag
+					<< " query="
+					<< reinterpret_cast<void*>(plan.query.query_identity)
+					<< " ability_tag=" << plan.query.ability_tag
+					<< " ability="
+					<< reinterpret_cast<void*>(plan.query.ability_identity)
+					<< " modded_tag="
+					<< (plan.query.modded_is_boolean ? LUAU_BOOL : LUAU_NIL)
+					<< " modded=" << (plan.query.modded ? 1 : 0)
+					<< " level="
+					<< (plan.query.level_is_number ? plan.query.level : -1.0f);
+				conout << before.str() << std::endl;
+				config::log(before.str());
+			}
 		}
-		entry << " sync_bool=" << (synchronous_flag_is_boolean ? 1 : 0)
-			<< " sync=" << (synchronous_flag ? 1 : 0)
-			<< " query_table=" << (query_is_table ? 1 : 0)
-			<< " ability=" << (query.has_ability ? 1 : 0)
-			<< " decision=" << static_cast<unsigned int>(decision);
-		conout << entry.str() << std::endl;
-		config::log(entry.str());
 	}
-	if (decision != RunScriptObservationDecision::ObserveAbilityCard)
+
+	if (plan.install_boundary)
 	{
-		if (binding_candidate)
-		{
-			ScopedRunScriptBoundary scoped_binding(
-				state->global_state,
-				state->intop[1].value.as_uintptr,
-				0,
-				static_cast<std::uint32_t>(GetCurrentThreadId()));
-			return original(state);
-		}
-		return original(state);
+		active_run_script_boundary = plan.boundary;
 	}
 
-	std::uint32_t argument_tags[4]{};
-	std::uintptr_t argument_values[4]{};
-	for (std::size_t i = 0; i != 4; ++i)
-	{
-		argument_tags[i] = state->intop[i].type;
-		argument_values[i] = state->intop[i].value.as_uintptr;
-	}
-	const auto sequence = run_script_observation_sequence.fetch_add(
-		1, std::memory_order_acq_rel) + 1;
-	auto* const before_global_state = state->global_state;
-	const auto owner_thread = static_cast<std::uint32_t>(GetCurrentThreadId());
-	ScopedRunScriptBoundary scoped_observer(
-		before_global_state, argument_values[1], query.ability_identity, owner_thread);
-
-	std::ostringstream before;
-	before << "RENOVICE card query OBSERVE phase=before seq=" << sequence
-		<< " vm=" << before_global_state << " thread=" << owner_thread
-		<< " args=" << argument_count
-		<< " tags=" << argument_tags[0] << ',' << argument_tags[1] << ','
-		<< argument_tags[2] << ',' << argument_tags[3]
-		<< " values=" << reinterpret_cast<void*>(argument_values[0]) << ','
-		<< reinterpret_cast<void*>(argument_values[1]) << ','
-		<< reinterpret_cast<void*>(argument_values[2]) << ','
-		<< reinterpret_cast<void*>(argument_values[3])
-		<< " query_tag=" << query.query_tag
-		<< " query=" << reinterpret_cast<void*>(query.query_identity)
-		<< " ability_tag=" << query.ability_tag
-		<< " ability=" << reinterpret_cast<void*>(query.ability_identity)
-		<< " modded_tag=" << (query.modded_is_boolean ? LUAU_BOOL : LUAU_NIL)
-		<< " modded=" << (query.modded ? 1 : 0)
-		<< " level=" << (query.level_is_number ? query.level : -1.0f);
-	conout << before.str() << std::endl;
-	config::log(before.str());
-
+	// Intentionally naked. Only the trivially-copyable plan and the
+	// self-validating POD boundary survive while stock owns RunScript.
 	const int result_count = original(state);
-	std::uint32_t result_tag = LUAU_NIL;
-	std::uintptr_t result_identity = 0;
-	luau_TValue result_value{};
-	const bool result_is_table = read_ability_card_result(
-		state, result_tag, result_identity, result_value);
-	const auto target_key = result_is_table
-		? target_key_for_ability(state, query.ability_value) : 0;
-	if (target_key != 0)
-	{
-		remember_target_script_binding(target_key, state);
-	}
-	const auto result = classify_run_script_observation_result(
-		result_count, result_is_table);
-	std::uintptr_t published_identity = 0;
-	bool card_published = false;
-	if (result == RunScriptObservationResult::Complete && target_key != 0)
-	{
-		card_published = dispatch_ability_card_hooks(
-			state, target_key, result_value, query.query_value,
-			published_identity);
-	}
-	const char* result_label = "complete";
-	if (result == RunScriptObservationResult::OriginalResultCountChanged)
-	{
-		result_label = "original-result-count-changed";
-	}
-	else if (result == RunScriptObservationResult::MissingAbilityCardResult)
-	{
-		result_label = "missing-ability-card-result";
-	}
 
-	std::ostringstream after;
-	after << "RENOVICE card query OBSERVE phase=after seq=" << sequence
-		<< " vm=" << state->global_state << " thread=" << owner_thread
-		<< " same_vm=" << (before_global_state == state->global_state ? 1 : 0)
-		<< " original_results=" << result_count
-		<< " result_tag=" << result_tag
-		<< " result=" << reinterpret_cast<void*>(result_identity)
-		<< " target_match=" << (target_key != 0 ? 1 : 0)
-		<< " target_key=0x" << std::hex << target_key << std::dec
-		<< " card_published=" << (card_published ? 1 : 0)
-		<< " published=" << reinterpret_cast<void*>(published_identity)
-		<< " status=" << result_label;
-	conout << after.str() << std::endl;
-	config::log(after.str());
+	if (plan.install_boundary)
+	{
+		finish_run_script_boundary(
+			plan.boundary.token, plan.previous_boundary, state);
+	}
+	if (!plan.observe_ability_card) return result_count;
+
+	{
+		// Reborrow only after stock returned normally. A generation replacement
+		// while stock ran invalidates this post phase without changing its result.
+		auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+		if (!generation_dispatch || active_generation != plan.generation)
+		{
+			return result_count;
+		}
+
+		std::uint32_t result_tag = LUAU_NIL;
+		std::uintptr_t result_identity = 0;
+		luau_TValue result_value{};
+		const bool result_is_table = read_ability_card_result(
+			state, result_tag, result_identity, result_value);
+		const auto target_key = result_is_table
+			? target_key_for_ability(state, plan.query.ability_value) : 0;
+		if (target_key != 0)
+		{
+			remember_target_script_binding_from_boundary(
+				target_key, state, plan.boundary);
+		}
+		const auto result = classify_run_script_observation_result(
+			result_count, result_is_table);
+		std::uintptr_t published_identity = 0;
+		bool card_published = false;
+		if (result == RunScriptObservationResult::Complete && target_key != 0)
+		{
+			card_published = dispatch_ability_card_hooks(
+				state, target_key, result_value, plan.query.query_value,
+				published_identity);
+		}
+		const char* result_label = "complete";
+		if (result == RunScriptObservationResult::OriginalResultCountChanged)
+		{
+			result_label = "original-result-count-changed";
+		}
+		else if (result == RunScriptObservationResult::MissingAbilityCardResult)
+		{
+			result_label = "missing-ability-card-result";
+		}
+
+		std::ostringstream after;
+		after << "RENOVICE card query OBSERVE phase=after seq=" << plan.sequence
+			<< " vm=" << state->global_state << " thread=" << plan.owner_thread
+			<< " same_vm="
+			<< (plan.before_global_state == state->global_state ? 1 : 0)
+			<< " original_results=" << result_count
+			<< " result_tag=" << result_tag
+			<< " result=" << reinterpret_cast<void*>(result_identity)
+			<< " target_match=" << (target_key != 0 ? 1 : 0)
+			<< " target_key=0x" << std::hex << target_key << std::dec
+			<< " card_published=" << (card_published ? 1 : 0)
+			<< " published=" << reinterpret_cast<void*>(published_identity)
+			<< " status=" << result_label;
+		conout << after.str() << std::endl;
+		config::log(after.str());
+	}
 	return result_count;
 }
 
@@ -7626,6 +10834,58 @@ void finish_guard() noexcept
 	}
 }
 
+void disarm_guard_exception_handler() noexcept
+{
+	guard.active = 0;
+	if (guard.handler != nullptr)
+	{
+		RemoveVectoredExceptionHandler(guard.handler);
+		guard.handler = nullptr;
+	}
+}
+
+bool capture_guard_outer_error_jump(luau_State* state) noexcept
+{
+	if (state == nullptr || state->global_state == nullptr
+		|| luau_GlobalState::error_longjump_data_offset == 0)
+	{
+		return false;
+	}
+	auto** const slot = reinterpret_cast<void**>(
+		reinterpret_cast<unsigned char*>(state->global_state)
+		+ luau_GlobalState::error_longjump_data_offset);
+	if (IsBadReadPtr(slot, sizeof(*slot)) || IsBadWritePtr(slot, sizeof(*slot))
+		|| *slot == nullptr)
+	{
+		return false;
+	}
+	guard.outer_error_jump_slot = slot;
+	guard.outer_error_jump = *slot;
+	return true;
+}
+
+bool restore_guard_outer_error_jump_after_fault() noexcept
+{
+	if (guard.outer_error_jump_slot == nullptr || guard.outer_error_jump == nullptr
+		|| IsBadWritePtr(guard.outer_error_jump_slot,
+			sizeof(*guard.outer_error_jump_slot)))
+	{
+		return false;
+	}
+	*guard.outer_error_jump_slot = guard.outer_error_jump;
+	return true;
+}
+
+void abandon_guard_without_vm_access() noexcept
+{
+	// Frame restoration failure means no Lua pointer is trustworthy. Retire the
+	// native VEH only; touching the registry or stack here would turn one caught
+	// Loader failure into a second unprotected VM fault.
+	disarm_guard_exception_handler();
+	guard.original_rooted = false;
+	guard.registry_may_be_shadowed = false;
+}
+
 void restore_lua_top() noexcept
 {
 	if (guard.state != nullptr && guard_base() != nullptr
@@ -7633,30 +10893,6 @@ void restore_lua_top() noexcept
 	{
 		guard.state->outtop = guard_base();
 	}
-}
-
-bool try_restore_registry_after_fault() noexcept
-{
-	if (!guard.registry_may_be_shadowed || guard.cleanup_attempted
-		|| guard.state == nullptr || guard_base() == nullptr || guard.setfield == nullptr)
-	{
-		return !guard.registry_may_be_shadowed;
-	}
-	if (IsBadWritePtr(guard_base(), sizeof(luau_TValue))
-		|| IsBadWritePtr(&guard.state->outtop, sizeof(guard.state->outtop)))
-	{
-		return false;
-	}
-	guard.cleanup_attempted = true;
-	guard.active = 1;
-	guard.stage = 6;
-	prepare_stack_write(guard.state);
-	*guard_base() = guard.borrowed_original;
-	guard.state->outtop = guard_base() + 1;
-	guard.setfield(guard.state, -10000, guard.key);
-	guard.registry_may_be_shadowed = false;
-	guard.state->outtop = guard_base();
-	return true;
 }
 
 void set_registry_nil(luau_State* state, luau_TValue* base, const char* key)
@@ -7667,58 +10903,170 @@ void set_registry_nil(luau_State* state, luau_TValue* base, const char* key)
 	setfield(state, -10000, key);
 }
 
-RunResult run_guarded(
+struct ProtectedStockLoaderContext
+{
+	Loader loader = nullptr;
+	void* manager = nullptr;
+	void* descriptor = nullptr;
+	bool returned = false;
+	bool value = false;
+};
+static_assert(std::is_trivially_copyable_v<ProtectedStockLoaderContext>);
+
+struct ProtectedStockLoaderResult
+{
+	bool admitted = false;
+	bool restored = false;
+	bool returned = false;
+	bool value = false;
+	int status = -1;
+};
+static_assert(std::is_trivially_copyable_v<ProtectedStockLoaderResult>);
+
+enum class StockLoaderErrorPolicy : std::uint8_t
+{
+	ContainAndRestore,
+	PreserveForStockRethrow,
+};
+
+// Destructor-free DE boundary. Loader can raise through DE's longjmp from
+// operations which occur after its internally protected undump/check-stack
+// work (notably the registry setfield). No C++ owner may be introduced here.
+void protected_stock_loader_leaf(
+	luau_State*,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<ProtectedStockLoaderContext*>(raw_context);
+	if (context == nullptr || context->loader == nullptr) return;
+	context->value = context->loader(context->manager, context->descriptor);
+	context->returned = true;
+}
+
+ProtectedStockLoaderResult invoke_stock_loader_protected(
 	luau_State* state,
 	void* manager,
 	void* descriptor,
-	const std::uint32_t* name_handle,
-	const char* lifecycle_key,
-	bool pass_global_argument,
-	bool use_borrowed_closure_environment
-)
+	StockLoaderErrorPolicy error_policy) noexcept
 {
-	RunResult result;
-	if (state == nullptr || manager == nullptr || descriptor == nullptr
-		|| name_handle == nullptr || diagnostics::bad_read_ptr(name_handle, sizeof(std::uint32_t) * 2)
-		|| diagnostics::bad_read_ptr(state, sizeof(luau_State)) || state->outtop == nullptr
-		|| check_stack == nullptr)
+	ProtectedStockLoaderResult result{};
+	ProtectedStockLoaderContext context{};
+	context.loader = reinterpret_cast<Loader>(loader_hook.original);
+	context.manager = manager;
+	context.descriptor = descriptor;
+	if (context.loader == nullptr) return result;
+
+	const auto protected_result = error_policy
+		== StockLoaderErrorPolicy::PreserveForStockRethrow
+		? de_vm_authority::run_current_vm_rethrowable(
+			state, &protected_stock_loader_leaf, &context)
+		: de_vm_authority::run_current_vm_protected(
+			state, &protected_stock_loader_leaf, &context);
+	result.admitted = protected_result.admitted;
+	result.restored = protected_result.restored;
+	result.status = protected_result.status;
+	result.returned = context.returned;
+	result.value = context.value;
+	return result;
+}
+
+struct GuardedRunLeafContext
+{
+	Loader loader = nullptr;
+	void* manager = nullptr;
+	void* descriptor = nullptr;
+	const std::uint32_t* name_handle = nullptr;
+	const char* lifecycle_key = nullptr;
+	bool pass_global_argument = false;
+	bool use_borrowed_closure_environment = false;
+	bool guard_prepared = false;
+	bool returned = false;
+	RunResult result{};
+};
+static_assert(std::is_trivially_copyable_v<GuardedRunLeafContext>);
+
+struct GuardRegistryRecoveryContext
+{
+	const char* lifecycle_key = nullptr;
+	bool clear_lifecycle_root = false;
+	bool attempted = false;
+	bool target_restored = false;
+	bool temporary_root_cleared = false;
+	bool lifecycle_root_cleared = false;
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<GuardRegistryRecoveryContext>);
+
+// BEGIN GUARDED_RUN_PROTECTED_LEAF
+// Destructor-free DE boundary. Every operation below which can raise through
+// DE's luaD_throw path is contained by run_current_vm_protected. Rich C++
+// ownership stays in run_chunk, outside this leaf.
+void run_guarded_protected_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<GuardedRunLeafContext*>(raw_context);
+	if (context == nullptr || state == nullptr || context->loader == nullptr
+		|| context->manager == nullptr
+		|| context->descriptor == nullptr || context->name_handle == nullptr
+		|| check_stack == nullptr || gc_barrierback == nullptr
+		|| key_builder == nullptr || getfield == nullptr || setfield == nullptr
+		|| protected_call == nullptr)
 	{
-		return result;
+		return;
+	}
+	RunResult& result = context->result;
+
+	// check_stack may relocate the VM stack. The outer raw-protected runner owns
+	// the exact pre-call frame snapshot; this leaf records its working offset
+	// only after the reservation has completed.
+	if (check_stack(state, 8) == 0)
+	{
+		result.protected_call_result = -7;
+		context->returned = true;
+		return;
 	}
 
-	// check_stack may relocate the VM stack. Capture the relocation-safe offset after
-	// it completes; all later loader/pcall and recovery addresses are recomputed.
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 8);
 	std::memset(&guard, 0, sizeof(guard));
 	guard.state = state;
 	guard.base_offset = luau_savestack(state, state->outtop);
 	guard.setfield = setfield;
 	guard.thread_id = GetCurrentThreadId();
+	context->guard_prepared = true;
+	if (!capture_guard_outer_error_jump(state))
+	{
+		result.protected_call_result = -9;
+		context->returned = true;
+		return;
+	}
 	guard.handler = AddVectoredExceptionHandler(1, fault_handler);
 	if (guard.handler == nullptr)
 	{
-		return result;
+		result.protected_call_result = -8;
+		context->returned = true;
+		return;
 	}
 
 	if (setjmp(guard.jump) != 0)
 	{
-		// A first fault attempts the historically critical registry rollback
-		// while the same thread-gated VEH is still installed. A second fault
-		// returns here with cleanup_attempted already set and fails closed.
-		const bool restored = try_restore_registry_after_fault();
-		restore_lua_top();
-		finish_guard();
-		result.registry_restored = restored;
+		// The VEH can interrupt Loader or luaD_pcall while either owns a nested
+		// DE error-jump record. Restore the enclosing raw runner's exact record
+		// before returning. Do not touch the VM here: the fault may have skipped
+		// a child pcall activation. The outer raw runner restores the exact frame,
+		// then settle_guard_after_protected_exit performs protected registry repair.
+		const bool error_jump_restored =
+			restore_guard_outer_error_jump_after_fault();
+		disarm_guard_exception_handler();
+		result.registry_restored = false;
+		if (!error_jump_restored && result.protected_call_result == 0)
+			result.protected_call_result = -10;
 		result.fault_stage = guard.fault_stage;
 		result.fault_code = guard.fault_code;
 		result.fault_address = guard.fault_address;
-		return result;
+		context->returned = true;
+		return;
 	}
 
 	guard.active = 1;
 	guard.stage = 1;
-	key_builder(guard.key, 0x104, const_cast<std::uint32_t*>(name_handle));
+	key_builder(guard.key, 0x104, const_cast<std::uint32_t*>(context->name_handle));
 
 	guard.stage = 2;
 	getfield(state, -10000, guard.key);
@@ -7734,7 +11082,7 @@ RunResult run_guarded(
 	// environment. Sharing only global_state is insufficient: Warframe can host
 	// multiple environment tables inside one DE VM, so a VM-wide addon load can
 	// be invisible to both target gameplay and its presentation callbacks.
-	if (use_borrowed_closure_environment)
+	if (context->use_borrowed_closure_environment)
 	{
 		const bool borrowed_is_function = is_function(guard.borrowed_original.type);
 		const bool closure_readable = guard.borrowed_original.value.as_uintptr != 0
@@ -7748,7 +11096,12 @@ RunResult run_guarded(
 			borrowed_is_function, closure_readable, environment_readable))
 		{
 			guard.stage = 6;
-			prepare_stack_write(guard.state);
+			if ((guard.state->marked & native_gc_black_mask_u43) != 0)
+			{
+				gc_barrierback(guard.state,
+					reinterpret_cast<luau_GCObject*>(guard.state),
+					&guard.state->gclist);
+			}
 			*guard_base() = guard.borrowed_original;
 			state->outtop = guard_base() + 1;
 			setfield(state, -10000, guard.key);
@@ -7757,32 +11110,47 @@ RunResult run_guarded(
 			finish_guard();
 			result.registry_restored = true;
 			result.protected_call_result = -4;
-			return result;
+			context->returned = true;
+			return;
 		}
 		result.borrowed_environment = closure->env;
 		result.exact_environment_used = true;
-		*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(descriptor) + 0x58)
+		*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(context->descriptor) + 0x58)
 			= closure->env;
 	}
-	else if (pass_global_argument)
+	else if (context->pass_global_argument)
 	{
 		// Ordinary Inject/addon chunks retain the established VM-global behavior.
 		getfield(state, -10002, "_G");
 		if (is_table(guard_base()->type))
 		{
-			*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(descriptor) + 0x58)
+			*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(context->descriptor) + 0x58)
 				= reinterpret_cast<void*>(guard_base()->value.as_uintptr);
 		}
 		state->outtop = guard_base();
 	}
 
 	guard.stage = 3;
-	const bool loader_pass = reinterpret_cast<Loader>(loader_hook.original)(manager, descriptor);
+	// This entire leaf already runs inside the outer raw-protected boundary.
+	// Invoke the shared destructor-free Loader leaf directly: nesting a second
+	// raw error-jump record under the native VEH would let a caught access fault
+	// bypass that inner record's normal restoration.
+	ProtectedStockLoaderContext loader_context{};
+	loader_context.loader = context->loader;
+	loader_context.manager = context->manager;
+	loader_context.descriptor = context->descriptor;
+	protected_stock_loader_leaf(state, &loader_context);
+	const bool loader_pass = loader_context.returned && loader_context.value;
 	state->outtop = guard_base() + 1;
 	if (!loader_pass)
 	{
 		guard.stage = 6;
-		prepare_stack_write(guard.state);
+		if ((guard.state->marked & native_gc_black_mask_u43) != 0)
+		{
+			gc_barrierback(guard.state,
+				reinterpret_cast<luau_GCObject*>(guard.state),
+				&guard.state->gclist);
+		}
 		*guard_base() = guard.borrowed_original;
 		state->outtop = guard_base() + 1;
 		setfield(state, -10000, guard.key);
@@ -7791,7 +11159,8 @@ RunResult run_guarded(
 		finish_guard();
 		result.registry_restored = true;
 		result.protected_call_result = -3;
-		return result;
+		context->returned = true;
+		return;
 	}
 
 	guard.stage = 4;
@@ -7800,7 +11169,12 @@ RunResult run_guarded(
 	if (!is_function(result.closure_tag))
 	{
 		guard.stage = 6;
-		prepare_stack_write(guard.state);
+		if ((guard.state->marked & native_gc_black_mask_u43) != 0)
+		{
+			gc_barrierback(guard.state,
+				reinterpret_cast<luau_GCObject*>(guard.state),
+				&guard.state->gclist);
+		}
 		*guard_base() = guard.borrowed_original;
 		state->outtop = guard_base() + 1;
 		setfield(state, -10000, guard.key);
@@ -7808,11 +11182,12 @@ RunResult run_guarded(
 		restore_lua_top();
 		finish_guard();
 		result.registry_restored = true;
-		return result;
+		context->returned = true;
+		return;
 	}
 
 	guard.stage = 5;
-	if (pass_global_argument)
+	if (context->pass_global_argument)
 	{
 		// Supply `_G` explicitly for compatibility with existing Inject chunks.
 		// Module globals such as Warframe's shared `_T` must be resolved normally
@@ -7827,7 +11202,7 @@ RunResult run_guarded(
 		result.protected_call_result = protected_call(state, 0, 0, 0);
 		result.result_tag = -1;
 	}
-	if (result.protected_call_result == 0 && lifecycle_key != nullptr)
+	if (result.protected_call_result == 0 && context->lifecycle_key != nullptr)
 	{
 		if (!is_table(result.result_tag))
 		{
@@ -7836,21 +11211,26 @@ RunResult run_guarded(
 		else
 		{
 			guard.stage = 7;
-			prepare_stack_write(state);
+			if ((state->marked & native_gc_black_mask_u43) != 0)
+			{
+				gc_barrierback(state,
+					reinterpret_cast<luau_GCObject*>(state),
+					&state->gclist);
+			}
 			*guard_base() = *(guard_base() + 1);
 			state->outtop = guard_base() + 1;
-			setfield(state, -10000, lifecycle_key);
+			setfield(state, -10000, context->lifecycle_key);
 			result.lifecycle_stored = true;
 
 			state->outtop = guard_base();
-			getfield(state, -10000, lifecycle_key);
+			getfield(state, -10000, context->lifecycle_key);
 			getfield(state, -1, "activate");
 			const bool activate_valid = is_function((guard_base() + 1)->type);
 			state->outtop = guard_base() + 1;
 			getfield(state, -1, "cleanup");
 			const bool cleanup_valid = is_function((guard_base() + 1)->type);
 			bool hook_contract_valid = true;
-			if (use_borrowed_closure_environment)
+			if (context->use_borrowed_closure_environment)
 			{
 				state->outtop = guard_base() + 1;
 				getfield(state, -1, "hooks");
@@ -7903,7 +11283,7 @@ RunResult run_guarded(
 			}
 			if (!activate_valid || !cleanup_valid || !hook_contract_valid)
 			{
-				set_registry_nil(state, guard_base(), lifecycle_key);
+				set_registry_nil(state, guard_base(), context->lifecycle_key);
 				result.lifecycle_stored = false;
 				result.protected_call_result = -2;
 			}
@@ -7911,7 +11291,12 @@ RunResult run_guarded(
 	}
 
 	guard.stage = 6;
-	prepare_stack_write(guard.state);
+	if ((guard.state->marked & native_gc_black_mask_u43) != 0)
+	{
+		gc_barrierback(guard.state,
+			reinterpret_cast<luau_GCObject*>(guard.state),
+			&guard.state->gclist);
+	}
 	*guard_base() = guard.borrowed_original;
 	state->outtop = guard_base() + 1;
 	setfield(state, -10000, guard.key);
@@ -7919,10 +11304,302 @@ RunResult run_guarded(
 	restore_lua_top();
 	finish_guard();
 	result.completed = result.protected_call_result == 0
-		&& (lifecycle_key == nullptr || result.lifecycle_stored);
+		&& (context->lifecycle_key == nullptr || result.lifecycle_stored);
 	result.registry_restored = true;
+	context->returned = true;
+}
+// END GUARDED_RUN_PROTECTED_LEAF
+
+// BEGIN GUARDED_RUN_RECOVERY_LEAF
+// The primary raw runner restores the exact CallInfo and stack pointers before
+// this leaf is entered. This second protected leaf repairs only the registry
+// ownership that can outlive a failed module-load batch.
+void guarded_run_registry_recovery_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<GuardRegistryRecoveryContext*>(raw_context);
+	if (context == nullptr || state == nullptr || guard.state != state
+		|| guard.setfield == nullptr || check_stack == nullptr)
+	{
+		return;
+	}
+	context->attempted = true;
+	context->target_restored = !guard.registry_may_be_shadowed;
+	context->temporary_root_cleared = !guard.original_rooted;
+	context->lifecycle_root_cleared = !context->clear_lifecycle_root;
+	if (context->target_restored && context->temporary_root_cleared
+		&& context->lifecycle_root_cleared)
+	{
+		context->completed = true;
+		return;
+	}
+	if (check_stack(state, 2) == 0) return;
+	auto* base = guard_base();
+	if (base == nullptr || IsBadWritePtr(base, sizeof(luau_TValue))
+		|| IsBadWritePtr(&state->outtop, sizeof(state->outtop)))
+	{
+		return;
+	}
+
+	if (guard.registry_may_be_shadowed)
+	{
+		if (gc_barrierback == nullptr) return;
+		if ((state->marked & native_gc_black_mask_u43) != 0)
+		{
+			gc_barrierback(state,
+				reinterpret_cast<luau_GCObject*>(state),
+				&state->gclist);
+		}
+		base = guard_base();
+		if (base == nullptr) return;
+		*base = guard.borrowed_original;
+		state->outtop = base + 1;
+		guard.setfield(state, -10000, guard.key);
+		guard.registry_may_be_shadowed = false;
+		context->target_restored = true;
+	}
+
+	if (guard.original_rooted)
+	{
+		base = guard_base();
+		if (base == nullptr) return;
+		base->value.as_uintptr = 0;
+		base->type = LUAU_NIL;
+		state->outtop = base + 1;
+		guard.setfield(
+			state, -10000, "RENOVICE.guarded-module-original");
+		guard.original_rooted = false;
+		context->temporary_root_cleared = true;
+	}
+	if (context->clear_lifecycle_root)
+	{
+		base = guard_base();
+		if (base == nullptr || context->lifecycle_key == nullptr) return;
+		base->value.as_uintptr = 0;
+		base->type = LUAU_NIL;
+		state->outtop = base + 1;
+		guard.setfield(state, -10000, context->lifecycle_key);
+		context->lifecycle_root_cleared = true;
+	}
+	state->outtop = guard_base();
+	context->completed = context->target_restored
+		&& context->temporary_root_cleared
+		&& context->lifecycle_root_cleared;
+}
+// END GUARDED_RUN_RECOVERY_LEAF
+
+bool settle_guard_after_protected_exit(
+	luau_State* state,
+	bool guard_prepared,
+	bool primary_frame_restored,
+	const char* lifecycle_key,
+	bool clear_lifecycle_root) noexcept
+{
+	if (!guard_prepared) return primary_frame_restored;
+	// A Lua longjmp can bypass finish_guard. Retire its now-stale native jump
+	// target before any second VM operation is attempted.
+	disarm_guard_exception_handler();
+	if (!primary_frame_restored || guard.state != state)
+	{
+		abandon_guard_without_vm_access();
+		return false;
+	}
+	if (!guard.registry_may_be_shadowed && !guard.original_rooted
+		&& !clear_lifecycle_root)
+	{
+		return true;
+	}
+
+	GuardRegistryRecoveryContext context{};
+	context.lifecycle_key = lifecycle_key;
+	context.clear_lifecycle_root = clear_lifecycle_root;
+	const auto recovery = de_vm_authority::run_current_vm_protected(
+		state, &guarded_run_registry_recovery_leaf, &context);
+	const bool recovered = recovery.admitted && recovery.restored
+		&& recovery.status == 0 && context.attempted && context.completed
+		&& !guard.registry_may_be_shadowed && !guard.original_rooted;
+	if (!recovered) abandon_guard_without_vm_access();
+	return recovered;
+}
+
+RunResult run_guarded(
+	luau_State* state,
+	void* manager,
+	void* descriptor,
+	const std::uint32_t* name_handle,
+	const char* lifecycle_key,
+	bool pass_global_argument,
+	bool use_borrowed_closure_environment)
+{
+	RunResult result{};
+	if (state == nullptr || manager == nullptr || descriptor == nullptr
+		|| name_handle == nullptr
+		|| diagnostics::bad_read_ptr(
+			name_handle, sizeof(std::uint32_t) * 2)
+		|| diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| state->outtop == nullptr || check_stack == nullptr
+		|| gc_barrierback == nullptr || key_builder == nullptr
+		|| getfield == nullptr || setfield == nullptr || protected_call == nullptr)
+	{
+		return result;
+	}
+
+	GuardedRunLeafContext context{};
+	context.loader = reinterpret_cast<Loader>(loader_hook.original);
+	context.manager = manager;
+	context.descriptor = descriptor;
+	context.name_handle = name_handle;
+	context.lifecycle_key = lifecycle_key;
+	context.pass_global_argument = pass_global_argument;
+	context.use_borrowed_closure_environment =
+		use_borrowed_closure_environment;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &run_guarded_protected_leaf, &context);
+	result = context.result;
+	if (!protected_result.admitted)
+	{
+		result.protected_call_result = -6;
+		result.registry_restored = true;
+		return result;
+	}
+	const bool registry_safe = settle_guard_after_protected_exit(
+		state, context.guard_prepared, protected_result.restored,
+		context.lifecycle_key,
+		context.guard_prepared && context.lifecycle_key != nullptr
+			&& guard.stage == 7
+			&& (protected_result.status != 0 || !context.returned
+				|| !context.result.completed));
+	result.registry_restored = registry_safe;
+	if (!protected_result.restored || protected_result.status != 0
+		|| !context.returned)
+	{
+		result.completed = false;
+		if (result.protected_call_result == 0)
+			result.protected_call_result = -6;
+	}
+	if (!registry_safe) result.completed = false;
 	return result;
 }
+
+enum class LifecycleLeafFailure : std::uint8_t
+{
+	none,
+	stack_capacity,
+	exception_guard,
+	native_fault,
+	lifecycle_root_not_table,
+	operation_not_function,
+	protected_call_rejected,
+};
+
+struct LifecycleLeafContext
+{
+	const char* registry_key = nullptr;
+	const char* field = nullptr;
+	bool guard_prepared = false;
+	bool returned = false;
+	bool success = false;
+	LifecycleLeafFailure failure = LifecycleLeafFailure::none;
+	unsigned long fault_code = 0;
+	void* fault_address = nullptr;
+};
+static_assert(std::is_trivially_copyable_v<LifecycleLeafContext>);
+
+// BEGIN LIFECYCLE_OPERATION_PROTECTED_LEAF
+// Addon lifecycle callbacks and registry release mutate the DE VM only in this
+// destructor-free leaf. The outer operation keeps strings, logging, locks and
+// generation ownership alive without exposing them to a DE longjmp.
+void lifecycle_operation_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<LifecycleLeafContext*>(raw_context);
+	if (context == nullptr || state == nullptr || context->registry_key == nullptr
+		|| check_stack == nullptr || getfield == nullptr || setfield == nullptr
+		|| protected_call == nullptr)
+	{
+		return;
+	}
+	if (check_stack(state, 4) == 0)
+	{
+		context->failure = LifecycleLeafFailure::stack_capacity;
+		context->returned = true;
+		return;
+	}
+
+	std::memset(&guard, 0, sizeof(guard));
+	guard.state = state;
+	guard.base_offset = luau_savestack(state, state->outtop);
+	guard.setfield = setfield;
+	guard.thread_id = GetCurrentThreadId();
+	context->guard_prepared = true;
+	if (!capture_guard_outer_error_jump(state))
+	{
+		context->failure = LifecycleLeafFailure::exception_guard;
+		context->returned = true;
+		return;
+	}
+	guard.handler = AddVectoredExceptionHandler(1, fault_handler);
+	if (guard.handler == nullptr)
+	{
+		context->failure = LifecycleLeafFailure::exception_guard;
+		context->returned = true;
+		return;
+	}
+	if (setjmp(guard.jump) != 0)
+	{
+		(void)restore_guard_outer_error_jump_after_fault();
+		disarm_guard_exception_handler();
+		context->failure = LifecycleLeafFailure::native_fault;
+		context->fault_code = guard.fault_code;
+		context->fault_address = guard.fault_address;
+		context->returned = true;
+		return;
+	}
+
+	guard.active = 1;
+	guard.stage = 20;
+	if (context->field == nullptr)
+	{
+		set_registry_nil(state, guard_base(), context->registry_key);
+	}
+	else
+	{
+		getfield(state, -10000, context->registry_key);
+		if (!is_table(guard_base()->type))
+		{
+			restore_lua_top();
+			finish_guard();
+			context->failure = LifecycleLeafFailure::lifecycle_root_not_table;
+			context->returned = true;
+			return;
+		}
+		getfield(state, -1, context->field);
+		if (!is_function((guard_base() + 1)->type))
+		{
+			restore_lua_top();
+			finish_guard();
+			context->failure = LifecycleLeafFailure::operation_not_function;
+			context->returned = true;
+			return;
+		}
+		state->outtop = guard_base() + 2;
+		if (protected_call(state, 0, 0, 0) != 0)
+		{
+			restore_lua_top();
+			finish_guard();
+			context->failure = LifecycleLeafFailure::protected_call_rejected;
+			context->returned = true;
+			return;
+		}
+	}
+	restore_lua_top();
+	finish_guard();
+	context->success = true;
+	context->returned = true;
+}
+// END LIFECYCLE_OPERATION_PROTECTED_LEAF
 
 bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char* field)
 {
@@ -7949,72 +11626,73 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 		log_failure(lua_mutation_boundary_label(lua_blocker));
 		return false;
 	}
-	// Establish capacity before the guard captures its top offset. Later stack
-	// relocation is handled by guard_base during normal and fault cleanup.
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 4);
-	std::memset(&guard, 0, sizeof(guard));
-	guard.state = state;
-	guard.base_offset = luau_savestack(state, state->outtop);
-	guard.thread_id = GetCurrentThreadId();
-	guard.handler = AddVectoredExceptionHandler(1, fault_handler);
-	if (guard.handler == nullptr)
+
+	LifecycleLeafContext context{};
+	context.registry_key = addon.registry_key.c_str();
+	context.field = field;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &lifecycle_operation_protected_leaf, &context);
+	if (context.guard_prepared)
 	{
-		log_failure("exception-guard-unavailable");
+		// A DE longjmp can skip the leaf's finish_guard call. Its exact VM frame
+		// has already been restored by the authority wrapper; only native guard
+		// ownership remains to be retired here.
+		abandon_guard_without_vm_access();
+	}
+	if (!protected_result.admitted)
+	{
+		log_failure("raw-protection-not-admitted");
 		return false;
 	}
-	if (setjmp(guard.jump) != 0)
+	if (!protected_result.restored)
 	{
-		restore_lua_top();
-		finish_guard();
+		log_failure("raw-frame-restore-failed");
+		return false;
+	}
+	if (protected_result.status != 0 || !context.returned)
+	{
+		log_failure("de-lua-error");
+		return false;
+	}
+	if (context.success) return true;
+	if (context.failure == LifecycleLeafFailure::native_fault)
+	{
 		conout << "RENOVICE addon lifecycle FAULT " << addon.name
 			<< " field=" << operation
-			<< " exception_code=" << static_cast<std::uint32_t>(guard.fault_code)
-			<< " address=" << guard.fault_address << std::endl;
+			<< " exception_code=" << static_cast<std::uint32_t>(context.fault_code)
+			<< " address=" << context.fault_address << std::endl;
 		std::ostringstream failure;
 		failure << "RENOVICE addon lifecycle FAULT " << addon.name
 			<< " field=" << operation
-			<< " exception_code=" << static_cast<std::uint32_t>(guard.fault_code)
-			<< " address=" << guard.fault_address;
+			<< " exception_code=" << static_cast<std::uint32_t>(context.fault_code)
+			<< " address=" << context.fault_address;
 		config::log(failure.str());
 		return false;
 	}
-	guard.active = 1;
-	guard.stage = 20;
-	if (field == nullptr)
+	const char* reason = "protected-leaf-incomplete";
+	switch (context.failure)
 	{
-		set_registry_nil(state, guard_base(), addon.registry_key.c_str());
+	case LifecycleLeafFailure::stack_capacity:
+		reason = "stack-capacity-unavailable";
+		break;
+	case LifecycleLeafFailure::exception_guard:
+		reason = "exception-guard-unavailable";
+		break;
+	case LifecycleLeafFailure::lifecycle_root_not_table:
+		reason = "lifecycle-root-not-table";
+		break;
+	case LifecycleLeafFailure::operation_not_function:
+		reason = "operation-not-function";
+		break;
+	case LifecycleLeafFailure::protected_call_rejected:
+		reason = "protected-call-rejected";
+		break;
+	case LifecycleLeafFailure::none:
+	case LifecycleLeafFailure::native_fault:
+		break;
 	}
-	else
-	{
-		getfield(state, -10000, addon.registry_key.c_str());
-		if (!is_table(guard_base()->type))
-		{
-			restore_lua_top();
-			finish_guard();
-			log_failure("lifecycle-root-not-table");
-			return false;
-		}
-		getfield(state, -1, field);
-		if (!is_function((guard_base() + 1)->type))
-		{
-			restore_lua_top();
-			finish_guard();
-			log_failure("operation-not-function");
-			return false;
-		}
-		state->outtop = guard_base() + 2;
-		if (protected_call(state, 0, 0, 0) != 0)
-		{
-			restore_lua_top();
-			finish_guard();
-			log_failure("protected-call-rejected");
-			return false;
-		}
-	}
-	restore_lua_top();
-	finish_guard();
-	return true;
+	log_failure(reason);
+	return false;
 }
 
 bool read_loader_name_handle(void* descriptor, std::uint32_t (&output)[2]) noexcept
@@ -8179,20 +11857,23 @@ bool target_chunks_configured_locked() noexcept
 	});
 }
 
-void remember_target_script_binding(
+void remember_target_script_binding_from_boundary(
 	std::uint64_t target_key,
-	luau_State* state
+	luau_State* state,
+	const ActiveRunScriptBoundary& boundary
 )
 {
 	const auto owner_thread = static_cast<std::uint32_t>(GetCurrentThreadId());
-	if (state == nullptr || !target_script_binding_capture_allowed(
+	if (state == nullptr || boundary.generation != active_generation
+		|| !run_script_boundary_is_live(boundary, state)
+		|| !target_script_binding_capture_allowed(
 		target_key,
 		state->global_state,
 		owner_thread,
-		active_run_script_boundary.active,
-		active_run_script_boundary.global_state,
-		active_run_script_boundary.owner_thread,
-		active_run_script_boundary.script_resource_identity))
+		boundary.active,
+		boundary.global_state,
+		boundary.owner_thread,
+		boundary.script_resource_identity))
 	{
 		return;
 	}
@@ -8200,8 +11881,8 @@ void remember_target_script_binding(
 	TargetScriptBinding binding{
 		target_key,
 		state->global_state,
-		active_run_script_boundary.script_resource_identity,
-		active_run_script_boundary.ability_identity,
+		boundary.script_resource_identity,
+		boundary.ability_identity,
 		owner_thread,
 	};
 	std::lock_guard lock(generation_mutex);
@@ -8232,6 +11913,19 @@ void remember_target_script_binding(
 		<< " thread=" << owner_thread;
 	conout << success.str() << std::endl;
 	config::log(success.str());
+}
+
+void remember_target_script_binding(
+	std::uint64_t target_key,
+	luau_State* state
+)
+{
+	// RunScript no longer lends its generation across the stock callback. The
+	// nested loader borrows the current generation only for this publication.
+	auto generation_dispatch = generation_dispatch_gate.try_dispatch();
+	if (!generation_dispatch) return;
+	const auto boundary = active_run_script_boundary;
+	remember_target_script_binding_from_boundary(target_key, state, boundary);
 }
 
 std::uint64_t target_key_for_script_resource(
@@ -8316,7 +12010,7 @@ void remember_target_module_identity(
 		}
 	}
 	TargetProtoGraph graph;
-	if (game_version >= GV(43, 0, 0) && game_version < GV(44, 0, 0))
+	if (game_version >= GV(43, 0, 0) && game_version < GV(45, 0, 0))
 	{
 		graph = collect_target_proto_graph_u43(
 			reinterpret_cast<std::uintptr_t>(closure->l.p),
@@ -8438,7 +12132,7 @@ void remember_diagnostic_module_identity(
 	}
 
 	TargetProtoGraph graph;
-	if (game_version >= GV(43, 0, 0) && game_version < GV(44, 0, 0))
+	if (game_version >= GV(43, 0, 0) && game_version < GV(45, 0, 0))
 	{
 		graph = collect_target_proto_graph_u43(
 			reinterpret_cast<std::uintptr_t>(closure->l.p),
@@ -8519,6 +12213,51 @@ void remember_diagnostic_module_identity(
 	}
 }
 
+struct ClearDiagnosticModuleRootsContext
+{
+	const char* const* registry_keys = nullptr;
+	std::size_t registry_key_count = 0;
+	std::size_t failure_index = static_cast<std::size_t>(-1);
+	bool completed = false;
+	bool passed = false;
+};
+static_assert(std::is_trivially_copyable_v<ClearDiagnosticModuleRootsContext>);
+
+// BEGIN CLEAR_DIAGNOSTIC_MODULE_ROOTS_PROTECTED_LEAF
+void clear_diagnostic_module_roots_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<ClearDiagnosticModuleRootsContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| context->registry_keys == nullptr || context->registry_key_count == 0
+		|| check_stack == nullptr || getfield == nullptr || setfield == nullptr)
+	{
+		if (context != nullptr) context->completed = true;
+		return;
+	}
+	if (check_stack(state, 2) == 0)
+	{
+		context->completed = true;
+		return;
+	}
+	luau_TValue nil{};
+	nil.type = LUAU_NIL;
+	for (std::size_t index = 0; index < context->registry_key_count; ++index)
+	{
+		const char* const key = context->registry_keys[index];
+		if (key == nullptr || !ui_leaf_write_registry_value(state, key, nil))
+		{
+			context->failure_index = index;
+			context->completed = true;
+			return;
+		}
+	}
+	context->passed = true;
+	context->completed = true;
+}
+// END CLEAR_DIAGNOSTIC_MODULE_ROOTS_PROTECTED_LEAF
+
 bool clear_diagnostic_module_roots_for_vm(luau_State* state)
 {
 	if (state == nullptr || state->outtop == nullptr || state->global_state == nullptr
@@ -8544,27 +12283,38 @@ bool clear_diagnostic_module_roots_for_vm(luau_State* state)
 	auto generation_mutation = generation_dispatch_gate.begin_mutation(
 		std::chrono::seconds(5));
 	if (!generation_mutation) return false;
-	std::lock_guard lock(generation_mutex);
-	const auto base_offset = luau_savestack(state, state->outtop);
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 2);
-	for (const auto& root : diagnostic_module_roots)
-	{
-		if (root.global_state != state->global_state) continue;
-		auto* base = luau_restorestack(state, base_offset);
-		luau_TValue nil{};
-		nil.type = LUAU_NIL;
-		push_stack_value(state, nil);
-		setfield(state, -10000, root.registry_key.c_str());
-		state->outtop = base;
-		getfield(state, -10000, root.registry_key.c_str());
-		base = luau_restorestack(state, base_offset);
-		const bool cleared = base->type == LUAU_NIL;
-		state->outtop = base;
-		if (!cleared) return false;
-	}
-
 	const auto* const global_state = state->global_state;
+	std::vector<std::string> registry_key_storage;
+	bool any_roots_remain = false;
+	{
+		std::lock_guard lock(generation_mutex);
+		any_roots_remain = !diagnostic_module_roots.empty();
+		for (const auto& root : diagnostic_module_roots)
+		{
+			if (root.global_state == global_state)
+				registry_key_storage.push_back(root.registry_key);
+		}
+	}
+	if (registry_key_storage.empty())
+	{
+		diagnostic_root_cleanup_pending.store(
+			any_roots_remain, std::memory_order_release);
+		return true;
+	}
+	std::vector<const char*> registry_keys;
+	registry_keys.reserve(registry_key_storage.size());
+	for (const auto& key : registry_key_storage)
+		registry_keys.push_back(key.c_str());
+	ClearDiagnosticModuleRootsContext context{};
+	context.registry_keys = registry_keys.data();
+	context.registry_key_count = registry_keys.size();
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &clear_diagnostic_module_roots_protected_leaf, &context);
+	const bool cleared = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed && context.passed;
+	if (!cleared) return false;
+
+	std::lock_guard lock(generation_mutex);
 	diagnostic_module_roots.erase(std::remove_if(
 		diagnostic_module_roots.begin(), diagnostic_module_roots.end(),
 		[&](const DiagnosticModuleRoot& root)
@@ -8589,7 +12339,6 @@ bool clear_diagnostic_module_roots_for_vm(luau_State* state)
 	}
 	diagnostic_root_cleanup_pending.store(
 		!diagnostic_module_roots.empty(), std::memory_order_release);
-	state->outtop = luau_restorestack(state, base_offset);
 	return true;
 }
 
@@ -8747,6 +12496,93 @@ bool decorate_target_card_export(
 	return true;
 }
 
+enum class PauseInitializeInstallFailure : std::uint8_t
+{
+	none,
+	prerequisite,
+	stack_capacity,
+	environment,
+	closure_create,
+	readback_mismatch,
+};
+
+struct PauseInitializeInstallContext
+{
+	void* environment = nullptr;
+	luau_TValue* dispatch_slot = nullptr;
+	luau_TValue original_dispatch{};
+	PauseInitializeInstallFailure failure = PauseInitializeInstallFailure::none;
+	bool completed = false;
+	bool passed = false;
+};
+static_assert(std::is_trivially_copyable_v<PauseInitializeInstallContext>);
+
+// BEGIN PAUSE_INITIALIZE_INSTALL_PROTECTED_LEAF
+void decorate_pause_initialize_assignment_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<PauseInitializeInstallContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| context->environment == nullptr || context->dispatch_slot == nullptr
+		|| check_stack == nullptr || setfield == nullptr
+		|| luau_pushcclosurek == nullptr)
+	{
+		if (context != nullptr)
+		{
+			context->failure = PauseInitializeInstallFailure::prerequisite;
+			context->completed = true;
+		}
+		return;
+	}
+	if (check_stack(state, 8) == 0)
+	{
+		context->failure = PauseInitializeInstallFailure::stack_capacity;
+		context->completed = true;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!ui_leaf_push_environment_table(state, context->environment))
+	{
+		context->failure = PauseInitializeInstallFailure::environment;
+		context->completed = true;
+		return;
+	}
+	if (!append_game_vm_stack_value_reserved(
+		state, context->original_dispatch))
+	{
+		context->failure = PauseInitializeInstallFailure::closure_create;
+		context->completed = true;
+		return;
+	}
+	luau_pushcclosurek(
+		state, &pause_menu_builder_wrapper,
+		"RENOVICE pause Scripts menu dispatch", 1, nullptr);
+	auto* base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2 || !is_function((base + 1)->type))
+	{
+		context->failure = PauseInitializeInstallFailure::closure_create;
+		context->completed = true;
+		return;
+	}
+	const auto wrapper_value = *(base + 1);
+	setfield(state, -2, "_RENOVICEPauseMenuDispatchWrapper");
+	*context->dispatch_slot = wrapper_value;
+
+	luau_Closure* installed = nullptr;
+	context->passed = readable_lua_closure(
+		dereference_upvalue(*context->dispatch_slot), installed)
+		&& installed->isC && installed->c.func == &pause_menu_builder_wrapper
+		&& installed->nupvalues == 1
+		&& dereference_upvalue(installed->c.upvals[0]).value.as_uintptr
+			== context->original_dispatch.value.as_uintptr;
+	if (!context->passed)
+		context->failure = PauseInitializeInstallFailure::readback_mismatch;
+	context->completed = true;
+}
+// END PAUSE_INITIALIZE_INSTALL_PROTECTED_LEAF
+
+// BEGIN PAUSE_INITIALIZE_INSTALL_OUTER
 bool decorate_pause_initialize_assignment(
 	std::uint64_t body_key,
 	luau_State* state,
@@ -8841,34 +12677,21 @@ bool decorate_pause_initialize_assignment(
 		return true;
 	}
 
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 8);
-	auto* const base = state->outtop;
-	if (!push_environment_table(state, initialize->env, base))
-	{
-		state->outtop = base;
-		config::log("RENOVICE Scripts UI attach FAIL reason=Initialize-environment-not-table");
-		return false;
-	}
 	// Root the generated closure through a normal environment-table write before
 	// assigning it into DE's captured dispatch upvalue.  The wrapper receives
 	// the completed stock mMenuOptions array as its normal first Lua argument.
-	push_stack_value(state, original_dispatch);
-	luau_pushcclosurek(
-		state, &pause_menu_builder_wrapper,
-		"RENOVICE pause Scripts menu dispatch", 1, nullptr);
-	const auto wrapper_value = *(base + 1);
-	setfield(state, -2, "_RENOVICEPauseMenuDispatchWrapper");
-	*dispatch_slot = wrapper_value;
-
-	luau_Closure* installed = nullptr;
-	const bool pass = readable_lua_closure(
-		dereference_upvalue(*dispatch_slot), installed)
-		&& installed->isC && installed->c.func == &pause_menu_builder_wrapper
-		&& installed->nupvalues == 1
-		&& dereference_upvalue(installed->c.upvals[0]).value.as_uintptr
-			== original_dispatch.value.as_uintptr;
-	state->outtop = base;
+	PauseInitializeInstallContext context{};
+	context.environment = initialize->env;
+	context.dispatch_slot = dispatch_slot;
+	context.original_dispatch = original_dispatch;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &decorate_pause_initialize_assignment_protected_leaf, &context);
+	const bool pass = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed && context.passed;
+	if (!pass && context.failure == PauseInitializeInstallFailure::environment)
+	{
+		config::log("RENOVICE Scripts UI attach FAIL reason=Initialize-environment-not-table");
+	}
 	std::ostringstream result;
 	result << "RENOVICE Scripts UI attach " << (pass ? "PASS" : "FAIL")
 		<< " source=" << (source != nullptr ? source : "unknown")
@@ -8882,6 +12705,90 @@ bool decorate_pause_initialize_assignment(
 	config::log(result.str());
 	return pass;
 }
+// END PAUSE_INITIALIZE_INSTALL_OUTER
+
+struct PauseEnvironmentReadContext
+{
+	void* environment = nullptr;
+	luau_TValue initialize_value{};
+	void* initialize_environment = nullptr;
+	std::uint32_t menu_options_tag = LUAU_NIL;
+	std::uint32_t initialize_tag = LUAU_NIL;
+	std::uint8_t initialize_upvalues = 0;
+	bool completed = false;
+	bool environment_is_table = false;
+	bool menu_options_is_table = false;
+	bool initialize_is_lua = false;
+};
+static_assert(std::is_trivially_copyable_v<PauseEnvironmentReadContext>);
+
+// BEGIN PAUSE_ENVIRONMENT_READ_PROTECTED_LEAF
+void decorate_pause_menu_environment_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<PauseEnvironmentReadContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| context->environment == nullptr || getfield == nullptr
+		|| check_stack == nullptr)
+	{
+		if (context != nullptr) context->completed = true;
+		return;
+	}
+	if (check_stack(state, 8) == 0)
+	{
+		context->completed = true;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!ui_leaf_push_environment_table(state, context->environment))
+	{
+		context->completed = true;
+		return;
+	}
+	auto* base = luau_restorestack(state, base_offset);
+	context->environment_is_table = state->outtop == base + 1
+		&& is_table(base->type);
+	if (!context->environment_is_table)
+	{
+		context->completed = true;
+		return;
+	}
+	getfield(state, -1, "mMenuOptions");
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2)
+	{
+		context->completed = true;
+		return;
+	}
+	context->menu_options_tag = (base + 1)->type;
+	context->menu_options_is_table = is_table((base + 1)->type);
+	state->outtop = base + 1;
+	if (!context->menu_options_is_table)
+	{
+		context->completed = true;
+		return;
+	}
+	getfield(state, -1, "Initialize");
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2)
+	{
+		context->completed = true;
+		return;
+	}
+	context->initialize_tag = (base + 1)->type;
+	context->initialize_value = *(base + 1);
+	luau_Closure* initialize = nullptr;
+	context->initialize_is_lua = readable_lua_closure(
+		context->initialize_value, initialize) && !initialize->isC;
+	if (context->initialize_is_lua)
+	{
+		context->initialize_environment = initialize->env;
+		context->initialize_upvalues = initialize->nupvalues;
+	}
+	context->completed = true;
+}
+// END PAUSE_ENVIRONMENT_READ_PROTECTED_LEAF
 
 bool decorate_pause_menu_environment(
 	std::uint64_t body_key,
@@ -8898,69 +12805,60 @@ bool decorate_pause_menu_environment(
 	{
 		return false;
 	}
-	ScopedVmApiFrame frame_capacity(state);
-	require_stack(state, 8);
-	auto* const base = state->outtop;
 	// The exact root publishes mMenuOptions at instruction 49 and Initialize at
 	// instruction 687 into its own closure environment. Startup VM returns can
 	// precede both writes, so use mMenuOptions as the semantic publication gate
 	// and keep this exact identity pending until the state exists.
-	if (!push_environment_table(state, environment, base))
+	PauseEnvironmentReadContext context{};
+	context.environment = environment;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &decorate_pause_menu_environment_protected_leaf, &context);
+	const bool read_completed = protected_result.admitted
+		&& protected_result.restored && protected_result.status == 0
+		&& context.completed;
+	if (!read_completed || !context.environment_is_table)
 	{
-		state->outtop = base;
 		config::log("RENOVICE Scripts UI attach FAIL reason=TopMenu-environment-not-table");
 		return false;
 	}
-	getfield(state, -1, "mMenuOptions");
-	const bool menu_options_is_table = is_table((base + 1)->type);
-	state->outtop = base + 1;
-	if (!menu_options_is_table)
+	if (!context.menu_options_is_table)
 	{
 		if (source != nullptr
 			&& std::strcmp(source, "vm-runtime-root-return") == 0)
 		{
 			std::ostringstream failure;
 			failure << "RENOVICE Scripts UI attach FAIL reason=runtime-mMenuOptions-not-table"
-				<< " tag=" << static_cast<int>((base + 1)->type)
+				<< " tag=" << static_cast<int>(context.menu_options_tag)
 				<< " runtime_env=" << environment;
 			config::log(failure.str());
 		}
-		state->outtop = base;
 		return false;
 	}
-	getfield(state, -1, "Initialize");
-	const int initialize_tag = static_cast<int>((base + 1)->type);
-	luau_Closure* initialize = nullptr;
-	const bool initialize_is_lua = readable_lua_closure(*(base + 1), initialize)
-		&& !initialize->isC;
-	if (!initialize_is_lua)
+	if (!context.initialize_is_lua)
 	{
-		state->outtop = base;
 		std::ostringstream failure;
 		failure << "RENOVICE Scripts UI attach FAIL reason=published-Initialize-not-lua-function"
 			<< " source=" << (source != nullptr ? source : "unknown")
-			<< " initialize_tag=" << initialize_tag;
+			<< " initialize_tag=" << static_cast<int>(context.initialize_tag);
 		config::log(failure.str());
 		return false;
 	}
 	if (!pause_environment_publication_ready(
-		menu_options_is_table, environment, initialize->env,
-		true, initialize->nupvalues))
+		context.menu_options_is_table, environment,
+		context.initialize_environment, true, context.initialize_upvalues))
 	{
-		state->outtop = base;
 		std::ostringstream failure;
 		failure << "RENOVICE Scripts UI attach FAIL reason=published-Initialize-owner"
 			<< " source=" << (source != nullptr ? source : "unknown")
 			<< " recorded_env=" << environment
-			<< " initialize_env=" << initialize->env
-			<< " upvalues=" << static_cast<unsigned int>(initialize->nupvalues);
+			<< " initialize_env=" << context.initialize_environment
+			<< " upvalues=" << static_cast<unsigned int>(context.initialize_upvalues);
 		config::log(failure.str());
 		return false;
 	}
-	const auto initialize_value = *(base + 1);
-	state->outtop = base;
 	return decorate_pause_initialize_assignment(
-		body_key, state, initialize_value, "published-TopMenu-environment");
+		body_key, state, context.initialize_value,
+		"published-TopMenu-environment");
 }
 
 TargetExecutionBoundary inspect_pause_vm_root_execution(
@@ -9119,7 +13017,7 @@ void maybe_sample_vm_memory(luau_State* state) noexcept
     // Reuse the natural outer owning-VM return; no worker, filesystem polling,
     // fabricated frame, userdata construction, stock replay or retained root.
     if (!config::memory_diagnostics_enabled() || !memory_evidence_layout_ready) return;
-    if (state == nullptr || vm_execution_depth != 0 || lua_execution_depth != 0
+    if (state == nullptr || lua_execution_depth != 0
         || GetCurrentThreadId() != captured_owner_thread.load(std::memory_order_acquire)
         || state->global_state == nullptr
         || state->global_state != captured_global_state.load(std::memory_order_acquire)) return;
@@ -9128,69 +13026,182 @@ void maybe_sample_vm_memory(luau_State* state) noexcept
     if (gate.admit(true, true, now)) capture_vm_memory_evidence(state, gate.sequence, now);
 }
 
+bool exact_current_lua_instruction(
+	luau_State* state,
+	std::uint32_t& raw_instruction
+) noexcept
+{
+	raw_instruction = 0;
+	if (state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| state->ci == nullptr
+		|| diagnostics::bad_read_ptr(state->ci, sizeof(luau_CallInfo))
+		|| state->ci->func == nullptr
+		|| diagnostics::bad_read_ptr(state->ci->func, sizeof(luau_TValue))
+		|| state->ci->savedpc == nullptr)
+	{
+		return false;
+	}
+	luau_Closure* caller = nullptr;
+	if (!readable_lua_closure(*state->ci->func, caller) || caller->isC
+		|| caller->l.p == nullptr)
+	{
+		return false;
+	}
+	constexpr std::size_t prototype_prefix_size = 0xb0;
+	const auto proto_address = reinterpret_cast<std::uintptr_t>(caller->l.p);
+	if (proto_address < 0x10000 || proto_address % alignof(void*) != 0
+		|| diagnostics::bad_read_ptr(caller->l.p, prototype_prefix_size))
+	{
+		return false;
+	}
+	std::array<unsigned char, prototype_prefix_size> bytes{};
+	std::memcpy(bytes.data(), caller->l.p, bytes.size());
+	std::uintptr_t code = 0;
+	std::int32_t instruction_count = 0;
+	std::memcpy(&code, bytes.data() + 0x10, sizeof(code));
+	std::memcpy(&instruction_count, bytes.data() + 0x88,
+		sizeof(instruction_count));
+	if (bytes[0] != 12 || code < 0x10000 || code % sizeof(std::uint32_t) != 0
+		|| instruction_count <= 0 || instruction_count > 1048576)
+	{
+		return false;
+	}
+	const auto byte_count = static_cast<std::size_t>(instruction_count)
+		* sizeof(std::uint32_t);
+	if (diagnostics::bad_read_ptr(reinterpret_cast<const void*>(code), byte_count))
+		return false;
+	std::uint32_t instruction = 0;
+	if (!instruction_from_saved_pc(
+			code, instruction_count,
+			reinterpret_cast<std::uintptr_t>(state->ci->savedpc), instruction))
+	{
+		return false;
+	}
+	raw_instruction = reinterpret_cast<const std::uint32_t*>(code)[instruction];
+	return true;
+}
+
+std::uint32_t de_luau_interrupt_increment_detour(luau_State* state)
+{
+	auto* const original = reinterpret_cast<DeLuauInterruptIncrement>(
+		de_luau_interrupt_hook.original);
+	if (original == nullptr) return 0;
+
+	// DE callback 0x197EC80 reaches this unique leaf only for its negative-state
+	// instruction path. Preserve the exact stock counter increment and return
+	// value once, before RENOVICE performs any optional observation. Hooking the
+	// leaf also avoids relocating the callback entry's relative JNS/CALL prologue.
+	const auto stock_count = original(state);
+	return preserve_stock_interrupt_result(stock_count, [&]
+	{
+		if (!lua_before_provider_fast_gate.load(std::memory_order_acquire))
+			return;
+		if (state == nullptr || state->stack == nullptr || state->stack_last == nullptr
+			|| state->intop == nullptr || state->outtop == nullptr
+			|| lua_call_hook_running)
+		{
+			return;
+		}
+		std::uint32_t raw_instruction = 0;
+		if (!exact_current_lua_instruction(state, raw_instruction)) return;
+		DeLuaCallInstruction decoded;
+		if (!decode_de_lua_call_instruction(raw_instruction, decoded, game_version >= GV(44, 0, 0))) return;
+
+		auto* const info = state->ci;
+		if (info == nullptr || info->base == nullptr || info->top == nullptr)
+		{
+			return;
+		}
+		DeLuaCallWindow window;
+		if (!resolve_de_lua_call_window(
+				raw_instruction,
+				reinterpret_cast<std::uintptr_t>(info->base),
+				reinterpret_cast<std::uintptr_t>(info->top),
+				reinterpret_cast<std::uintptr_t>(state->outtop),
+				reinterpret_cast<std::uintptr_t>(state->stack),
+				reinterpret_cast<std::uintptr_t>(state->stack_last),
+				sizeof(luau_TValue), 256, window, game_version >= GV(44, 0, 0))
+			|| diagnostics::bad_read_ptr(
+				reinterpret_cast<const void*>(window.function_slot),
+				sizeof(luau_TValue)))
+		{
+			return;
+		}
+
+		auto* const argument_base = reinterpret_cast<luau_TValue*>(
+			window.argument_base);
+		const auto argument_bytes = window.argument_count * sizeof(luau_TValue);
+		if (argument_bytes != 0
+			&& diagnostics::bad_read_ptr(argument_base, argument_bytes))
+		{
+			return;
+		}
+		const auto function = *reinterpret_cast<const luau_TValue*>(
+			window.function_slot);
+		auto execution = acquire_target_execution_snapshot();
+		if (!execution) return;
+		const auto call = target_lua_call_for_published_closure(
+			*execution.snapshot, state, function);
+		if (!call.callsite.exact
+			|| !target_provider_claims_lua_before(
+				*execution.snapshot, call.callsite.target_key, state->global_state,
+				call.callsite.prototype))
+		{
+			return;
+		}
+
+		// Only an exact live module identity with an active luaCalls.before provider
+		// may touch the VM tops. Unrelated UI/interpreter calls return above through
+		// a read-only path and therefore cannot write intop/outtop.
+		struct ScopedObserverStack
+		{
+			luau_State* state;
+			std::ptrdiff_t intop_offset;
+			std::ptrdiff_t outtop_offset;
+			~ScopedObserverStack() noexcept
+			{
+				state->intop = luau_restorestack(state, intop_offset);
+				state->outtop = luau_restorestack(state, outtop_offset);
+			}
+		} stack_scope{
+			state,
+			luau_savestack(state, state->intop),
+			luau_savestack(state, state->outtop)};
+
+		std::vector<luau_TValue> arguments;
+		arguments.assign(argument_base, argument_base + window.argument_count);
+		if (!dispatch_lua_call_phase(
+				state, call, "before", arguments, argument_base))
+		{
+			trace_addon(state, call.callsite.target_key,
+				"lua.call.before.reject",
+				"exact interrupt counter leaf retained stock call=1");
+		}
+	});
+}
+
 void vm_execute_detour(luau_State* state)
 {
 	const auto pause_root = inspect_pause_vm_root_execution(state);
 	const bool target_observation_enabled = observe_target_addons.load(
 		std::memory_order_acquire);
-	auto generation_dispatch = target_observation_enabled
-		? generation_dispatch_gate.try_dispatch()
-		: GenerationDispatchGate::Lease{};
 	std::uint64_t target_execution_key = 0;
-	TargetLuaCall target_lua_call;
-	std::vector<luau_TValue> target_lua_arguments;
-	bool target_lua_arguments_captured = false;
-	struct ScopedLuaArgumentRoot
 	{
-		luau_State* state;
-		std::string key;
-		bool active = false;
-		explicit ScopedLuaArgumentRoot(luau_State* owner)
-			: state(owner) {}
-		void release() noexcept
+		// Snapshot ownership ends before stock VM execution. DE reports ordinary
+		// script errors with a native longjmp, which does not unwind C++ objects.
+		// No generation lease, mutex, TLS marker, vector, or scoped cleanup may
+		// therefore cross the stock interpreter call below.
+		auto generation_dispatch = target_observation_enabled
+			? generation_dispatch_gate.try_dispatch()
+			: GenerationDispatchGate::Lease{};
+		if (generation_dispatch
+			&& state != nullptr && state->ci != nullptr
+			&& state->ci->func != nullptr && state->global_state != nullptr
+			&& !diagnostics::bad_read_ptr(state->ci, sizeof(luau_CallInfo))
+			&& !diagnostics::bad_read_ptr(state->ci->func, sizeof(luau_TValue)))
 		{
-			if (!active || state == nullptr || state->stack == nullptr
-				|| state->outtop == nullptr || check_stack == nullptr || setfield == nullptr) return;
-			active = false;
-			const auto top = luau_savestack(state, state->outtop);
-			ScopedVmApiFrame frame_capacity(state);
-			try
-			{
-				if (check_stack(state, 1))
-				{
-					luau_TValue nil{}; nil.type = LUAU_NIL;
-					push_stack_value(state, nil);
-					setfield(state, -10000, key.c_str());
-				}
-				else config::log("RENOVICE VM_FRAME build=V95 event=argument-root-release-rejected native-capacity=0");
-			}
-			catch (...) { config::log("RENOVICE VM_FRAME build=V95 event=argument-root-release-error"); }
-			state->outtop = luau_restorestack(state, top);
-		}
-		~ScopedLuaArgumentRoot() noexcept { release(); }
-	} argument_root(state);
-	if (generation_dispatch
-		&& state != nullptr && state->ci != nullptr
-		&& state->ci->func != nullptr && state->global_state != nullptr
-		&& !diagnostics::bad_read_ptr(state->ci, sizeof(luau_CallInfo))
-		&& !diagnostics::bad_read_ptr(state->ci->func, sizeof(luau_TValue)))
-	{
-		target_execution_key = target_key_for_published_closure(
-			state, *state->ci->func);
-		if (!lua_call_hook_running)
-		{
-			target_lua_call = target_lua_call_for_published_closure(
+			target_execution_key = target_key_for_published_closure(
 				state, *state->ci->func);
-			const int argument_count = luau_gettop(state);
-			if (target_lua_call.callsite.exact && argument_count >= 0
-				&& argument_count <= 256 && state->intop != nullptr)
-			{
-				target_lua_arguments.assign(
-					state->intop, state->intop + argument_count);
-				target_lua_arguments_captured = true;
-				argument_root.key = "RENOVICE_LuaCallArgs_V95_" +
-					std::to_string(reinterpret_cast<std::uintptr_t>(&argument_root));
-			}
 		}
 	}
 	if (pause_root.valid)
@@ -9203,102 +13214,62 @@ void vm_execute_detour(luau_State* state)
 			<< " runtime_env=" << pause_root.environment;
 		config::log(observed.str());
 	}
+	if (target_execution_key != 0)
 	{
-		// VM execution can leave through a C++ exception/unwind path. Keep the
-		// counter scoped so one aborted module cannot block every later reload
-		// boundary until the process restarts.
-		ScopedVmExecutionDepth execution_depth;
-		ScopedTargetExecution target_execution_scope(
-			target_execution_key,
-			state != nullptr ? state->global_state : nullptr);
-		if (target_execution_key != 0)
+		log_native_hook_once(
+			state, target_execution_key, "target-execution.enter");
+	}
+
+	// This call is intentionally naked. A stock Lua error may longjmp out of it;
+	// all RENOVICE-owned objects and stateful markers have already been released.
+	reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);
+
+	if (pause_root.valid)
+	{
+		const bool attached = decorate_pause_menu_environment(
+			pause_root.key, state, pause_root.environment,
+			"vm-exact-root-return");
+		std::ostringstream result;
+		result << "RENOVICE Scripts UI exact root RESULT "
+			<< (attached ? "PASS" : "FAIL")
+			<< " key=" << std::hex << pause_root.key << std::dec
+			<< " vm=" << pause_root.global_state
+			<< " proto=" << pause_root.root_proto
+			<< " runtime_env=" << pause_root.environment;
+		conout << result.str() << std::endl;
+		config::log(result.str());
+		if (attached)
 		{
-			log_native_hook_once(
-				state, target_execution_key, "target-execution.enter");
-		}
-		if (target_lua_call.callsite.exact && target_lua_arguments_captured
-			&& !dispatch_lua_call_phase(
-				state, target_lua_call, "before", target_lua_arguments, argument_root.key.c_str(), &argument_root.active))
-		{
-			trace_addon(state, target_lua_call.callsite.target_key,
-				"lua.call.before.reject", "stock execution retained=1");
-		}
-		reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);
-		if (target_lua_call.callsite.exact && target_lua_arguments_captured && argument_root.active)
-		{
-			bool frame_scan_valid = false;
-			const bool target_frame_still_active = state->status == 0
-				? target_lua_call_frame_active(
-					state, target_lua_call.closure, frame_scan_valid)
-				: false;
-			if (!lua_call_after_dispatch_allowed(
-				true, state->status, frame_scan_valid, target_frame_still_active))
+			std::lock_guard lock(generation_mutex);
+			for (auto& identity : pause_menu_identities)
 			{
-				const std::string event = "luaCalls."
-					+ std::to_string(target_lua_call.callsite.prototype)
-					+ ".after.skipped";
-				const char* const reason = state->status != 0
-					? "thread-status" : (!frame_scan_valid
-						? "callinfo-scan" : "target-frame-active");
-				const std::string details = std::string("reason=") + reason
-					+ " status=" + std::to_string(state->status)
-					+ " frame_scan=" + (frame_scan_valid ? "valid" : "invalid")
-					+ " target_active=" + (target_frame_still_active ? "1" : "0")
-					+ " stock-resume-preserved=1";
-				log_native_hook_once(state,
-					target_lua_call.callsite.target_key, event.c_str());
-				const auto skip_sequence = lua_after_skip_trace_sequence.fetch_add(
-					1, std::memory_order_relaxed) + 1;
-				if (sample_repeated_skip_trace(skip_sequence))
+				if (identity.target_key == pause_root.key
+					&& identity.global_state == pause_root.global_state
+					&& identity.root_proto == pause_root.root_proto)
 				{
-					trace_addon(state, target_lua_call.callsite.target_key,
-						"lua.call.after.skip",
-						details + " occurrence=" + std::to_string(skip_sequence));
-				}
-			}
-			else if (!dispatch_lua_call_phase(
-				state, target_lua_call, "after", target_lua_arguments, argument_root.key.c_str(), &argument_root.active))
-			{
-				trace_addon(state, target_lua_call.callsite.target_key,
-					"lua.call.after.reject", "stock result retained=1");
-			}
-		}
-		if (pause_root.valid)
-		{
-			const bool attached = decorate_pause_menu_environment(
-				pause_root.key, state, pause_root.environment,
-				"vm-exact-root-return");
-			std::ostringstream result;
-			result << "RENOVICE Scripts UI exact root RESULT "
-				<< (attached ? "PASS" : "FAIL")
-				<< " key=" << std::hex << pause_root.key << std::dec
-				<< " vm=" << pause_root.global_state
-				<< " proto=" << pause_root.root_proto
-				<< " runtime_env=" << pause_root.environment;
-			conout << result.str() << std::endl;
-			config::log(result.str());
-			if (attached)
-			{
-				std::lock_guard lock(generation_mutex);
-				for (auto& identity : pause_menu_identities)
-				{
-					if (identity.target_key == pause_root.key
-						&& identity.global_state == pause_root.global_state
-						&& identity.root_proto == pause_root.root_proto)
-					{
-						identity.pause_attached = true;
-					}
+					identity.pause_attached = true;
 				}
 			}
 		}
 	}
-	argument_root.release();
-	// F9 is admitted only after every handler call above has finished. Release
-	// this execution's generation before the outer-return control tick may
-	// begin the next generation transaction on this same thread.
-	generation_dispatch = {};
+
+	// The native VM routine is re-entrant. Without a manual depth marker (which
+	// a Lua longjmp could poison), exact base-frame identity is the authoritative
+	// proof that this is an outer, idle return where mutation is admissible.
+	const bool exact_idle_return = state != nullptr
+		&& !diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		&& state->ci != nullptr && state->base_ci != nullptr
+		&& state->ci == state->base_ci
+		&& inspect_lua_mutation_boundary(state)
+			== LuaMutationBoundaryBlocker::Ready;
+	if (!exact_idle_return) return;
+	clear_run_script_boundary_at_exact_idle(state);
+	clear_stock_native_finalize_at_exact_idle(state);
+	clear_native_call_boundary_at_exact_idle(state);
+	clear_callback_runtime_result_root_at_exact_idle(state);
+
 	if (target_addon_refresh_pending.load(std::memory_order_acquire)
-		&& vm_execution_depth == 0 && lua_execution_depth == 0)
+		&& lua_execution_depth == 0)
 	{
 		// A natural target load can discover that existing VM-local roots need a
 		// destructive rebind. Do that only after this callback has released its
@@ -9325,7 +13296,7 @@ void maybe_poll_runtime_controls() noexcept
 	if (!safe_runtime_control_poll_ready(
 		expected_owner_thread,
 		boundary_owner_thread,
-		vm_execution_depth,
+		0,
 		lua_execution_depth,
 		safe_runtime_control_poll_running))
 	{
@@ -9379,7 +13350,7 @@ void maybe_run_safe_runtime_tick(luau_State* state) noexcept
 		expected_owner_thread,
 		state->global_state,
 		boundary_owner_thread,
-		vm_execution_depth,
+		0,
 		lua_execution_depth,
 		true,
 		safe_runtime_tick_running);
@@ -9422,7 +13393,7 @@ void maybe_run_safe_runtime_tick(luau_State* state) noexcept
 					<< " boundary_thread=" << boundary_owner_thread
 					<< " expected_vm=" << expected_global_state
 					<< " boundary_vm=" << state->global_state
-					<< " vm_depth=" << vm_execution_depth
+					<< " vm_depth=0"
 					<< " renovice_depth=" << lua_execution_depth
 					<< " callback_running=" << (safe_runtime_tick_running ? 1 : 0)
 					<< " ci=" << state->ci << " base_ci=" << state->base_ci;
@@ -9502,11 +13473,13 @@ bool ensure_callback_runtime(luau_State* state, void* manager,
 	if (ready) return true;
 	Chunk runtime;
 	runtime.name = "embedded-callback-runtime-v45";
-	runtime.bytes.assign(std::begin(callback_runtime_bytecode), std::end(callback_runtime_bytecode));
+	if (game_version >= GV(44, 0, 0))
+        runtime.bytes.assign(std::begin(callback_runtime_bytecode_u44), std::end(callback_runtime_bytecode_u44));
+    else runtime.bytes.assign(std::begin(callback_runtime_bytecode), std::end(callback_runtime_bytecode));
 	const bool passed = run_chunk(runtime, state, &callback_runtime_registry_key,
 		nullptr, true, manager, name_handle, true);
 	trace_addon(state, 0, passed ? "damage.runtime.ready" : "damage.runtime.error",
-		"storage=embedded-dll bytes=" + std::to_string(sizeof(callback_runtime_bytecode)));
+		"storage=embedded-dll bytes=" + std::to_string(runtime.bytes.size()));
 	return passed;
 }
 
@@ -9535,9 +13508,9 @@ bool ensure_automatic_damage_runtime(
 
 	Chunk runtime;
 	runtime.name = "embedded-automatic-damage-runtime-v86";
-	runtime.bytes.assign(
-		std::begin(automatic_damage_runtime_bytecode),
-		std::end(automatic_damage_runtime_bytecode));
+	if (game_version >= GV(44, 0, 0))
+        runtime.bytes.assign(std::begin(automatic_damage_runtime_bytecode_u44), std::end(automatic_damage_runtime_bytecode_u44));
+    else runtime.bytes.assign(std::begin(automatic_damage_runtime_bytecode), std::end(automatic_damage_runtime_bytecode));
 	const bool passed = run_chunk(
 		runtime, state, &automatic_damage_runtime_registry_key,
 		nullptr, true, manager, name_handle, true);
@@ -9546,7 +13519,7 @@ bool ensure_automatic_damage_runtime(
 	result << "RENOVICE automatic damage runtime "
 		<< (passed ? "PASS" : "FAIL")
 		<< " build=V87 storage=embedded-dll bytes="
-		<< sizeof(automatic_damage_runtime_bytecode)
+		<< runtime.bytes.size()
 		<< " coverage=scripted-DamageDD-and-native-HUD-buffs";
 	conout << result.str() << std::endl;
 	config::log(result.str());
@@ -9591,7 +13564,25 @@ bool activate_target_addons(
 	bool* deferred = nullptr
 );
 
-bool loader_detour(void* manager, void* descriptor)
+enum class LoaderDetourDisposition : std::uint8_t
+{
+	Return,
+	RethrowStockError,
+};
+
+struct LoaderDetourOutcome
+{
+	LoaderDetourDisposition disposition = LoaderDetourDisposition::Return;
+	luau_State* state = nullptr;
+	int status = 0;
+	bool value = false;
+};
+static_assert(std::is_trivially_copyable_v<LoaderDetourOutcome>);
+
+LoaderDetourOutcome loader_detour_owned(
+	luau_State* loader_state,
+	void* manager,
+	void* descriptor)
 {
 	// The pause-menu fingerprint is always observed at the natural module-load
 	// boundary. It does no file polling and only decorates a positive semantic
@@ -9649,8 +13640,25 @@ bool loader_detour(void* manager, void* descriptor)
 			}
 		}
 	}
-	const bool result = reinterpret_cast<Loader>(loader_hook.original)(manager, descriptor);
+	const auto loader_result = invoke_stock_loader_protected(
+		loader_state, manager, descriptor,
+		StockLoaderErrorPolicy::PreserveForStockRethrow);
 	replacements::complete_module_load(manager, descriptor);
+	if (loader_result.admitted && loader_result.status != 0)
+	{
+		// Keep DE's error TValue and activation exactly as Loader left them. The
+		// outer wrapper rethrows only after this function's pause/load ownership
+		// and every other C++ local have been destroyed.
+		return {
+			LoaderDetourDisposition::RethrowStockError,
+			loader_state,
+			loader_result.status,
+			false,
+		};
+	}
+	const bool result = loader_result.admitted && loader_result.restored
+		&& loader_result.status == 0 && loader_result.returned
+		&& loader_result.value;
 	if (context_ready.load(std::memory_order_acquire)
 		&& captured_global_state.load(std::memory_order_acquire) == nullptr
 		&& manager == captured_manager && manager != nullptr
@@ -9741,7 +13749,35 @@ bool loader_detour(void* manager, void* descriptor)
 		conout << exited.str() << std::endl;
 		config::log(exited.str());
 	}
-	return result;
+	return {LoaderDetourDisposition::Return, nullptr, 0, result};
+}
+
+bool loader_detour(void* manager, void* descriptor)
+{
+	// Before DE_VM_AUTHORITY is installed (the hook is created earlier during
+	// startup), forward through the exact stock path with no C++ owner alive.
+	// Once authority is ready every Loader call is caught by the shared raw
+	// boundary below.
+	auto* const original = reinterpret_cast<Loader>(loader_hook.original);
+	if (original == nullptr) return false;
+	if (!de_vm_authority::ready() || manager == nullptr
+		|| diagnostics::bad_read_ptr(manager, 0x28))
+	{
+		return original(manager, descriptor);
+	}
+	auto* const state = *reinterpret_cast<luau_State**>(
+		reinterpret_cast<unsigned char*>(manager) + 0x20);
+	if (state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State)))
+	{
+		return original(manager, descriptor);
+	}
+
+	const auto outcome = loader_detour_owned(state, manager, descriptor);
+	if (outcome.disposition == LoaderDetourDisposition::RethrowStockError)
+	{
+		de_vm_authority::rethrow_current_vm_error(outcome.state, outcome.status);
+	}
+	return outcome.value;
 }
 
 bool run_chunk(
@@ -10886,10 +14922,10 @@ bool install_loader_hook()
 	game_allocate = resolve_unique<GameAllocate>(range, signature_game_allocator, "game allocator");
 	protected_call = resolve_unique<ProtectedCall>(range, signature_protected_call, "protected call");
 	auto vm_execute = resolve_unique<VmExecute>(range, signature_vm_execute, "Luau VM execute");
-	auto interrupt_increment = resolve_unique<void*>(range,
+	auto interrupt_increment = resolve_unique<DeLuauInterruptIncrement>(range,
 		signature_interrupt_increment_u43, "U43 thread interrupt increment");
 	auto interrupt_guard = resolve_unique<void*>(range,
-		signature_interrupt_guard_u43, "U43 bounded interrupt guard");
+		signature_interrupt_guard_u43, "U43 DE Luau interrupt callback");
 	if (loader == nullptr || key_builder == nullptr || getfield == nullptr
 		|| setfield == nullptr || check_stack == nullptr || game_allocate == nullptr
 		|| protected_call == nullptr || vm_execute == nullptr || gc_barrierback == nullptr
@@ -10909,12 +14945,15 @@ bool install_loader_hook()
 		+ (memory_evidence_layout_ready ? "ready" : "rejected")
 		+ " interval_ms=5000 lua-api-calls=0 collector-control=0 physical-session-log=1");
 	config::log("RENOVICE VM_STACK build=V93 event=contract-ready barrier=native checked-reservation=yes callback-offsets=yes");
-	config::log("RENOVICE VM_FRAME build=V95 event=contract-ready capacity-restore=all-48-api-owners lua-call-host-frame=native-protected native-limit=8000-unchanged");
+	config::log("RENOVICE VM_FRAME build=V110 event=contract-ready capacity-restore=all-api-owners lua-call-host-frame=native-protected lua-call-boundary=de-interrupt-counter-leaf-before-only provider-fast-gate=atomic live-prototype=environment-code-count-body native-damage-target=exact-prototype-fallback native-limit=8000-unchanged");
 
 	loader_hook.target = reinterpret_cast<void*>(loader);
 	loader_hook.detour = reinterpret_cast<void*>(&loader_detour);
 	vm_execute_hook.target = reinterpret_cast<void*>(vm_execute);
 	vm_execute_hook.detour = reinterpret_cast<void*>(&vm_execute_detour);
+	de_luau_interrupt_hook.target = reinterpret_cast<void*>(interrupt_increment);
+	de_luau_interrupt_hook.detour = reinterpret_cast<void*>(
+		&de_luau_interrupt_increment_detour);
 	try
 	{
 		loader_hook.create();
@@ -10939,6 +14978,29 @@ bool install_loader_hook()
 	// addon execution. It is deliberately not detoured process-wide.
 	vm_execute_hook.enable();
 	loader_hook.enable();
+
+	// The ordinary Inject/Replacement loader is already active. A failure in the
+	// optional nested-call observer may reject only providers that request
+	// hooks.luaCalls; it must never roll back unrelated scripts or the UI bridge.
+	lua_before_observer_ready.store(false, std::memory_order_release);
+	try
+	{
+		de_luau_interrupt_hook.create();
+		if (!de_luau_interrupt_hook.isCreated())
+			throw std::runtime_error("interrupt-counter trampoline creation failed");
+		de_luau_interrupt_hook.enable();
+		lua_before_observer_ready.store(true, std::memory_order_release);
+		config::log("RENOVICE luaCalls before observer build=V110 boundary=DE-interrupt-counter-leaf-0x1AB150 owner-callback=0x197EC80 stock-first=1 stock-result-preserved=1 provider-fast-gate=atomic unrelated-stack-write=0 live-prototype=environment-code-count-body after=fail-closed");
+	}
+	catch (const std::exception& exception)
+	{
+		if (de_luau_interrupt_hook.isCreated())
+			de_luau_interrupt_hook.destroy();
+		conout << "RENOVICE luaCalls before observer unavailable; ordinary Inject and Replacement remain enabled: "
+			<< exception.what() << std::endl;
+		config::log(std::string("RENOVICE luaCalls before observer unavailable build=V110; base-loader-retained=1 reason=")
+			+ exception.what());
+	}
 	return true;
 }
 }
@@ -11008,6 +15070,32 @@ bool append_game_vm_stack_value(
 			gc_barrierback(state, reinterpret_cast<luau_GCObject*>(state),
 				&state->gclist);
 		});
+}
+
+bool append_game_vm_stack_value_reserved(
+	luau_State* state, luau_TValue value) noexcept
+{
+	// The caller owns the wider host+argument+scratch proof. This final append
+	// gate independently proves both physical storage and the current CallInfo
+	// window. check_stack may allocate or raise a DE Luau error and must never
+	// run while native C++ lock/generation leases are live outside protection.
+	if (state == nullptr || gc_barrierback == nullptr
+		|| state->stack == nullptr || state->outtop == nullptr
+		|| state->stack_last == nullptr || state->ci == nullptr
+		|| state->ci->top == nullptr || state->outtop < state->stack
+		|| state->outtop >= state->stack_last
+		|| state->ci->top > state->stack_last
+		|| state->outtop >= state->ci->top)
+	{
+		return false;
+	}
+	if ((state->marked & native_gc_black_mask_u43) != 0)
+	{
+		gc_barrierback(state, reinterpret_cast<luau_GCObject*>(state),
+			&state->gclist);
+	}
+	*state->outtop++ = value;
+	return true;
 }
 
 void maybe_wrap_global(luau_State* state, std::uint32_t name_hash) noexcept
@@ -11151,6 +15239,132 @@ bool execute_module_refresh(
 	return run_chunk(chunk, state, nullptr, environment, false, manager, name_handle);
 }
 
+struct NativeModuleRefreshLeafContext
+{
+	void* manager = nullptr;
+	void* descriptor = nullptr;
+	const unsigned char* bytecode = nullptr;
+	std::size_t bytecode_size = 0;
+	void** body_slot = nullptr;
+	std::uint32_t* size_slot = nullptr;
+	void* game_buffer = nullptr;
+	bool guard_prepared = false;
+	bool completed = false;
+	bool loaded = false;
+	bool native_fault = false;
+	bool outer_error_jump_restored = false;
+	int loader_status = -1;
+	unsigned long fault_code = 0;
+	void* fault_address = nullptr;
+	int fault_stage = 0;
+};
+static_assert(std::is_trivially_copyable_v<NativeModuleRefreshLeafContext>);
+
+// BEGIN NATIVE_MODULE_REFRESH_PROTECTED_LEAF
+// The VEH target lives inside the outer DE raw-protected frame. A native fault
+// in Loader may therefore jump across only the nested Loader raw runner. The
+// fault branch restores the outer DE error-jump record before returning to the
+// outer runner, whose normal epilogue restores ci, ci->top, intop and outtop.
+// This leaf must remain destructor-free.
+void native_module_refresh_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<NativeModuleRefreshLeafContext*>(
+		raw_context);
+	if (context == nullptr || state == nullptr || context->manager == nullptr
+		|| context->descriptor == nullptr || context->bytecode == nullptr
+		|| context->bytecode_size == 0 || context->body_slot == nullptr
+		|| context->size_slot == nullptr || game_allocate == nullptr)
+	{
+		return;
+	}
+	if (guard.active != 0 || guard.handler != nullptr)
+	{
+		context->completed = true;
+		return;
+	}
+
+	std::memset(&guard, 0, sizeof(guard));
+	guard.state = state;
+	guard.base_offset = luau_savestack(state, state->outtop);
+	guard.thread_id = GetCurrentThreadId();
+	if (!capture_guard_outer_error_jump(state))
+	{
+		context->completed = true;
+		return;
+	}
+	guard.handler = AddVectoredExceptionHandler(1, fault_handler);
+	if (guard.handler == nullptr)
+	{
+		context->completed = true;
+		return;
+	}
+	context->guard_prepared = true;
+	if (setjmp(guard.jump) != 0)
+	{
+		context->native_fault = true;
+		context->fault_stage = guard.fault_stage;
+		context->fault_code = guard.fault_code;
+		context->fault_address = guard.fault_address;
+		context->outer_error_jump_restored =
+			restore_guard_outer_error_jump_after_fault();
+		if (context->game_buffer != nullptr
+			&& *context->body_slot == context->game_buffer)
+		{
+			*context->body_slot = nullptr;
+			*context->size_slot = 0;
+		}
+		disarm_guard_exception_handler();
+		context->completed = true;
+		return;
+	}
+
+	guard.active = 1;
+	guard.stage = 29;
+	context->game_buffer = game_allocate(context->bytecode_size, 0);
+	if (context->game_buffer == nullptr
+		|| IsBadWritePtr(context->game_buffer, context->bytecode_size))
+	{
+		disarm_guard_exception_handler();
+		context->completed = true;
+		return;
+	}
+	std::memcpy(
+		context->game_buffer, context->bytecode, context->bytecode_size);
+
+	guard.stage = 30;
+	*context->body_slot = context->game_buffer;
+	*context->size_slot = static_cast<std::uint32_t>(context->bytecode_size);
+	const auto loader_result = invoke_stock_loader_protected(
+		state, context->manager, context->descriptor,
+		StockLoaderErrorPolicy::ContainAndRestore);
+	context->loader_status = loader_result.status;
+	if (loader_result.admitted && !loader_result.restored)
+	{
+		if (*context->body_slot == context->game_buffer)
+		{
+			*context->body_slot = nullptr;
+			*context->size_slot = 0;
+		}
+		abandon_guard_without_vm_access();
+		context->completed = true;
+		return;
+	}
+	context->loaded = loader_result.admitted && loader_result.restored
+		&& loader_result.status == 0 && loader_result.returned
+		&& loader_result.value;
+	if (loader_result.status != 0
+		&& *context->body_slot == context->game_buffer)
+	{
+		*context->body_slot = nullptr;
+		*context->size_slot = 0;
+	}
+	if (context->guard_prepared) disarm_guard_exception_handler();
+	context->completed = true;
+}
+// END NATIVE_MODULE_REFRESH_PROTECTED_LEAF
+
 bool execute_native_module_refresh(
 	const std::string& name,
 	const std::vector<unsigned char>& bytes,
@@ -11187,55 +15401,51 @@ bool execute_native_module_refresh(
 			<< ": descriptor is already carrying bytecode" << std::endl;
 		return false;
 	}
-	std::memset(&guard, 0, sizeof(guard));
-	guard.state = manager_state;
-	guard.base_offset = luau_savestack(manager_state, manager_state->outtop);
-	guard.thread_id = GetCurrentThreadId();
-	guard.handler = AddVectoredExceptionHandler(1, fault_handler);
-	if (guard.handler == nullptr)
+	NativeModuleRefreshLeafContext context{};
+	context.manager = manager;
+	context.descriptor = descriptor;
+	context.bytecode = bytes.data();
+	context.bytecode_size = bytes.size();
+	context.body_slot = body_slot;
+	context.size_slot = size_slot;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		manager_state, &native_module_refresh_protected_leaf, &context);
+	// If an outer DE escape skipped the leaf epilogue, retire its native handler
+	// only after the shared runner has restored the exact VM frame.
+	if (context.guard_prepared) disarm_guard_exception_handler();
+	if (!protected_result.admitted || !protected_result.restored
+		|| protected_result.status != 0 || !context.completed)
 	{
-		return false;
-	}
-	void* game_buffer = game_allocate(bytes.size(), 0);
-	if (game_buffer == nullptr || IsBadWritePtr(game_buffer, bytes.size()))
-	{
-		finish_guard();
-		return false;
-	}
-	std::memcpy(game_buffer, bytes.data(), bytes.size());
-	if (setjmp(guard.jump) != 0)
-	{
-		if (*body_slot == game_buffer)
+		if (context.game_buffer != nullptr
+			&& *body_slot == context.game_buffer)
 		{
 			*body_slot = nullptr;
 			*size_slot = 0;
 		}
-		restore_lua_top();
-		finish_guard();
+		return false;
+	}
+	if (context.native_fault)
+	{
 		std::ostringstream failure;
 		failure << "RENOVICE native module refresh FAULT " << name
-			<< " stage=" << guard.fault_stage
-			<< " exception_code=" << static_cast<std::uint32_t>(guard.fault_code)
-			<< " address=" << guard.fault_address;
+			<< " stage=" << context.fault_stage
+			<< " exception_code=" << static_cast<std::uint32_t>(
+				context.fault_code)
+			<< " address=" << context.fault_address
+			<< " outer_error_jump_restored="
+			<< context.outer_error_jump_restored;
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
 		return false;
 	}
-
-	guard.active = 1;
-	guard.stage = 30;
-	*body_slot = game_buffer;
-	*size_slot = static_cast<std::uint32_t>(bytes.size());
-	const bool loaded = reinterpret_cast<Loader>(loader_hook.original)(manager, descriptor);
-	restore_lua_top();
-	finish_guard();
 	std::ostringstream result;
-	result << "RENOVICE native module refresh " << (loaded ? "PASS" : "FAIL")
+	result << "RENOVICE native module refresh "
+		<< (context.loaded ? "PASS" : "FAIL")
 		<< " " << name << " descriptor=" << descriptor
 		<< " bytes=" << bytes.size();
 	conout << result.str() << std::endl;
 	config::log(result.str());
-	return loaded;
+	return context.loaded;
 }
 
 InitialiseResult initialise()
@@ -11536,7 +15746,6 @@ void drain(luau_State* state)
 			false, std::memory_order_relaxed);
 		automatic_damage_runtime_failure_logged.store(
 			false, std::memory_order_relaxed);
-		lua_after_skip_trace_sequence.store(0, std::memory_order_relaxed);
 		diagnostic_trace_sequence.store(0, std::memory_order_relaxed);
 		diagnostic_trace_suppression_logged.store(false, std::memory_order_relaxed);
 		diagnostic_trace_install_failure_logged.store(false, std::memory_order_relaxed);

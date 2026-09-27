@@ -181,3 +181,17 @@ extern owfScript* get_script_by_instance_id(size_t instance_id);
 extern void start_script_from_file(std::string&& path);
 extern void start_script_from_string(const std::string& code);
 extern soup::JsonArray get_available_scripts();
+
+struct luau_State;
+
+// A recursive invocation of the process-owned host closure dispatches one
+// locally protected DE API operation before any Pluto/C++ frame is entered.
+// -1 means no bridge operation is pending; every other value is a DE C result
+// count and must be returned immediately by the host callback.
+extern int dispatch_openwf_protected_game_vm_operation(
+	luau_State* state) noexcept;
+
+// Pluto wrapper finalizers enqueue registry-root deletion.  Drain it only from
+// the admitted owner transaction, where each DE mutation has its own local
+// protected-call boundary.
+extern std::size_t drain_deferred_game_registry_releases(luau_State* state) noexcept;

@@ -23,6 +23,7 @@ inline constexpr char signature_string_argument[] =
 	"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 41 10 48 8B "
 	"D9 48 63 FA 48 8B F7 48 C1 E6 04 48 83 C6 F0 48 03 C6 8B 48 0C "
 	"83 F9 06 74 ? 85";
+inline constexpr char signature_type_argument_u44[] = "48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B F9 48 63 DA 48 8B CB 49 8B F0 48 03 C9 48 8B 47 10 44 8B 4C C8 FC";
 inline constexpr char signature_type_argument[] =
 	"40 53 56 57 48 83 EC 40 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 "
 	"30 48 8B 41 10 49 8B F0 48 83 C0 F0 48 63 FA 4C 8B CF 48 8B D9 "
