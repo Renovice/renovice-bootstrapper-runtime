@@ -1,5 +1,17 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 In-game settings editor: Phase 0 probe, ADDON_SETTINGS_V1 and SCRIPT SETTINGS staged (not deployed)
+
+Branch `feat/ingame-settings-editor-2026-09-30` (from `3ca9564`). Generic changes only; no target-specific code.
+
+- **Reserved `_RENOVICE_INTERNAL_` names.** V10 is unchanged. Optional bridges (`ScriptSettingsBridgeV1`, and the Phase 0 probe only in a probe build) load after the managed-addon commit; a failure removes only their row. Any other reserved name is ignored (`internal chunk IGNORED`).
+- **Phase 0 probe** (`build_private.ps1 -SettingsProbeP0`, commit `3230368`): `SETTINGS PROBE` row + F12 open at the pending-only safe tick; static pages; writes nothing. DLL `1a40ecaa…` in `work/staging/editor-phase0-probe/` with `PROBE_CHECKLIST.md`.
+- **ADDON_SETTINGS_V1:** strict `package.json` declarations (bad declaration → settings off, compiled defaults), `CustomScripts\Settings\<package>.json` (bad file → that package stock), per-value/section/master switches, fresh `activate(context)` table per generation, settings identity in the reuse identity, literal members gated by their value switch, `member:<folder>/<file>` states. Manifest bound 512 KiB.
+- **SCRIPT SETTINGS** row after SCRIPTS (only with the bridge and declared settings). Flat stock-row list by default; `SettingsMenuNested=true` enables nested pages once the probe proves N-1. Clicks stage; the root close writes the files and queues F9.
+- Main DLL `d2f2265071ea18caeccdde53a66aa4c6d16c387121d541bad20e23305b724372` (5,562,368 B), 0 warnings, all gates PASS (new `verify_addon_settings.ps1`, `verify_script_settings_bridges.ps1`). Staged with the V1 bridge and the phase2i live-test package in `work/staging/editor-phase2-3/`.
+
+**Deployment and every live check are pending.** Rollback `6f100ebc…`; on rollback also delete the reserved bridge files (older DLLs would run them as one-shots). [Record](../RESEARCH/INGAME_SETTINGS_EDITOR_2026-09-30/README.md).
+
 ## 2026-09-29 Optional script packages + fix 3 (Circuit env, buffered diagnostics) staged (not deployed)
 
 Branch `feat/script-packages-2026-09-29` (from `8946bfd`). Generic changes only.

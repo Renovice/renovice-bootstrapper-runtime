@@ -382,7 +382,7 @@ local function openProbe(parentMovie, resource, logFunction)
         say("open FAIL reason=PushChildMovie-null")
         return false
     end
-    configure(child, 1, "SETTINGS PROBE", function(movie) return level1Rows(movie, types) end, false)
+    configure(child, 1, "SETTINGS PROBE", function(movie) return level1Rows(movie, types) end, true)
     return true
 end
 
@@ -404,7 +404,7 @@ local function openProbeFromHotkey(resource, logFunction)
         return false
     end
     say("H-1 OpenScreen PASS")
-    configure(movie, 1, "SETTINGS PROBE (F12)", function(child) return level1Rows(child, types) end, false)
+    configure(movie, 1, "SETTINGS PROBE (F12)", function(child) return level1Rows(child, types) end, true)
     return true
 end
 

@@ -158,8 +158,8 @@ Rules, all checked by the loader:
   with the tooltip `target N modules`. The single state ID
   `target-addon:<filename lowercased>` enables or disables every target.
 - **Reserved names.** Any other top-level or entry field, such as `label` or
-  `settings`, is ignored by this runtime. These names are reserved for the
-  future in-game (F12) settings overlay.
+  `settings`, is ignored by this runtime. Settings for the in-game editor are
+  declared in a package's `package.json` instead (see "Script settings").
 
 ## Script packages (optional folders, one Scripts row)
 
@@ -196,7 +196,7 @@ Not admissible (the package is rejected with an exact reason):
 
 Other files (README, checksums) are ignored. Subfolders are ignored.
 
-**`package.json`** (optional, strict JSON, at most 64 KiB):
+**`package.json`** (optional, strict JSON, at most 512 KiB):
 
 ```json
 {
@@ -216,11 +216,11 @@ Other files (README, checksums) are ignored. Subfolders are ignored.
   member `label`s (up to 128) go into the tooltip.
 - If `members` is present, the folder must contain **exactly** those `.lua_B`
   files (case-insensitive). A partially copied package fails as a whole.
-- `settings` (top level and per member) is reserved for the future in-game (F12)
-  editor. It must be valid JSON and is otherwise ignored.
+- `settings` (top level and per member) declares editable values; see
+  "Script settings" below. `"settings": {}` declares nothing.
 - Unknown fields, duplicate fields, a `schema` other than 1, and trailing data
-  reject the package. A per-member `enabled` field is reserved for future
-  per-member toggles and is rejected today.
+  reject the package. A per-member `enabled` field is rejected: member on/off is
+  enable policy and lives in `ScriptStates.json` as `member:` (below).
 
 **Scripts menu.** One row, `[PACKAGE] <name>`, tooltip
 `PACKAGE | <description> | N members: <label> (<file>), ... | <status>`. One
@@ -255,6 +255,75 @@ members. "All or nothing" covers the static F9/startup commit.
 
 **Disabled packages** keep their keys inventoried (like a disabled loose file),
 so enabling one later works without a restart.
+
+**Member switches.** `ScriptStates.json` may also hold
+`"member:<folder lowercased>/<member file lowercased>": false`. That member stays
+validated and inventoried but never enters its lane; the other members load
+normally (`RENOVICE PACKAGE MEMBER DISABLED …`). Member rows are not SCRIPTS
+rows; edit them in SCRIPT SETTINGS or by hand, then press F9.
+
+## Script settings (ADDON_SETTINGS_V1, package members only)
+
+A package can declare values that the player edits in game (pause menu →
+**SCRIPT SETTINGS**) or by hand. Loose files and packages without declarations
+are unchanged.
+
+**Declarations** (written by the generator, read-only at runtime), in
+`package.json`:
+
+```json
+"settings": { "format": "RENOVICE_SETTINGS_DECL_V1", "build": "2026.09.28.13.06",
+  "groups": [ { "id": "survival", "label": "Survival", "order": 10, "aliases": ["Hell-Scrub"] } ] },
+"members": { "Missions.targets.addon.lua_B": { "settings": { "values": {
+  "survival.reward_interval": { "group": "survival", "label": "Reward interval", "unit": "s",
+    "type": "float", "stock": 300, "min": 1, "max": 3600, "scope": "All Survival nodes",
+    "lane": "addon", "applies": "live_next_read" } } } } }
+```
+
+`type` is `int`, `float` or `enum` (enum adds `options: [{label, value}]`),
+`lane` is `addon`, `literal` or `metadata`. A declaration error disables only
+the settings of that package (`RENOVICE SETTINGS DECLARATIONS REJECT …`); its
+scripts still load with their compiled values.
+
+**Values** (player state), `CustomScripts\Settings\<package folder>.json`:
+
+```json
+{ "format": "RENOVICE_SCRIPT_SETTINGS_V1", "package": "package:missions",
+  "build": "2026.09.28.13.06", "use_stock": false,
+  "groups": { "survival": true },
+  "values": { "survival.reward_interval": { "enabled": true, "value": 150 } } }
+```
+
+- A value applies only when the file is valid, `use_stock` is false, its group
+  is not `false` (a missing group means on), `enabled` is true and the value is
+  in range. Anything else is stock. A missing file means everything is stock.
+- A malformed file makes that package stock (`RENOVICE SETTINGS FILE REJECT`);
+  a bad entry makes only that value stock (`RENOVICE SETTINGS VALUE REJECT`).
+- After a client build change, a value is kept only if its recorded `stock`
+  equals the new declaration (SCRIPT SETTINGS records it on save).
+- A replacement member with `literal` values is loaded only while at least one
+  of its values is enabled and `use_stock` is false.
+
+**What the addon receives.** `activate(context)`, with a fresh table per
+generation: `context.settings[id] = { enabled = true, value = <number>, stock = <declared stock> }`
+for each value that applies. A value that does not apply is absent. Addons
+without declarations get `activate()` exactly as before. Changing only the
+values re-runs `cleanup` + `activate` on the next F9 even though the bytes are
+the same.
+
+**SCRIPT SETTINGS** (pause menu, directly under SCRIPTS). One native list:
+package switch, `Use stock values`, member switches, then one section per group
+with `Custom <section> values` and, per value, `Custom <label>` plus its editor.
+Clicks only stage; closing the screen writes the file(s) and runs the normal F9
+transaction. `SettingsMenuNested=true` in `renovice.cfg` switches to nested
+pages (only after the Phase 0 probe proved nested screens).
+
+## Reserved internal names
+
+Files named `_RENOVICE_INTERNAL_*` in `Inject` are bootstrapper infrastructure:
+the SCRIPTS bridge (`…ScriptsSettingsBridgeV10.lua_B`) and the optional SCRIPT
+SETTINGS bridge (`…ScriptSettingsBridgeV1.lua_B`). They never appear in SCRIPTS
+and never run as one-shots; unknown reserved names are ignored.
 
 ## Module instances and environments
 
@@ -309,7 +378,8 @@ of that same snapshot.
 
 ## Configuration and logs
 
-- `renovice.cfg` supports `Logging`, `Verbose`, `Diagnostics` and `AutoSpawn`.
+- `renovice.cfg` supports `Logging`, `Verbose`, `Diagnostics`, `AutoSpawn` and
+  `SettingsMenuNested` (default `false`).
 - If `riven_lock.cfg` exists, the Riven lock UI system is enabled.
 - Source messages go to `CustomScripts\Logs\renovice_source.log` when logging
   is enabled. The file stays open while the game runs. Operational lines are
