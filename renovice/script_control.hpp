@@ -17,6 +17,11 @@ struct ScriptInfo
 	bool pending = false;
 	bool valid = true;
 	std::string status;
+	// Packages only: the complete menu label and the tooltip body (description
+	// and member summary). Empty for every loose file, whose label and tooltip
+	// are derived from the filename exactly as before.
+	std::string label;
+	std::string detail;
 };
 
 bool initialise();

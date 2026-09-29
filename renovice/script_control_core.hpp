@@ -13,6 +13,10 @@ enum class Kind
 	Addon,
 	TargetAddon,
 	Replacement,
+	// A folder under CustomScripts\Packages that bundles several members into
+	// one row and one policy. Appended last so every existing kind keeps its
+	// ordinal, sort position and stable-ID prefix.
+	Package,
 };
 
 inline std::string ascii_lower(std::string_view value)
@@ -34,6 +38,7 @@ inline std::string stable_id(Kind kind, std::string_view filename)
 	case Kind::Addon: prefix = "addon:"; break;
 	case Kind::TargetAddon: prefix = "target-addon:"; break;
 	case Kind::Replacement: prefix = "replacement:"; break;
+	case Kind::Package: prefix = "package:"; break;
 	}
 	return std::string(prefix) + ascii_lower(filename);
 }
@@ -56,6 +61,7 @@ inline const char* kind_label(Kind kind) noexcept
 	case Kind::Addon: return "ADDON";
 	case Kind::TargetAddon: return "TARGET ADDON";
 	case Kind::Replacement: return "REPLACEMENT";
+	case Kind::Package: return "PACKAGE";
 	}
 	return "UNKNOWN";
 }
@@ -68,6 +74,7 @@ inline const char* menu_kind_label(Kind kind) noexcept
 	case Kind::Addon:
 	case Kind::TargetAddon: return "ADDON";
 	case Kind::Replacement: return "REPLACEMENT";
+	case Kind::Package: return "PACKAGE";
 	}
 	return "UNKNOWN";
 }

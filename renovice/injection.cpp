@@ -15,6 +15,7 @@
 #include "vm_api_frame.hpp"
 #include "vm_memory_evidence.hpp"
 #include "generation_ownership.hpp"
+#include "packages.hpp"
 #include "replacements.hpp"
 #include "riven.hpp"
 #include "script_control.hpp"
@@ -1905,6 +1906,47 @@ void report_scan_rejection(const std::string& message)
 	config::log(message);
 }
 
+// BEGIN PACKAGE_INJECT_MEMBERS
+// Optional folder packages. The loose loop in scan_snapshot is unchanged and
+// never descends into CustomScripts\Packages. Addon members of the package
+// snapshot of this same transaction (packages::candidate(), shared with the
+// replacement lane) enter the ordinary target lane with the ordinary Chunk
+// shape: a single-key target addon is one TargetManagedAddon chunk and a
+// multi-target member is one binding per declared key. Untargeted managed
+// addons are rejected by the package scan (generation-wide transaction). Every structurally valid package inventories its target keys even while
+// disabled, like a disabled loose target addon. Only accepted (enabled,
+// statically valid, conflict-free) packages contribute executable chunks.
+void append_package_chunks(
+	std::vector<Chunk>& snapshot,
+	std::vector<std::uint64_t>& target_keys
+)
+{
+	const auto package_snapshot = packages::candidate();
+	if (!package_snapshot) return;
+	for (const auto& package : package_snapshot->packages)
+	{
+		if (!package.structurally_valid) continue;
+		for (const auto& member : package.members)
+		{
+			target_keys.insert(
+				target_keys.end(), member.target_keys.begin(), member.target_keys.end());
+			if (!package.accepted || member.kind == packages::MemberKind::Replacement) continue;
+			const auto name = packages::chunk_name(package.folder, member.filename);
+			for (const auto key : member.target_keys)
+			{
+				Chunk chunk;
+				chunk.name = name;
+				chunk.kind = ScriptKind::TargetManagedAddon;
+				chunk.target_key = key;
+				chunk.multi_target = member.kind == packages::MemberKind::MultiTargetAddon;
+				chunk.bytes = member.bytes;
+				snapshot.emplace_back(std::move(chunk));
+			}
+		}
+	}
+}
+// END PACKAGE_INJECT_MEMBERS
+
 bool scan_snapshot(
 	std::vector<Chunk>& snapshot,
 	std::vector<std::uint64_t>& target_keys
@@ -2017,6 +2059,7 @@ bool scan_snapshot(
 		report_scan_rejection("RENOVICE Inject scan error: " + ec.message());
 		return false;
 	}
+	append_package_chunks(snapshot, target_keys);
 	std::sort(snapshot.begin(), snapshot.end(), [](const Chunk& lhs, const Chunk& rhs)
 	{
 		// Multi-target bindings share a filename; the key keeps order total.
@@ -4882,11 +4925,18 @@ int scripts_settings_elements_callback(luau_State* state)
 			for (const auto& script : scripts)
 			{
 				PreparedScriptsSettingsRow row;
-				row.label = script_control::menu_display_name(
-					script.kind, script.filename);
+				row.label = script.label.empty()
+					? script_control::menu_display_name(script.kind, script.filename)
+					: script.label;
 				row.id = script.id;
 				row.tooltip = script_control::kind_label(script.kind);
-				if (!script.target.empty()) row.tooltip += " | target " + script.target;
+				if (script.kind == script_control::Kind::Package)
+				{
+					// Package rows: description, then the bounded member summary.
+					if (!script.detail.empty()) row.tooltip += " | " + script.detail;
+					if (!script.target.empty()) row.tooltip += " | " + script.target;
+				}
+				else if (!script.target.empty()) row.tooltip += " | target " + script.target;
 				row.tooltip += " | " + script.status;
 				row.enabled = script.enabled;
 				row.valid = script.valid;
@@ -16332,6 +16382,7 @@ void drain(luau_State* state)
 	{
 		config::discard_prepared_reload();
 		script_control::discard_prepared_reload();
+		packages::discard_prepared_reload();
 		swf::discard_prepared_reload();
 		replacements::discard_prepared_reload();
 		riven::discard_prepared_gate();
@@ -16409,6 +16460,7 @@ void drain(luau_State* state)
 		}
 		reconcile_native_hook_contract("F9-commit-reconcile");
 		script_control::commit_prepared_reload();
+		packages::commit_prepared_reload();
 		swf::commit_prepared_reload();
 		replacements::commit_prepared_reload();
 		riven::commit_prepared_gate();
@@ -16435,6 +16487,15 @@ void drain(luau_State* state)
 		if (transaction_valid && !script_control::prepare_reload())
 		{
 			reject_prepared_member("RENOVICE F9 script-state reload rejected: previous policy retained");
+			transaction_valid = false;
+		}
+		// Packages are scanned once, after the prepared policy and before the
+		// replacement lane and the Inject scanner, which both consume this one
+		// package snapshot. Per-package faults are package-local inside the
+		// scan; only an unreadable Packages root rejects the transaction.
+		if (transaction_valid && !packages::prepare_reload())
+		{
+			reject_prepared_member("RENOVICE F9 package reload rejected: previous snapshot retained");
 			transaction_valid = false;
 		}
 		if (transaction_valid && !swf::prepare_reload())

@@ -4,6 +4,7 @@
 #include "renovice/application_frame_profile.hpp"
 #include "renovice/de_vm_authority.hpp"
 #include "renovice/injection.hpp"
+#include "renovice/packages.hpp"
 #include "renovice/replacements.hpp"
 #include "renovice/riven.hpp"
 #include "renovice/script_control.hpp"
@@ -3307,6 +3308,13 @@ static SOUP_FORCEINLINE void create_all_hooks()
 	{
 		conout << "RENOVICE script control failed closed; custom Lua scripts will not be initialized." << std::endl;
 		return;
+	}
+	// Optional folder packages are scanned once, before the Inject and
+	// replacement lanes that consume the same snapshot. A failure is local to
+	// packages: loose scripts load exactly as before.
+	if (!renovice::packages::initialise())
+	{
+		conout << "RENOVICE script packages failed closed; loose scripts are unaffected." << std::endl;
 	}
 	const auto swf_result = renovice::swf::initialise();
 	if (swf_result == renovice::swf::InitialiseResult::Failed)

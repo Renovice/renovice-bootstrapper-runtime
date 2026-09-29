@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "injection.hpp"
+#include "packages.hpp"
 #include "script_control.hpp"
 
 #include <atomic>
@@ -141,6 +142,48 @@ bool read_file(const std::filesystem::path& path, std::vector<unsigned char>& by
 		));
 }
 
+// Optional folder packages (CustomScripts\Packages\<Name>\). The loose loop
+// above is unchanged and never descends into subfolders. Package members come
+// from the one package snapshot of this transaction (packages::candidate()),
+// which the Inject scanner consumes too, so a package's replacements and addons
+// enter or leave the generation together. Every structurally valid package
+// inventories its keys even while disabled, exactly like a disabled loose file,
+// so a later enable can refresh a module that already loaded.
+bool merge_package_replacements(
+	std::unordered_map<std::uint64_t, std::vector<unsigned char>>& snapshot,
+	KeySet* available_keys
+)
+{
+	const auto package_snapshot = packages::candidate();
+	if (!package_snapshot) return true;
+	for (const auto& package : package_snapshot->packages)
+	{
+		if (!package.structurally_valid) continue;
+		for (const auto& member : package.members)
+		{
+			if (member.kind != packages::MemberKind::Replacement) continue;
+			if (available_keys != nullptr) available_keys->emplace(member.key);
+			if (!package.accepted) continue;
+			if (member.bytes.empty())
+			{
+				conout << "RENOVICE replacement rejected: package member bytes missing package="
+					<< package.folder << " member=" << member.filename << std::endl;
+				return false;
+			}
+			if (!snapshot.emplace(member.key, member.bytes).second)
+			{
+				// Conflicts were resolved against the loose files the package scan
+				// saw. A loose file that appeared between the two reads of this
+				// same transaction rejects the whole reload; nothing is applied.
+				conout << "RENOVICE replacement rejected: duplicate content key package="
+					<< package.folder << " member=" << member.filename << std::endl;
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 bool load_snapshot(
 	const std::filesystem::path& directory,
 	std::unordered_map<std::uint64_t, std::vector<unsigned char>>& snapshot,
@@ -196,7 +239,7 @@ bool load_snapshot(
 		conout << "RENOVICE replacement scan error: " << ec.message() << std::endl;
 		return false;
 	}
-	return true;
+	return merge_package_replacements(snapshot, available_keys);
 }
 
 std::vector<std::uint64_t> changed_keys(const Snapshot& previous, const Snapshot& next)

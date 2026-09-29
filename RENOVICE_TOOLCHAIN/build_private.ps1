@@ -11,6 +11,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_bridge.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_core.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_multi_target_addon.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_script_packages.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_target_root_binding.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_safe_runtime_tick.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_detour_relocatability.ps1")

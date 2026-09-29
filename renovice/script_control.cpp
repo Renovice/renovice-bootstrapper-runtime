@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "injection_core.hpp"
+#include "packages.hpp"
 #include "replacements_core.hpp"
 
 #include <algorithm>
@@ -265,6 +266,50 @@ void discover_directory(
 		output.emplace_back(std::move(info));
 	}
 }
+
+// One row per package folder, one policy ID `package:<folder lowercased>`.
+// Validity, conflicts and the member summary come from the same static rules
+// the loader applies (packages::inventory, a quiet scan without replacement
+// bytes). A conflicted package stays toggleable so the player can resolve it.
+void discover_packages(
+	const State& policy,
+	const State& requested,
+	std::vector<ScriptInfo>& output
+)
+{
+	const auto inventory = packages::inventory();
+	for (const auto& package : inventory->packages)
+	{
+		ScriptInfo info;
+		info.kind = Kind::Package;
+		info.filename = package.folder;
+		info.id = package.id;
+		info.valid = package.structurally_valid;
+		info.label = packages::menu_label(package.folder,
+			package.display == package.folder ? std::string_view{} : std::string_view{package.display});
+		std::vector<std::pair<std::string, std::string>> members;
+		members.reserve(package.members.size());
+		for (const auto& member : package.members)
+			members.emplace_back(member.filename, member.label);
+		info.target = info.valid ? packages::members_summary(members) : std::string{};
+		info.detail = packages::truncate_display(
+			packages::sanitize_display(package.description),
+			packages::maximum_tooltip_description_length);
+		info.enabled = state_enabled(policy, info.id);
+		if (const auto pending = requested.find(info.id); pending != requested.end()
+			&& pending->second != info.enabled)
+		{
+			info.enabled = pending->second;
+			info.pending = true;
+		}
+		if (!info.valid) info.status = "INVALID: " + package.reason;
+		else if (info.pending) info.status = "PENDING F9";
+		else if (!info.enabled) info.status = "DISABLED";
+		else if (!package.accepted) info.status = "BLOCKED: " + package.reason;
+		else info.status = "ENABLED";
+		output.emplace_back(std::move(info));
+	}
+}
 }
 
 bool initialise()
@@ -324,6 +369,7 @@ std::vector<ScriptInfo> snapshot()
 	std::vector<ScriptInfo> output;
 	discover_directory(config::injection_directory(), false, policy, requested, output);
 	discover_directory(config::custom_scripts_directory(), true, policy, requested, output);
+	discover_packages(policy, requested, output);
 	std::sort(output.begin(), output.end(), [](const ScriptInfo& lhs, const ScriptInfo& rhs)
 	{
 		if (lhs.kind != rhs.kind) return lhs.kind < rhs.kind;
