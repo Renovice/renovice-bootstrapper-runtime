@@ -701,6 +701,93 @@ int main(int argc, char** argv)
 		check(!target_root_return_watch_required(false, false, false),
 			"a module without a desired target addon is never watched");
 
+		// Fix 3 (live 2026-09-29, pid 23260): DuviriUtil's root closure kept its
+		// entry environment across module(...); the published environment is the
+		// one the root's child closures were created with.
+		{
+			auto* const root_env = reinterpret_cast<void*>(0x7000);
+			auto* const module_env = reinterpret_cast<void*>(0x8000);
+			RootEnvironmentAccumulator none;
+			const auto kept = none.choose(root_env);
+			check(kept.environment == root_env && kept.source == RootEnvironmentSource::root_closure
+					&& none.child_closures == 0,
+				"no child closure in the dead register window keeps the root closure environment");
+			RootEnvironmentAccumulator agree;
+			agree.add(module_env);
+			agree.add(nullptr);
+			agree.add(module_env);
+			agree.add(module_env);
+			const auto chosen = agree.choose(root_env);
+			check(chosen.environment == module_env && chosen.source == RootEnvironmentSource::child_closure
+					&& agree.child_closures == 3,
+				"child closures that agree select the environment the module's own functions use");
+			RootEnvironmentAccumulator split;
+			split.add(module_env);
+			split.add(next_env);
+			const auto ambiguous = split.choose(root_env);
+			check(ambiguous.environment == root_env && ambiguous.source == RootEnvironmentSource::ambiguous,
+				"disagreeing child closures are ambiguous and keep the root closure environment (fail closed)");
+			RootEnvironmentAccumulator same;
+			same.add(root_env);
+			check(same.choose(root_env).environment == root_env
+					&& same.choose(root_env).source == RootEnvironmentSource::child_closure,
+				"child closures in the root environment confirm it");
+			const void* children[] = {reinterpret_cast<void*>(0x9000), reinterpret_cast<void*>(0x9100)};
+			check(proto_is_direct_child(children, 2, reinterpret_cast<void*>(0x9100))
+					&& !proto_is_direct_child(children, 2, reinterpret_cast<void*>(0x9200))
+					&& !proto_is_direct_child(nullptr, 2, reinterpret_cast<void*>(0x9000))
+					&& !proto_is_direct_child(children, 0, reinterpret_cast<void*>(0x9000)),
+				"only closures over the root prototype's direct children count");
+			check(std::string_view(root_environment_source_label(RootEnvironmentSource::child_closure)) == "child-closure",
+				"root environment source label is stable");
+		}
+
+		// Diagnostics hot path (Mallet lag audit 2026-09-29).
+		{
+			auto* const vm_a = reinterpret_cast<void*>(0x1000);
+			auto* const vm_b = reinterpret_cast<void*>(0x2000);
+			const auto base_identity = native_hook_event_identity("afterDamage", 0xec368d4901690a15ull, vm_a);
+			check(base_identity == native_hook_event_identity("afterDamage", 0xec368d4901690a15ull, vm_a)
+					&& base_identity != native_hook_event_identity("afterDamage", 0xec368d4901690a15ull, vm_b)
+					&& base_identity != native_hook_event_identity("afterDamagf", 0xec368d4901690a15ull, vm_a)
+					&& base_identity != native_hook_event_identity("afterDamage", 0x8fba3a28f8fef624ull, vm_a),
+				"native hook PASS identity is a cheap exact (event, key, VM) hash");
+			check(diagnostic_per_hit_event("damage.callback.enter") && diagnostic_per_hit_event("dispatch.return")
+					&& diagnostic_per_hit_event("native.float.transform") && diagnostic_per_hit_event("lua.call.before.reject")
+					&& !diagnostic_per_hit_event("module.prototype") && !diagnostic_per_hit_event("source.attach-return"),
+				"only per-hit lanes are rate limited; load-time structural events are not");
+			DiagnosticEventRateLimiter limiter;
+			std::uint32_t admitted = 0;
+			for (std::uint32_t i = 0; i != 100; ++i)
+				admitted += limiter.admit("damage.callback.enter", 1000 + i).admit ? 1u : 0u;
+			check(admitted == diagnostic_rate_lines_per_window,
+				"a hot event admits exactly the per-window limit");
+			const auto other = limiter.admit("dispatch.enter", 1100);
+			check(other.admit && !other.report.pending, "event names are limited independently");
+			const auto rolled = limiter.admit("damage.callback.enter", 2000);
+			check(rolled.admit && rolled.report.pending
+					&& std::string_view(rolled.report.event) == "damage.callback.enter"
+					&& rolled.report.admitted == diagnostic_rate_lines_per_window
+					&& rolled.report.suppressed == 100 - diagnostic_rate_lines_per_window,
+				"a new window reports exactly one suppression summary with admitted and suppressed counts");
+			const auto quiet = limiter.admit("damage.callback.enter", 2001);
+			check(quiet.admit && !quiet.report.pending, "a summary is reported once (deduplicated)");
+			for (std::uint32_t i = 0; i != 40; ++i) (void)limiter.admit("dispatch.enter", 1101 + i);
+			const auto expired = limiter.admit("native.float.transform", 3000);
+			check(expired.admit && expired.report.pending
+					&& std::string_view(expired.report.event) == "dispatch.enter",
+				"a window that ended with suppressed lines is reported on the next trace call of any event");
+			DiagnosticEventRateLimiter full;
+			for (std::size_t i = 0; i != diagnostic_rate_event_slots; ++i)
+				(void)full.admit("damage.e" + std::to_string(i), 10);
+			const auto dropped = full.admit("damage.overflow", 11);
+			check(!dropped.admit && full.untracked_dropped() == 1,
+				"events beyond the bounded slot table are dropped and counted");
+			full.reset();
+			check(full.admit("damage.overflow", 12).admit && full.untracked_dropped() == 0,
+				"reset (F9 / bridge change) clears windows and drop counts");
+		}
+
 		struct ProtoIdentity
 		{
 			std::uint64_t target_key = 0;

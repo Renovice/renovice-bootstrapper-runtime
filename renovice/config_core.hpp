@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cctype>
+#include <cstddef>
 #include <charconv>
 #include <cstdint>
 #include <string>
@@ -259,5 +260,41 @@ inline Flags parse(std::string_view text)
 	}
 	apply_diagnostics_master(result);
 	return result;
+}
+
+// ---------------------------------------------------------------------------
+// Source-log buffering policy (2026-09-29). Pure so the offline gate can pin it.
+// Diagnostic lines are buffered in a bounded buffer and flushed when full or
+// after the interval; operational lines always flush (write-through).
+// ---------------------------------------------------------------------------
+inline constexpr std::size_t source_log_buffer_bytes = 64u * 1024u;
+inline constexpr std::uint64_t source_log_flush_interval_ms = 250;
+
+inline constexpr bool source_log_line_fits_buffer(
+	std::size_t buffered, std::size_t line_bytes, std::size_t capacity) noexcept
+{
+	return line_bytes <= capacity && buffered <= capacity - line_bytes;
+}
+
+inline constexpr bool source_log_flush_due(
+	bool buffered_line,
+	std::size_t buffered,
+	std::size_t capacity,
+	std::uint64_t now_ms,
+	std::uint64_t last_flush_ms,
+	std::uint64_t interval_ms) noexcept
+{
+	return !buffered_line || buffered >= capacity
+		|| now_ms < last_flush_ms || now_ms - last_flush_ms >= interval_ms;
+}
+
+inline constexpr bool source_log_rotation_required(
+	std::uint64_t file_size,
+	std::size_t buffered,
+	std::size_t incoming,
+	std::uint64_t maximum) noexcept
+{
+	const std::uint64_t pending = file_size + buffered;
+	return pending < file_size || pending > maximum || incoming > maximum - pending;
 }
 }

@@ -310,6 +310,182 @@ inline bool sample_damage_trace(std::uint64_t count, std::uint64_t positive_coun
 {
     return count <= 3 || (positive && positive_count <= 3) || count % 512 == 0;
 }
+// ---------------------------------------------------------------------------
+// Diagnostics hot path (2026-09-29, Mallet lag audit).
+// ---------------------------------------------------------------------------
+
+// 64-bit FNV-1a identity of (event text, target key, VM) for the once-only
+// operational "native hook PASS" line. Checked before any formatting.
+inline std::uint64_t native_hook_event_identity(
+	const char* event, std::uint64_t target_key, const void* vm) noexcept
+{
+	std::uint64_t hash = 1469598103934665603ull;
+	const auto mix = [&](unsigned char byte) noexcept
+	{
+		hash ^= byte;
+		hash *= 1099511628211ull;
+	};
+	if (event != nullptr)
+		for (const char* at = event; *at != '\0'; ++at) mix(static_cast<unsigned char>(*at));
+	mix(0xff);
+	for (int shift = 0; shift != 64; shift += 8)
+		mix(static_cast<unsigned char>((target_key >> shift) & 0xffu));
+	const auto address = reinterpret_cast<std::uintptr_t>(vm);
+	for (int shift = 0; shift != 64; shift += 8)
+		mix(static_cast<unsigned char>((static_cast<std::uint64_t>(address) >> shift) & 0xffu));
+	return hash;
+}
+
+// Per-hit trace lanes (one line per damage hit, hook dispatch, native call or
+// Lua call). They are rate limited per event name in trace mode; load-time
+// structural events (module.prototype, install, attach, ...) are not.
+inline bool diagnostic_per_hit_event(std::string_view event) noexcept
+{
+	for (const std::string_view prefix : {
+		std::string_view{"damage."}, std::string_view{"dispatch."},
+		std::string_view{"native."}, std::string_view{"lua.call."},
+		std::string_view{"luaCalls."}})
+	{
+		if (event.size() >= prefix.size() && event.compare(0, prefix.size(), prefix) == 0)
+			return true;
+	}
+	return false;
+}
+
+inline constexpr std::uint64_t diagnostic_rate_window_ms = 1000;
+inline constexpr std::uint32_t diagnostic_rate_lines_per_window = 32;
+inline constexpr std::size_t diagnostic_rate_event_slots = 64;
+
+struct DiagnosticRateReport
+{
+	bool pending = false;
+	char event[48]{};
+	std::uint64_t window_ms = 0;
+	std::uint32_t admitted = 0;
+	std::uint64_t suppressed = 0;
+	std::uint64_t untracked_dropped = 0;
+};
+
+struct DiagnosticRateDecision
+{
+	bool admit = false;
+	DiagnosticRateReport report; // emit before the admitted line, if pending
+};
+
+// Bounded, deterministic per-event-name limiter: at most N lines per event per
+// window. A window that ended with suppressed lines yields exactly one summary
+// (dedup/suppression count). Events beyond the slot table are dropped and
+// counted. No allocation; the caller serializes access.
+class DiagnosticEventRateLimiter
+{
+public:
+	DiagnosticRateDecision admit(std::string_view event, std::uint64_t now_ms) noexcept
+	{
+		DiagnosticRateDecision decision;
+		collect_expired(now_ms, decision.report);
+		Slot* slot = find(event);
+		if (slot == nullptr) slot = claim(event, now_ms);
+		if (slot == nullptr)
+		{
+			++untracked_dropped_;
+			return decision;
+		}
+		if (now_ms < slot->window_start || now_ms - slot->window_start >= diagnostic_rate_window_ms)
+		{
+			if (slot->suppressed != 0 && !decision.report.pending)
+				report(*slot, now_ms, decision.report);
+			slot->window_start = now_ms;
+			slot->admitted = 0;
+			slot->suppressed = 0;
+		}
+		if (slot->admitted < diagnostic_rate_lines_per_window)
+		{
+			++slot->admitted;
+			decision.admit = true;
+		}
+		else ++slot->suppressed;
+		return decision;
+	}
+
+	std::uint64_t untracked_dropped() const noexcept { return untracked_dropped_; }
+
+	void reset() noexcept
+	{
+		for (auto& slot : slots_) slot = Slot{};
+		untracked_dropped_ = 0;
+	}
+
+private:
+	struct Slot
+	{
+		bool used = false;
+		char event[48]{};
+		std::size_t length = 0;
+		std::uint64_t window_start = 0;
+		std::uint32_t admitted = 0;
+		std::uint64_t suppressed = 0;
+	};
+
+	Slot* find(std::string_view event) noexcept
+	{
+		const auto length = event.size() < sizeof(Slot::event) - 1 ? event.size() : sizeof(Slot::event) - 1;
+		for (auto& slot : slots_)
+		{
+			if (slot.used && slot.length == length
+				&& std::string_view(slot.event, slot.length) == event.substr(0, length))
+			{
+				return &slot;
+			}
+		}
+		return nullptr;
+	}
+
+	Slot* claim(std::string_view event, std::uint64_t now_ms) noexcept
+	{
+		for (auto& slot : slots_)
+		{
+			if (slot.used) continue;
+			slot.used = true;
+			slot.length = event.size() < sizeof(Slot::event) - 1 ? event.size() : sizeof(Slot::event) - 1;
+			for (std::size_t i = 0; i != slot.length; ++i) slot.event[i] = event[i];
+			slot.event[slot.length] = '\0';
+			slot.window_start = now_ms;
+			return &slot;
+		}
+		return nullptr;
+	}
+
+	void report(Slot& slot, std::uint64_t now_ms, DiagnosticRateReport& out) noexcept
+	{
+		out.pending = true;
+		for (std::size_t i = 0; i <= slot.length; ++i) out.event[i] = slot.event[i];
+		out.window_ms = now_ms >= slot.window_start ? now_ms - slot.window_start : 0;
+		out.admitted = slot.admitted;
+		out.suppressed = slot.suppressed;
+		out.untracked_dropped = untracked_dropped_;
+		untracked_dropped_ = 0;
+	}
+
+	// One pending summary per call from any slot whose window has ended.
+	void collect_expired(std::uint64_t now_ms, DiagnosticRateReport& out) noexcept
+	{
+		for (auto& slot : slots_)
+		{
+			if (!slot.used || slot.suppressed == 0) continue;
+			if (now_ms >= slot.window_start && now_ms - slot.window_start < diagnostic_rate_window_ms)
+				continue;
+			report(slot, now_ms, out);
+			slot.window_start = now_ms;
+			slot.admitted = 0;
+			slot.suppressed = 0;
+			return;
+		}
+	}
+
+	Slot slots_[diagnostic_rate_event_slots]{};
+	std::uint64_t untracked_dropped_ = 0;
+};
+
 struct DamagePerformanceWindow
 {
     std::uint64_t calls = 0, positive = 0, zero = 0, errors = 0;

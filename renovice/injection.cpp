@@ -345,6 +345,14 @@ struct TargetRootEntry
 	void* closure = nullptr;
 	void* entry_environment = nullptr;
 	void* environment = nullptr;
+	// Root register window captured at entry (byte offset from state->stack,
+	// so a stack reallocation during the root cannot invalidate it) and the
+	// outcome of the child-closure environment rule applied at return.
+	std::ptrdiff_t register_base_offset = -1;
+	std::uint32_t register_count = 0;
+	void* root_closure_environment = nullptr;
+	std::uint32_t child_closures = 0;
+	RootEnvironmentSource environment_source = RootEnvironmentSource::root_closure;
 	bool valid = false;
 };
 static_assert(std::is_trivially_copyable_v<TargetRootEntry>);
@@ -610,7 +618,8 @@ bool native_hook_adapters_enabled = false;
 unsigned int native_hook_adapter_mask = 0;
 soup::DetourHook run_script_native_hook;
 bool run_script_native_hook_enabled = false;
-std::unordered_set<std::string> logged_native_hook_events;
+std::unordered_set<std::uint64_t> logged_native_hook_events;
+std::mutex logged_native_hook_mutex;
 std::atomic<std::uint64_t> run_script_observation_sequence = 0;
 std::atomic<std::uint64_t> run_script_entry_sequence = 0;
 std::atomic<std::uint64_t> run_script_candidate_sequence = 0;
@@ -996,6 +1005,9 @@ LONG CALLBACK process_fault_diagnostics(EXCEPTION_POINTERS* information)
 	}
 	const LONG sequence = InterlockedIncrement(&process_fault_diagnostics_count);
 	if (sequence > 64) return EXCEPTION_CONTINUE_SEARCH;
+	// Buffered diagnostic lines leading up to the fault reach the source log
+	// first (try-lock: never waits on a lock the faulting thread may hold).
+	config::flush_log_for_fault();
 
 	FixedFaultLog output;
 	output.append("\r\nRENOVICE_NATIVE_FAULT sequence=");
@@ -3430,6 +3442,8 @@ void append_error_value(
 
 std::atomic<std::uint64_t> addon_trace_sequence = 0;
 std::atomic_bool addon_trace_suppression_logged = false;
+std::mutex addon_trace_rate_mutex;
+DiagnosticEventRateLimiter addon_trace_rate_limiter;
 std::atomic<std::uint64_t> addon_trace_attempts = 0;
 std::atomic<std::uint64_t> native_ingress_trace_sequence = 0;
 std::atomic_bool native_ingress_trace_suppression_logged = false;
@@ -3472,6 +3486,31 @@ void trace_addon(luau_State* state, std::uint64_t key, const char* event,
 		if (!diagnostic_runtime_event_allowed(mode, event)) return;
 		const auto flags = config::flags();
 		if (!diagnostic_trace_selected(flags, key, event, detail)) return;
+		// Per-hit lanes in trace mode: at most diagnostic_rate_lines_per_window
+		// lines per event name per window, with one suppression summary per
+		// window (non-trace modes already admit only error events). Suppressed
+		// lines never consume the shared event budget.
+		if (mode == config::DiagnosticsMode::trace && diagnostic_per_hit_event(event))
+		{
+			DiagnosticRateDecision decision;
+			{
+				std::lock_guard lock(addon_trace_rate_mutex);
+				decision = addon_trace_rate_limiter.admit(event, GetTickCount64());
+			}
+			if (decision.report.pending)
+			{
+				std::ostringstream summary;
+				summary << "RENOVICE ADDON_TRACE build=V79 event=trace.rate-limited"
+					<< " suppressed_event=" << decision.report.event
+					<< " window_ms=" << decision.report.window_ms
+					<< " admitted=" << decision.report.admitted
+					<< " suppressed=" << decision.report.suppressed
+					<< " untracked_dropped=" << decision.report.untracked_dropped
+					<< " limit_per_window=" << diagnostic_rate_lines_per_window;
+				config::diagnostic_log(summary.str(), mode);
+			}
+			if (!decision.admit) return;
+		}
 		const auto sequence = addon_trace_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
 		const auto limit = flags.diagnostics_max_events;
 		if (sequence > limit)
@@ -6121,12 +6160,19 @@ void log_native_hook_once(
 	const char* event
 )
 {
-	std::ostringstream identity;
-	identity << event << ':' << std::hex << target_key << ':'
-		<< (state == nullptr ? nullptr : state->global_state);
+	// Operational first-PASS evidence, logged once per (event, key, VM). The
+	// identity is a cheap 64-bit FNV-1a over those three values, checked before
+	// any formatting, so the repeated (hot) case formats nothing and allocates
+	// nothing (Mallet note 2026-09-29: this ran an ostringstream on every
+	// transformed threat push and every dispatch).
+	if (event == nullptr) return;
+	const auto identity = native_hook_event_identity(
+		event, target_key, state == nullptr ? nullptr : state->global_state);
 	{
-		std::lock_guard lock(generation_mutex);
-		if (!logged_native_hook_events.insert(identity.str()).second) return;
+		// Dedicated lock: this runs on hot dispatch paths and must never wait
+		// for a generation transaction.
+		std::lock_guard lock(logged_native_hook_mutex);
+		if (!logged_native_hook_events.insert(identity).second) return;
 	}
 	std::ostringstream success;
 	success << "RENOVICE native hook PASS key=" << std::hex << target_key
@@ -6145,7 +6191,14 @@ void dispatch_target_hook(
 )
 {
 	const auto& providers = hook_addons_snapshot(target_key, state->global_state);
-	const bool detailed_trace = addon_trace_detail_enabled || full_addon_trace_requested();
+	// Diagnostics=false formats nothing here (Mallet note 2026-09-29): the
+	// thread-local detail flag defaults to true outside a damage scope, so it is
+	// combined with the master mode, and the results trace reads the atomic mode
+	// instead of copying the whole Flags struct per provider.
+	const auto diagnostics_mode = config::diagnostics_mode();
+	const bool diagnostics_on = diagnostics_mode != config::DiagnosticsMode::off;
+	const bool detailed_trace = diagnostics_on
+		&& (addon_trace_detail_enabled || diagnostics_mode == config::DiagnosticsMode::trace);
 	if (detailed_trace) trace_addon(state, target_key, "dispatch.begin",
 		std::string("hook=") + hook_name + " providers=" + std::to_string(providers.size()),
 		arguments, argument_count);
@@ -6160,31 +6213,32 @@ void dispatch_target_hook(
 				label = std::string("hook=") + hook_name + " addon=" + addon.name + " registry=" + addon.registry_key;
 				trace_addon(state, target_key, "dispatch.enter", label, arguments, argument_count);
 			}
-			const bool trace_results = config::flags().diagnostics
+			const bool trace_results = diagnostics_mode == config::DiagnosticsMode::trace
 				&& std::strcmp(hook_name, "afterDamage") == 0;
 			std::string results;
 			const bool passed = call_value(
 				state, hook, arguments, argument_count, hook_name,
 				trace_results ? &results : nullptr);
-			if (!passed)
+			if (!passed) ++addon_dispatch_errors;
+			if (diagnostics_on && label.empty() && (!passed || trace_results))
 			{
-				++addon_dispatch_errors;
-				if (label.empty()) label = std::string("hook=") + hook_name + " addon=" + addon.name + " registry=" + addon.registry_key;
+				label = std::string("hook=") + hook_name + " addon=" + addon.name + " registry=" + addon.registry_key;
 			}
 			if (passed && trace_results)
 			{
-				if (label.empty()) label = std::string("hook=") + hook_name + " addon=" + addon.name + " registry=" + addon.registry_key;
 				trace_addon(state, target_key, "dispatch.results", label + " " + results);
 			}
-			if (detailed_trace || !passed)
+			if (detailed_trace || (!passed && diagnostics_on))
 				trace_addon(state, target_key, passed ? "dispatch.return" : "dispatch.error", label);
-			if (passed && detailed_trace)
-			{
-				log_native_hook_once(state, target_key, hook_name);
-			}
+			// Operational first-PASS line (cheap identity check, once per
+			// hook/key/VM); independent of the diagnostics mode.
+			if (passed) log_native_hook_once(state, target_key, hook_name);
 		}
-		else trace_addon(state, target_key, "dispatch.missing-hook",
-			std::string("hook=") + hook_name + " addon=" + addon.name);
+		else if (diagnostics_on)
+		{
+			trace_addon(state, target_key, "dispatch.missing-hook",
+				std::string("hook=") + hook_name + " addon=" + addon.name);
+		}
 	}
 	if (detailed_trace) trace_addon(state, target_key, "dispatch.end", std::string("hook=") + hook_name);
 }
@@ -6866,6 +6920,10 @@ bool prepare_target_shared_table(
 		diagnostic_trace_callback_failure_logged.store(false, std::memory_order_relaxed);
 		addon_trace_sequence.store(0, std::memory_order_relaxed);
 		addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		{
+			std::lock_guard rate_lock(addon_trace_rate_mutex);
+			addon_trace_rate_limiter.reset();
+		}
 		native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
 		native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);
 		automatic_damage_sequence.store(0, std::memory_order_relaxed);
@@ -6887,6 +6945,10 @@ bool prepare_target_shared_table(
 		diagnostic_trace_callback_failure_logged.store(false, std::memory_order_relaxed);
 		addon_trace_sequence.store(0, std::memory_order_relaxed);
 		addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		{
+			std::lock_guard rate_lock(addon_trace_rate_mutex);
+			addon_trace_rate_limiter.reset();
+		}
 		native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
 		native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);
 		std::ostringstream success;
@@ -7565,7 +7627,8 @@ bool set_damage_callback_protected(
 		&& protected_result.status == 0 && context.completed
 		&& context.root_present && context.root_cleared
 		&& context.callback.callback_status == 0;
-	if (!passed && context.callback.callback_status != 0)
+	const bool install_trace = config::diagnostics_mode() != config::DiagnosticsMode::off;
+	if (install_trace && !passed && context.callback.callback_status != 0)
 	{
 		SharedCallbackOutcome outcome;
 		outcome.leaf = context.callback;
@@ -7573,7 +7636,7 @@ bool set_damage_callback_protected(
 			"pcall=" + std::to_string(context.callback.callback_status)
 			+ shared_callback_error_details(outcome));
 	}
-	else if (!passed)
+	else if (install_trace && !passed)
 	{
 		std::ostringstream detail;
 		detail << "admitted=" << protected_result.admitted
@@ -7584,8 +7647,11 @@ bool set_damage_callback_protected(
 			<< " cleared=" << context.root_cleared;
 		trace_addon(state, key, "damage.install.native-error", detail.str());
 	}
-	trace_addon(state, key, "damage.install.native-return",
-		std::string("status=") + (passed ? "ok" : "error"));
+	if (install_trace)
+	{
+		trace_addon(state, key, "damage.install.native-return",
+			std::string("status=") + (passed ? "ok" : "error"));
+	}
 	return passed;
 }
 
@@ -7614,8 +7680,10 @@ int addon_damage_callback_wrapper(luau_State* state)
 	// Keep the generic callback envelope on its bounded sampler so logging
 	// cannot add hundreds of milliseconds to every positive damage result and
 	// distort the timing being measured.
-	const bool detailed_damage_trace = sample_damage_trace(
-		calls, positive_calls, positive);
+	// Diagnostics=false: no sampled detail formatting at all.
+	const bool detailed_damage_trace =
+		config::diagnostics_mode() != config::DiagnosticsMode::off
+		&& sample_damage_trace(calls, positive_calls, positive);
 	AddonDetailScope detail_scope(detailed_damage_trace);
 	LARGE_INTEGER started{}, ended{};
 	QueryPerformanceCounter(&started);
@@ -7708,15 +7776,20 @@ int addon_damage_callback_wrapper(luau_State* state)
 	const auto now = GetTickCount64();
 	if (now - window_start >= 2000)
 	{
-		LARGE_INTEGER frequency{};
-		QueryPerformanceFrequency(&frequency);
-		const double microseconds = 1000000.0 / static_cast<double>(frequency.QuadPart);
-		std::ostringstream performance;
-		performance << "scope=host-dispatch-all-targets window_ms=" << now - window_start
-			<< " calls=" << window.calls << " positive=" << window.positive << " zero=" << window.zero
-			<< " errors=" << window.errors << " total_us=" << static_cast<double>(window.ticks) * microseconds
-			<< " max_us=" << static_cast<double>(window.maximum_ticks) * microseconds;
-		trace_addon(state, 0, "damage.performance", performance.str());
+		// Formatted only when diagnostics are on (Mallet note 2026-09-29: this
+		// ostringstream ran every 2 s with Diagnostics=false).
+		if (config::diagnostics_mode() != config::DiagnosticsMode::off)
+		{
+			LARGE_INTEGER frequency{};
+			QueryPerformanceFrequency(&frequency);
+			const double microseconds = 1000000.0 / static_cast<double>(frequency.QuadPart);
+			std::ostringstream performance;
+			performance << "scope=host-dispatch-all-targets window_ms=" << now - window_start
+				<< " calls=" << window.calls << " positive=" << window.positive << " zero=" << window.zero
+				<< " errors=" << window.errors << " total_us=" << static_cast<double>(window.ticks) * microseconds
+				<< " max_us=" << static_cast<double>(window.maximum_ticks) * microseconds;
+			trace_addon(state, 0, "damage.performance", performance.str());
+		}
 		window = {};
 		window_start = now;
 	}
@@ -10163,14 +10236,18 @@ int push_float_arg_adapter(luau_State* state)
 						log_native_hook_once(
 							state, callsite.target_key,
 							"PushFloatArg.instruction-transform");
-						std::ostringstream details;
-						details << "prototype=" << callsite.prototype
-							<< " instruction=" << callsite.instruction
-							<< " stock=" << stock_value
-							<< " transformed=" << transformed_value;
-						trace_addon(
-							state, callsite.target_key,
-							"native.float.transform", details.str());
+						// Diagnostics=false formats nothing (Mallet note 2026-09-29).
+						if (config::diagnostics_mode() != config::DiagnosticsMode::off)
+						{
+							std::ostringstream details;
+							details << "prototype=" << callsite.prototype
+								<< " instruction=" << callsite.instruction
+								<< " stock=" << stock_value
+								<< " transformed=" << transformed_value;
+							trace_addon(
+								state, callsite.target_key,
+								"native.float.transform", details.str());
+						}
 					}
 				}
 			}
@@ -13645,6 +13722,12 @@ TargetRootEntry inspect_target_root_entry(luau_State* state) noexcept
 			entry.closure = closure;
 			entry.entry_environment = closure->env;
 			entry.environment = closure->env;
+			if (state->stack != nullptr && state->intop != nullptr
+				&& state->intop >= state->stack && state->intop <= state->stack_last)
+			{
+				entry.register_base_offset = luau_savestack(state, state->intop);
+				entry.register_count = closure->stacksize;
+			}
 			entry.valid = true;
 			break;
 		}
@@ -13653,11 +13736,15 @@ TargetRootEntry inspect_target_root_entry(luau_State* state) noexcept
 }
 
 // Called immediately after a normal stock return, before any allocation can
-// run a GC step: the executing root closure is still unswept memory. Its
-// environment at return is the one the root published into; module(...)
-// replaces the entry environment with the module table (Circuit/DuviriUtil,
-// live run 2026-09-29: the entry environment lacked EndlessGetXpForStage).
-TargetRootEntry settle_target_root_return(TargetRootEntry entry) noexcept
+// run a GC step: the executing root closure and every closure still held in
+// its dead register window are unswept memory. The published environment is
+// chosen by the unit-tested child-closure rule (injection_core.hpp): the
+// environment the root's own child functions were created with, else the root
+// closure's environment at return. Live run 2026-09-29 (pid 23260) showed that
+// DuviriUtil's root closure keeps its entry environment across module(...),
+// and an addon bound there cannot see EndlessGetXpForStage.
+// Read-only: no lock, no allocation, no VM call; every pointer is validated.
+TargetRootEntry settle_target_root_return(luau_State* state, TargetRootEntry entry) noexcept
 {
 	if (!entry.valid || entry.closure == nullptr) return entry;
 	auto* const closure = static_cast<luau_Closure*>(entry.closure);
@@ -13668,6 +13755,55 @@ TargetRootEntry settle_target_root_return(TargetRootEntry entry) noexcept
 		return entry;
 	}
 	entry.environment = closure->env;
+	entry.root_closure_environment = closure->env;
+
+	// Direct child prototypes of the root (same verified U43/U44 layout as
+	// collect_target_proto_graph_u43).
+	const auto* const proto_bytes = static_cast<const unsigned char*>(entry.root_proto);
+	if (diagnostics::bad_read_ptr(proto_bytes, de_proto_child_count_offset + sizeof(std::int32_t)))
+		return entry;
+	const void* const* children = nullptr;
+	std::int32_t child_count = 0;
+	std::memcpy(&children, proto_bytes + de_proto_children_offset, sizeof(children));
+	std::memcpy(&child_count, proto_bytes + de_proto_child_count_offset, sizeof(child_count));
+	if (child_count <= 0
+		|| static_cast<std::size_t>(child_count) > maximum_root_child_prototypes
+		|| diagnostics::bad_read_ptr(children,
+			static_cast<std::size_t>(child_count) * sizeof(void*)))
+	{
+		return entry;
+	}
+
+	// The root's dead register window, re-based on the current stack.
+	if (state == nullptr || entry.register_base_offset < 0 || entry.register_count == 0
+		|| diagnostics::bad_read_ptr(state, sizeof(luau_State))
+		|| state->stack == nullptr || state->stack_last == nullptr)
+	{
+		return entry;
+	}
+	auto* const base = luau_restorestack(state, entry.register_base_offset);
+	if (base < state->stack || base + entry.register_count > state->stack_last
+		|| diagnostics::bad_read_ptr(base, entry.register_count * sizeof(luau_TValue)))
+	{
+		return entry;
+	}
+	RootEnvironmentAccumulator accumulator;
+	for (std::uint32_t i = 0; i != entry.register_count; ++i)
+	{
+		luau_Closure* child = nullptr;
+		if (!readable_lua_closure(base[i], child) || child == closure
+			|| diagnostics::bad_read_ptr(child, offsetof(luau_Closure, l.uprefs))
+			|| child->isC
+			|| !proto_is_direct_child(children, static_cast<std::size_t>(child_count), child->l.p))
+		{
+			continue;
+		}
+		accumulator.add(child->env);
+	}
+	const auto choice = accumulator.choose(closure->env);
+	entry.environment = choice.environment;
+	entry.environment_source = choice.source;
+	entry.child_closures = accumulator.child_closures;
 	return entry;
 }
 
@@ -13802,7 +13938,10 @@ void apply_target_root_returns(luau_State* state)
 			<< " proto=" << entry.root_proto
 			<< " load_env=" << load_environment
 			<< " entry_env=" << entry.entry_environment
+			<< " root_closure_env=" << entry.root_closure_environment
 			<< " runtime_env=" << entry.environment
+			<< " env_source=" << root_environment_source_label(entry.environment_source)
+			<< " child_closures=" << entry.child_closures
 			<< " reason=unbound retry=once-per-generation"
 			<< " action=rebind-queued";
 		conout << observed.str() << std::endl;
@@ -13857,7 +13996,7 @@ void vm_execute_detour(luau_State* state)
 
 	// Reached only on a normal root return: a DE error longjmps past this line.
 	if (target_root.valid)
-		queue_target_root_return(settle_target_root_return(target_root));
+		queue_target_root_return(settle_target_root_return(state, target_root));
 
 	if (pause_root.valid)
 	{
@@ -16411,6 +16550,10 @@ void drain(luau_State* state)
 		automatic_damage_failed_vms.clear(); // An explicit F9 commit permits a fresh attempt.
 		addon_trace_sequence.store(0, std::memory_order_relaxed);
 		addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		{
+			std::lock_guard rate_lock(addon_trace_rate_mutex);
+			addon_trace_rate_limiter.reset();
+		}
 		native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
 		native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);
 		automatic_damage_sequence.store(0, std::memory_order_relaxed);

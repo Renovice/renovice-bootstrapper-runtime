@@ -1023,9 +1023,10 @@ inline bool target_addon_generation_rebind_required(
 // - A root return is therefore observed only for a module whose desired
 //   addons hold NO binding in that VM (for example an activate that needs
 //   globals the root publishes, such as Circuit/DuviriUtil). Such a load gets
-//   exactly one root-return rebind per generation, in the environment the root
-//   closure holds when it returns (module(...) re-points it to the module
-//   table). A bound module is not watched at all: zero per-instance work.
+//   exactly one root-return rebind per generation, in the environment the
+//   root published into (see select rule below: the environment of the child
+//   closures the root created, else the root closure's environment at return).
+//   A bound module is not watched at all: zero per-instance work.
 // ---------------------------------------------------------------------------
 enum class TargetRootReturnAction : std::uint8_t
 {
@@ -1039,6 +1040,94 @@ inline constexpr bool target_root_return_watch_required(
 	bool desired, bool bound, bool retry_spent_this_generation) noexcept
 {
 	return desired && !bound && !retry_spent_this_generation;
+}
+
+// ---------------------------------------------------------------------------
+// Where a module root actually publishes (2026-09-29, fix 3).
+//
+// Live evidence (44.0.2, pid 23260): DuviriUtil's root calls
+// `module(..., package.seeall)`, yet its root closure environment at return was
+// the SAME table as at entry (`entry_env == runtime_env`), and an addon bound
+// there still read `EndlessGetXpForStage == nil`. So DE's `module` does not
+// re-point the root closure's environment; the root's own globals land in the
+// table its child functions resolve globals through.
+//
+// Generic rule, no module-specific branch: every function a root defines is a
+// closure over one of the root prototype's direct child prototypes, and Luau
+// NEWCLOSURE/DUPCLOSURE give it the environment in force at its creation. The
+// module's own code therefore resolves every published global through exactly
+// that environment. At the root's normal return its dead register window still
+// holds the last closures it created (no GC step can run before the settle), so
+// the published environment is the environment those child closures agree on.
+// - no child closure in the window: keep the root closure environment;
+// - child closures disagree: ambiguous, keep the root closure environment;
+// - otherwise: the child-closure environment (it may equal the root one).
+// ---------------------------------------------------------------------------
+inline constexpr std::size_t de_proto_children_offset = 0x18;    // Proto** p
+inline constexpr std::size_t de_proto_child_count_offset = 0x8c; // int sizep
+inline constexpr std::size_t maximum_root_child_prototypes = 4096;
+
+enum class RootEnvironmentSource : std::uint8_t
+{
+	root_closure = 0,
+	child_closure = 1,
+	ambiguous = 2,
+};
+
+inline const char* root_environment_source_label(RootEnvironmentSource source) noexcept
+{
+	switch (source)
+	{
+	case RootEnvironmentSource::root_closure: return "root-closure";
+	case RootEnvironmentSource::child_closure: return "child-closure";
+	case RootEnvironmentSource::ambiguous: return "ambiguous-kept-root-closure";
+	}
+	return "unknown";
+}
+
+struct RootEnvironmentChoice
+{
+	void* environment = nullptr;
+	RootEnvironmentSource source = RootEnvironmentSource::root_closure;
+};
+
+// Streaming, allocation-free form used by the settle path: feed each child
+// closure environment found in the dead register window.
+struct RootEnvironmentAccumulator
+{
+	void* child_environment = nullptr;
+	std::uint32_t child_closures = 0;
+	bool disagreement = false;
+
+	void add(void* environment) noexcept
+	{
+		if (environment == nullptr) return;
+		++child_closures;
+		if (child_environment == nullptr) child_environment = environment;
+		else if (child_environment != environment) disagreement = true;
+	}
+
+	RootEnvironmentChoice choose(void* root_closure_environment) const noexcept
+	{
+		if (child_closures == 0)
+			return {root_closure_environment, RootEnvironmentSource::root_closure};
+		if (disagreement)
+			return {root_closure_environment, RootEnvironmentSource::ambiguous};
+		return {child_environment, RootEnvironmentSource::child_closure};
+	}
+};
+
+inline bool proto_is_direct_child(
+	const void* const* children,
+	std::size_t count,
+	const void* candidate) noexcept
+{
+	if (children == nullptr || candidate == nullptr) return false;
+	for (std::size_t i = 0; i != count; ++i)
+	{
+		if (children[i] == candidate) return true;
+	}
+	return false;
 }
 
 // Pure model of the identity update performed at an observed root return.

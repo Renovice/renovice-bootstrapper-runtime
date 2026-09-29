@@ -17,6 +17,7 @@ void check(bool condition, std::string_view label)
 int main()
 {
     using renovice::config::parse;
+    using namespace renovice::config;
     check(!parse("").diagnostics_memory, "lightweight memory evidence defaults off");
     const auto memory_only = parse("Logging=true\nDiagnosticsMode=off\nDiagnosticsMemory=true\n");
     check(memory_only.logging && memory_only.diagnostics_memory
@@ -152,6 +153,30 @@ int main()
 	check(!missing.logging && !missing.verbose && !missing.auto_spawn
 		&& !missing.diagnostics,
 		"missing file contents default every flag off");
+
+	// Source-log buffering policy (2026-09-29 Mallet lag audit).
+	check(source_log_buffer_bytes == 64u * 1024u && source_log_flush_interval_ms == 250,
+		"source log buffer is bounded to 64 KiB with a 250 ms flush cadence");
+	check(source_log_flush_due(false, 10, 65536, 1000, 1000, 250),
+		"operational lines are written through immediately");
+	check(!source_log_flush_due(true, 10, 65536, 1100, 1000, 250),
+		"diagnostic lines inside the cadence stay buffered");
+	check(source_log_flush_due(true, 10, 65536, 1250, 1000, 250),
+		"buffered diagnostics flush once the cadence elapses");
+	check(source_log_flush_due(true, 65536, 65536, 1001, 1000, 250),
+		"a full buffer flushes");
+	check(source_log_flush_due(true, 10, 65536, 5, 1000, 250),
+		"a tick counter that moves backwards forces a flush");
+	check(source_log_line_fits_buffer(0, 65536, 65536)
+		&& !source_log_line_fits_buffer(1, 65536, 65536)
+		&& !source_log_line_fits_buffer(0, 65537, 65536)
+		&& source_log_line_fits_buffer(65000, 536, 65536),
+		"line admission never overflows the buffer");
+	check(!source_log_rotation_required(100, 10, 10, 1000)
+		&& source_log_rotation_required(990, 5, 10, 1000)
+		&& source_log_rotation_required(1001, 0, 0, 1000)
+		&& !source_log_rotation_required(990, 0, 10, 1000),
+		"rotation uses the in-memory size plus buffered and incoming bytes");
 
 	std::cout << "CONFIG CORE RESULT failures=" << failures << '\n';
 	return failures == 0 ? 0 : 1;

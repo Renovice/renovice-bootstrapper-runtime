@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <fstream>
 #include <limits>
 #include <mutex>
@@ -76,25 +77,131 @@ const char* damage_capture_mode_name(DamageCaptureMode mode) noexcept
 	return mode == DamageCaptureMode::scripted ? "scripted" : "off";
 }
 
-void write_log_unlocked(std::string_view message) noexcept
+// Source-log writer (2026-09-29, Mallet lag audit). The previous writer ran
+// CreateFileW + 2x WriteFile + CloseHandle for EVERY line on the game thread;
+// a traced Mallet fight wrote thousands of lines in 20 s. Now:
+// - one append handle stays open (reopened after rotation, retried at most
+//   once per second after an open failure);
+// - the file size is tracked in memory, so rotation needs no per-line stat;
+// - diagnostic lines go to a bounded 64 KiB buffer that is flushed when full,
+//   at least every 250 ms (checked on each write), before every operational
+//   line (ordering is preserved), on process detach and from the near-null
+//   fault recorder (try-lock, best effort);
+// - operational lines (config::log) are written through immediately, so load,
+//   F9 and error evidence is never held in memory.
+// Pure policy: config_core.hpp (SourceLogBufferPolicy).
+HANDLE log_handle = INVALID_HANDLE_VALUE;
+std::uint64_t log_file_size = 0;
+ULONGLONG log_open_retry_ms = 0;
+ULONGLONG log_last_flush_ms = 0;
+std::array<char, source_log_buffer_bytes> log_buffer{};
+std::size_t log_buffered = 0;
+
+void close_log_handle_unlocked() noexcept
 {
-	if (log_path.empty()) return;
-	rotate_source_log_unlocked(message.size() + 2);
-	const auto handle = CreateFileW(
+	if (log_handle != INVALID_HANDLE_VALUE)
+	{
+		CloseHandle(log_handle);
+		log_handle = INVALID_HANDLE_VALUE;
+	}
+}
+
+bool open_log_handle_unlocked() noexcept
+{
+	if (log_handle != INVALID_HANDLE_VALUE) return true;
+	if (log_path.empty()) return false;
+	const auto now = GetTickCount64();
+	if (log_open_retry_ms != 0 && now < log_open_retry_ms) return false;
+	log_handle = CreateFileW(
 		log_path.c_str(),
 		FILE_APPEND_DATA,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
 		nullptr,
 		OPEN_ALWAYS,
 		FILE_ATTRIBUTE_NORMAL,
 		nullptr);
-	if (handle == INVALID_HANDLE_VALUE) return;
-	DWORD written = 0;
-	WriteFile(handle, message.data(), static_cast<DWORD>(message.size()), &written, nullptr);
-	static constexpr char newline[] = "\r\n";
-	WriteFile(handle, newline, 2, &written, nullptr);
-	CloseHandle(handle);
+	if (log_handle == INVALID_HANDLE_VALUE)
+	{
+		log_open_retry_ms = now + 1000;
+		return false;
+	}
+	log_open_retry_ms = 0;
+	LARGE_INTEGER size{};
+	log_file_size = GetFileSizeEx(log_handle, &size)
+		? static_cast<std::uint64_t>(size.QuadPart) : 0;
+	return true;
 }
+
+void write_raw_unlocked(const char* data, std::size_t size) noexcept
+{
+	if (size == 0 || !open_log_handle_unlocked()) return;
+	DWORD written = 0;
+	if (WriteFile(log_handle, data, static_cast<DWORD>(size), &written, nullptr))
+		log_file_size += written;
+}
+
+void flush_log_unlocked() noexcept
+{
+	if (log_buffered != 0)
+	{
+		write_raw_unlocked(log_buffer.data(), log_buffered);
+		log_buffered = 0;
+	}
+	log_last_flush_ms = GetTickCount64();
+}
+
+void rotate_open_log_unlocked(std::size_t incoming_bytes) noexcept
+{
+	if (!source_log_rotation_required(
+		log_file_size, log_buffered, incoming_bytes, maximum_source_log_size))
+	{
+		return;
+	}
+	flush_log_unlocked();
+	close_log_handle_unlocked();
+	rotate_source_log_unlocked(incoming_bytes);
+	log_file_size = 0;
+}
+
+void write_log_unlocked(std::string_view message, bool buffered = false) noexcept
+{
+	if (log_path.empty()) return;
+	if (log_handle == INVALID_HANDLE_VALUE && !open_log_handle_unlocked()) return;
+	const auto line_bytes = message.size() + 2;
+	rotate_open_log_unlocked(line_bytes);
+	static constexpr char newline[] = "\r\n";
+	if (!source_log_line_fits_buffer(log_buffered, line_bytes, log_buffer.size()))
+	{
+		flush_log_unlocked();
+	}
+	if (line_bytes > log_buffer.size())
+	{
+		// Oversized line: write it directly after the flushed buffer.
+		write_raw_unlocked(message.data(), message.size());
+		write_raw_unlocked(newline, 2);
+		log_last_flush_ms = GetTickCount64();
+		return;
+	}
+	std::memcpy(log_buffer.data() + log_buffered, message.data(), message.size());
+	log_buffered += message.size();
+	std::memcpy(log_buffer.data() + log_buffered, newline, 2);
+	log_buffered += 2;
+	if (source_log_flush_due(buffered, log_buffered, log_buffer.size(),
+		GetTickCount64(), log_last_flush_ms, source_log_flush_interval_ms))
+	{
+		flush_log_unlocked();
+	}
+}
+
+// Flushes buffered diagnostics when the DLL detaches (normal process exit).
+struct SourceLogShutdown
+{
+	~SourceLogShutdown() noexcept
+	{
+		flush_log_unlocked();
+		close_log_handle_unlocked();
+	}
+} source_log_shutdown;
 
 bool ensure_writable_directory(const std::filesystem::path& directory)
 {
@@ -385,6 +492,21 @@ void diagnostic_log(std::string_view message, DiagnosticsMode minimum_mode) noex
 	{
 		return;
 	}
-	write_log_unlocked(message);
+	write_log_unlocked(message, true);
+}
+
+void flush_log() noexcept
+{
+	std::lock_guard lock(state_mutex);
+	flush_log_unlocked();
+}
+
+void flush_log_for_fault() noexcept
+{
+	// Best effort from an exception handler: never wait for a lock the
+	// faulting thread may already hold.
+	std::unique_lock lock(state_mutex, std::try_to_lock);
+	if (!lock.owns_lock()) return;
+	flush_log_unlocked();
 }
 }

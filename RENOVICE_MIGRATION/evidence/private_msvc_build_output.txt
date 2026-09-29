@@ -9,8 +9,8 @@ swf
 script_control
 riven
 replacements
-injection
 packages
+injection
 engine_damage
 de_vm_authority
 config
@@ -21,7 +21,7 @@ owf_repo
 owf_overlay
 owf_label_replacements
 owf_hotkeys
-owf_config
 owf_archive_data
+owf_config
 main
 Linking...

@@ -24,4 +24,8 @@ void memory_log(std::string_view message) noexcept;
 void log(std::string_view message) noexcept;
 void verbose_log(std::string_view message) noexcept;
 void diagnostic_log(std::string_view message, DiagnosticsMode minimum_mode) noexcept;
+// Buffered diagnostic lines reach the source log on a bounded cadence; these
+// force them out (normal shutdown flushes automatically).
+void flush_log() noexcept;
+void flush_log_for_fault() noexcept;
 }

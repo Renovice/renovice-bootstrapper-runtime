@@ -68,18 +68,21 @@ $injection = [IO.File]::ReadAllText((Join-Path $repo 'renovice\injection.cpp'))
 
 $detour = Get-Region $injection "void vm_execute_detour(luau_State* state)`n{" 'void maybe_poll_runtime_controls() noexcept' 'vm_execute_detour'
 Require (Before $detour 'const auto target_root = inspect_target_root_entry(state);' 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);') 'root instance is identified before the naked stock VM execute'
-Require (Before $detour 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);' 'queue_target_root_return(settle_target_root_return(target_root));') 'root return is recorded only after a normal stock return'
+Require (Before $detour 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);' 'queue_target_root_return(settle_target_root_return(state, target_root));') 'root return is recorded only after a normal stock return'
 Require (Before $detour 'apply_target_root_returns(state);' 'drain_pending_target_addons_for_vm(state);') 'root rebind is queued at the exact idle return before the refresh drain'
 Require (Before $detour 'if (!exact_idle_return) return;' 'apply_target_root_returns(state);') 'identity update runs only at an exact idle return'
 
 $inspect = Get-Region $injection 'TargetRootEntry inspect_target_root_entry(luau_State* state) noexcept' 'void queue_target_root_return(' 'inspect_target_root_entry'
 Require ($inspect.Contains('target_root_watch_enabled.load(std::memory_order_acquire)')) 'root watch is a lock-free fast gate when no target addon is enabled'
 Require ($inspect.Contains('root.global_state == state->global_state') -and $inspect.Contains('root.root_proto == closure->l.p')) 'root instance matches exact VM and loaded root prototype'
-$settle = Get-Region $injection 'TargetRootEntry settle_target_root_return(TargetRootEntry entry) noexcept' 'void queue_target_root_return(' 'settle_target_root_return'
+$settle = Get-Region $injection 'TargetRootEntry settle_target_root_return(luau_State* state, TargetRootEntry entry) noexcept' 'void queue_target_root_return(' 'settle_target_root_return'
 Require ($settle.Contains('entry.environment = closure->env;') -and $settle.Contains('closure->l.p != entry.root_proto') -and $settle.Contains('offsetof(luau_Closure, l.uprefs)')) 'the root environment is re-read from the same validated root closure at its return (module(...) re-points it)'
 foreach ($forbidden in @('getfield', 'lock_guard', 'std::string', 'std::vector', 'ostringstream', 'config::')) {
     Require ($settle.IndexOf($forbidden, [StringComparison]::Ordinal) -lt 0) "return-environment settle performs no VM, lock or allocation work: no $forbidden"
 }
+Require ($settle.Contains('RootEnvironmentAccumulator accumulator;') -and $settle.Contains('proto_is_direct_child(children, static_cast<std::size_t>(child_count), child->l.p)') -and $settle.Contains('accumulator.choose(closure->env)')) 'fix 3: the published environment is the one the root child closures agree on (unit-tested rule), else the root closure environment'
+Require ($settle.Contains('luau_restorestack(state, entry.register_base_offset)') -and $settle.Contains('base + entry.register_count > state->stack_last')) 'fix 3: the dead register window is re-based on the current stack and bounds-checked'
+Require ($inspect.Contains('entry.register_base_offset = luau_savestack(state, state->intop);') -and $inspect.Contains('entry.register_count = closure->stacksize;')) 'fix 3: the root register window is captured at entry as a stack offset'
 Require ($inspect.Contains('entry.closure = closure;') -and $inspect.Contains('entry.entry_environment = closure->env;')) 'the root closure and its entry environment are captured at VM execute entry'
 
 $publish = Get-Region $injection 'void publish_target_execution_snapshot_locked()' 'TargetExecutionLease acquire_target_execution_snapshot() noexcept' 'publish_target_execution_snapshot_locked'
@@ -96,6 +99,7 @@ Require ($apply.Contains('same_target_addon_context(')) 'rebind is queued per VM
 Require (Before $apply 'target_root_return_watch_required(' 'record_target_root_return(') 'apply re-checks bound/retry state before touching identities (a bound module never rebinds)'
 Require (Before $apply 'load->root_return_retry_spent = true;' 'record_target_root_return(') 'the single root-return retry is consumed before the rebind is queued'
 Require ($apply.Contains('reason=unbound retry=once-per-generation')) 'the root-return log line names the unbound reason and the one-retry bound'
+Require ($apply.Contains('env_source=') -and $apply.Contains('child_closures=')) 'fix 3: the root-return log names the environment source'
 
 $call = Get-Region $injection 'TargetLuaCall target_lua_call_for_published_closure(' 'std::uint64_t target_key_for_closure_locked(' 'luaCalls attribution'
 Require ($call.Contains('select_target_prototype_owner(') -and -not $call.Contains('published_target_closure_is_live(')) 'luaCalls attribute by exact prototype identity, not by the load environment'

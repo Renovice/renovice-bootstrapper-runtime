@@ -324,10 +324,19 @@ projection matcher. The current native bus exposes:
   through its stock API, such as `GetAvatarOwner()`.
 - `transformFloatArgument(prototype, instruction, stockValue) -> number`: runs
   only for `PushFloatArg` calls whose Lua caller belongs to the exact target
-  body key and VM. Prototype is DE's bytecode ID and instruction is the zero
-  based calling instruction resolved from `savedpc - 1`. Return the stock value
-  for every callsite the addon does not own. Invalid, nonnumeric and nonfinite
-  results preserve the stock argument and emit an error.
+  body key and VM. Prototype is DE's bytecode ID. Instruction is a zero-based
+  **logical** instruction index (multi-word instructions count once) resolved
+  by `native_callsite_instruction_from_saved_pc` from the caller's `savedpc`:
+  - when the calling `CALL` is directly preceded by the `NAMECALL` that names
+    the native method (`obj:Method(...)`, the normal case), the reported index
+    is that **`NAMECALL`**, i.e. the `CALL` index minus one;
+  - otherwise (a plain `CALL` of a function value) it is the `CALL` itself.
+  Example (44.0.2 `BardMusic.lua`, prototype 16): `NAMECALL :PushFloatArg` is
+  logical 596 and its `CALL` is 597, so the hook sees `instruction == 596`
+  (Mallet threat fix, 2026-09-29; the earlier `i597` address never matched).
+  Return the stock value for every callsite the addon does not own. Invalid,
+  nonnumeric and nonfinite results preserve the stock argument and emit an
+  error. The same instruction rule applies to `nativeCalls` below.
 - `nativeCalls[method].before(prototype, instruction, arguments, hostTrace)`: runs before
   the declared native method only when the active Lua caller belongs to the
   exact target body and VM. `arguments` is a mutable one-based table containing
