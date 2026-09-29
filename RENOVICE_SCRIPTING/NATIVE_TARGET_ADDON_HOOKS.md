@@ -1,3 +1,5 @@
+> **Current U44 correction (2026-09-27):** `PushFloatArg` is reserved by the installed native adapter. Use `hooks.transformFloatArgument(prototype, instruction, stockValue)` for its exact target-owned argument transformation. Do **not** declare `nativeCalls.PushFloatArg`; the generic adapter rejects that bundle. The historical V49 example below is not the current contract. [Failure evidence and correction](../RESEARCH/LOADOUT_NATIVE_HOOK_CONFLICT_2026-09-27/findings.md).
+
 > **CURRENT V110 DAMAGE-TARGET CONTRACT (2026-09-20):** Target ownership at
 > `SetSourceObject` first requires the strict live closure, environment, VM, and
 > current-generation prototype identity. DE can execute the same published

@@ -1,5 +1,13 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-29 Hotfix 44.0.2 certified and installed in the Steam folder
+
+Client `2026.09.28.13.06` (Steam `00cf8761…`, sideloadified `0124f0b9…`) added to the exact U44 allowlist; engine-damage exact RVAs added. All version44 signatures resolve uniquely, the Luau VM body is unchanged and all 14 bound stock modules are byte-identical, so no addon/replacement re-port was needed. DLL `a5508daebb21b89739102266775c3db94a676c4aea818e75fb66eccc34f88bbf` installed in `C:\Program Files (x86)\Steam\steamapps\common\Warframe`; OpenWF files unchanged. In-game acceptance pending. [Receipt](../RENOVICE_DEPLOYMENTS/HOTFIX_44_0_2_2026-09-29/README.md).
+
+## 2026-09-27 Mallet reserved-hook declaration repaired
+
+User reports U44 scripts/cards work and Ice Wave +10 works when starting as Frost, but Octavia -> Frost fails to apply the bonus. The recent Mallet nativeCalls.PushFloatArg declaration conflicts with the installed runtime reserved-method gate and can block later native-hook installation. Deployed Mallet now uses the existing transformFloatArgument contract at p16/i597. Addon SHA256 `0acbfea23262dc6d1f0103e469cca1ff94cf5d4757cb567326d1b344013baae5`. DLL and Ice Wave unchanged; diagnostics off. Offline gates passed; fresh-process loadout-switch gameplay acceptance pending. [Evidence](../RESEARCH/LOADOUT_NATIVE_HOOK_CONFLICT_2026-09-27/findings.md).
+
 ## 2026-09-27 U44 Lua compatibility candidate installed
 
 DLL `86f0efc943b60785b8edecf5e3f921abdf5ee560fe925a203e60469e96b902db` (4,884,480 bytes) is installed in `Warframe 23.09.2026` with all 7 Inject and 9 root replacement files ported to the current stock targets. Shared compiler/runtime build profiles cover U44 native names/opcodes, embedded helpers, verified prototype layout and exact callsite bindings. Universal API and existing ownership/Pluto architecture remain intact. Diagnostics remains false. Build, package, current-client/TopMenu and installed admission checks pass; **fresh-process Scripts menu/cards/effects/F9 gameplay acceptance remains pending**. Original DLL/scripts/state file are retained in rollback.

@@ -259,14 +259,21 @@ bool install() {
     soup::FileReader image{std::filesystem::path(image_path)};
     if (!image.s) return false;
     const auto digest = soup::string::bin2hexLower(soup::sha256::hash(image));
-    const bool current_u44 = digest == "45fa6ad0769cc8ca7fa7e0ffdee65c0c0932e11744146781ad18c45b16e4a81c"
-        || digest == "87fc60ce65e015c6c8d4be5ac353538c37392efb6793dd17f0a17cf126d3fb5c"; // Sideloadify 1.1.0; identical executable code.
-    if (!current_u44 && digest != "cca46d604a498cd95f0d28e3e8f3eee8833f5d362666a8e5c820c535f7c2af93") return false;
+    // Exact executable -> exact RVAs. Sideloadify 1.1.0 leaves executable code identical, so each
+    // build lists its Steam and sideloadified digest with the same addresses. Unknown builds fail closed.
+    std::array<std::uintptr_t, 3> registered_rvas{};
+    if (digest == "45fa6ad0769cc8ca7fa7e0ffdee65c0c0932e11744146781ad18c45b16e4a81c"
+        || digest == "87fc60ce65e015c6c8d4be5ac353538c37392efb6793dd17f0a17cf126d3fb5c")
+        registered_rvas = {0xd2cb0, 0xa10cf0, 0x7088a0}; // 44.0.0 2026.09.24.13.29
+    else if (digest == "00cf876132443b8e2bcb7450d05c89d0f8695ec51c5881976f784233dbc94374"
+        || digest == "0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33")
+        registered_rvas = {0x7267c0, 0xfb24b0, 0x1f5d80}; // 44.0.2 2026.09.28.13.06
+    else if (digest == "cca46d604a498cd95f0d28e3e8f3eee8833f5d362666a8e5c820c535f7c2af93")
+        registered_rvas = {0x1ee140, 0xc60240, 0xa255b0}; // 43 2026.08.19.11.06
+    else
+        return false;
     const auto range = soup::Module(nullptr).range;
     std::array<void*, 3> targets{};
-    const std::array<std::uintptr_t, 3> registered_rvas = current_u44
-        ? std::array<std::uintptr_t, 3>{0xd2cb0, 0xa10cf0, 0x7088a0}
-        : std::array<std::uintptr_t, 3>{0x1ee140, 0xc60240, 0xa255b0};
     const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     for (std::size_t i = 0; i < patterns.size(); ++i) {
         soup::Pointer hits[2]{};

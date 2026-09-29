@@ -17,6 +17,18 @@ $certifiedClients = @(@{
     Sha256 = "87fc60ce65e015c6c8d4be5ac353538c37392efb6793dd17f0a17cf126d3fb5c"
     UndumpRaw = "1919d60"
     UndumpRva = "191a960"
+}, @{
+    # Hotfix 44.0.2 (Steam)
+    Version = "2026.09.28.13.06"
+    Sha256 = "00cf876132443b8e2bcb7450d05c89d0f8695ec51c5881976f784233dbc94374"
+    UndumpRaw = "191a480"
+    UndumpRva = "191b080"
+}, @{
+    # Hotfix 44.0.2 (Sideloadify 1.1.0; identical executable code)
+    Version = "2026.09.28.13.06"
+    Sha256 = "0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33"
+    UndumpRaw = "191a480"
+    UndumpRva = "191b080"
 })
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ProxyDllPath = if ([string]::IsNullOrWhiteSpace($ProxyDllPath)) {
