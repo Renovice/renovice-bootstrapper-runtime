@@ -19,6 +19,7 @@
 #include "../owf_console.hpp"
 #include "../owf_luau.hpp"
 #include "config.hpp"
+#include "de_vm_authority_core.hpp"
 #include "injection.hpp"
 
 namespace renovice::de_vm_authority
@@ -33,14 +34,10 @@ using RawProtectedRun = int(*)(
 using VmThrow = void(*)(luau_State*, int);
 using FlashShutdown = void(*)(void* object);
 
-inline constexpr const char* signature_lock_enter_u44 = "48 8B 09 48 8B 09 48 FF 25 ? ? ? ? CC CC CC 48 89 5C 24 18 48 89 6C 24 20 56 57 41 55";
-inline constexpr const char* signature_lock_enter =
-	"48 8B 09 48 8B 09 48 FF 25 ? ? ? ? CC CC CC 48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20";
-inline constexpr const char* signature_lock_leave_u44 = "48 8B 09 48 8B 09 48 FF 25 ? ? ? ? CC CC CC 48 83 EC 28 E8 ? ? ? ? 48 8B 08 48 8B 91 30 09 00 00";
-inline constexpr const char* signature_lock_leave =
-	"48 8B 09 48 8B 09 48 FF 25 ? ? ? ? CC CC CC 40 57 48 81 EC C0 00 00 00";
-inline constexpr const char* signature_locked_dispatcher =
-	"48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 50 48 8B F9 0F 29 74 24 40 48 8D 0D ? ? ? ? 0F 28 F3 41 8B F0 48 8B DA E8 ? ? ? ?";
+// The ScriptMgr lock identity (signature_lock_thunk +
+// signature_lock_enter_import / signature_lock_leave_import) and
+// signature_locked_dispatcher (+ epilogue) live in de_vm_authority_core.hpp so
+// verify_client_44 scans exactly what is resolved here.
 inline constexpr const char* signature_protected_call =
 	"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 40 45 33 D2 41 8B F0 44 8B DA";
 inline constexpr const char* signature_raw_protected_run =
@@ -260,6 +257,60 @@ soup::Pointer resolve_unique(
 		std::ostringstream failure;
 		failure << "RENOVICE DE_VM_AUTHORITY resolve FAIL primitive=" << label
 			<< " matches=" << count;
+		conout << failure.str() << std::endl;
+		config::log(failure.str());
+	}
+	catch (...)
+	{
+		const std::string failure = std::string(
+			"RENOVICE DE_VM_AUTHORITY resolve EXCEPTION primitive=") + label;
+		conout << failure << std::endl;
+		config::log(failure);
+	}
+	return {};
+}
+
+// Resolve one ScriptMgr lock thunk by exact identity: the thunk body plus the
+// named KERNEL32 import slot it jumps through (see de_vm_authority_core.hpp).
+// The slot is found from the executable's import-name table, never from the
+// slot's current value, so an IAT hook cannot change which thunk is chosen.
+soup::Pointer resolve_lock_thunk(
+	const soup::Range& range,
+	const char* import_name,
+	const char* label) noexcept
+{
+	try
+	{
+		const auto* const image = range.base.as<const std::uint8_t*>();
+		const auto slot_rva = find_import_slot_rva(
+			image, range.size, lock_import_module, import_name);
+		soup::Pointer thunks[lock_thunk_scan_capacity]{};
+		std::size_t count = 0;
+		std::size_t matches = 0;
+		soup::Pointer match{};
+		if (slot_rva != 0)
+		{
+			count = range.scanWithMultipleResults(
+				soup::Pattern(signature_lock_thunk), thunks);
+			const auto* const slot = image + slot_rva;
+			for (std::size_t i = 0; i != count; ++i)
+			{
+				if (thunks[i].add(lock_thunk_slot_displacement).rip()
+					.as<const std::uint8_t*>() == slot)
+				{
+					match = thunks[i];
+					++matches;
+				}
+			}
+		}
+		// A full result buffer may have truncated the scan: fail closed.
+		if (slot_rva != 0 && count < lock_thunk_scan_capacity && matches == 1)
+			return match;
+		std::ostringstream failure;
+		failure << "RENOVICE DE_VM_AUTHORITY resolve FAIL primitive=" << label
+			<< " matches=" << matches << " thunks=" << count
+			<< " import=" << lock_import_module << '!' << import_name
+			<< " import_slot=" << (slot_rva != 0 ? "unique" : "missing");
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
 	}
@@ -508,10 +559,18 @@ bool initialise(bool exact_supported_build) noexcept
 	try
 	{
 		const auto range = soup::Module(nullptr).range;
-		const auto enter = resolve_unique(range, game_version >= GV(44, 0, 0) ? signature_lock_enter_u44 : signature_lock_enter, "lock-enter");
-		const auto leave = resolve_unique(range, game_version >= GV(44, 0, 0) ? signature_lock_leave_u44 : signature_lock_leave, "lock-leave");
+		const auto enter = resolve_lock_thunk(
+			range, signature_lock_enter_import, "lock-enter");
+		const auto leave = resolve_lock_thunk(
+			range, signature_lock_leave_import, "lock-leave");
 		const auto dispatcher = resolve_unique(
 			range, signature_locked_dispatcher, "locked-dispatcher");
+		const auto dispatcher_epilogue = dispatcher
+			? resolve_unique(
+				soup::Range(dispatcher, locked_dispatcher_epilogue_window),
+				signature_locked_dispatcher_epilogue,
+				"locked-dispatcher-epilogue")
+			: soup::Pointer{};
 		const auto pcall = resolve_unique(
 			range, signature_protected_call, "protected-call");
 		const auto raw_pcall = resolve_unique(
@@ -520,20 +579,38 @@ bool initialise(bool exact_supported_build) noexcept
 			range, signature_vm_throw, "vm-throw");
 		const auto shutdown = resolve_unique(
 			range, signature_flash_shutdown, "flash-shutdown");
-		if (!enter || !leave || !dispatcher || !pcall || !raw_pcall || !throw_error
-			|| !shutdown)
+		if (!enter || !leave || !dispatcher || !dispatcher_epilogue || !pcall
+			|| !raw_pcall || !throw_error || !shutdown)
 			throw std::runtime_error("one or more primitives were not unique");
 
+		static_assert(locked_dispatcher_holder_displacement == 26
+			&& locked_dispatcher_enter_displacement == 40);
 		const auto dispatcher_holder = dispatcher.add(26).rip().as<void*>();
 		const auto dispatcher_enter = dispatcher.add(40).rip().as<void*>();
+		const auto dispatcher_leave = dispatcher_epilogue.add(
+			locked_dispatcher_leave_displacement).rip().as<void*>();
 		const auto shutdown_null_sentinel = shutdown.add(0x2A).rip().as<void*>();
 		if (dispatcher_enter != enter.as<void*>()
+			|| dispatcher_leave != leave.as<void*>()
 			|| !readable_committed_range(dispatcher_holder, sizeof(void*))
 			|| !readable_committed_range(
 				shutdown_null_sentinel, sizeof(void*)))
 		{
 			throw std::runtime_error(
-				"locked dispatcher or Flash sentinel cross-check failed");
+				"locked dispatcher enter/leave or Flash sentinel cross-check failed");
+		}
+
+		// One bounded operational record of the resolved lock identity; this is
+		// the evidence that ties a live PASS to the offline verifier's RVAs.
+		{
+			const auto module_base = range.base.as<std::uintptr_t>();
+			std::ostringstream identity;
+			identity << "RENOVICE DE_VM_AUTHORITY lock identity enter_rva=0x"
+				<< std::hex << (enter.as<std::uintptr_t>() - module_base)
+				<< " leave_rva=0x" << (leave.as<std::uintptr_t>() - module_base)
+				<< " dispatcher_rva=0x" << (dispatcher.as<std::uintptr_t>() - module_base)
+				<< std::dec << " import=" << lock_import_module;
+			config::log(identity.str());
 		}
 
 		lock_enter = enter.as<ScriptMgrLock>();

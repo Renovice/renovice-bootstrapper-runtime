@@ -1,5 +1,9 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-29 44.0.2 DE_VM_AUTHORITY lock-identity fix staged (not deployed)
+
+Live 44.0.2 log with installed DLL `a5508dae…`: `DE_VM_AUTHORITY resolve FAIL primitive=lock-enter/lock-leave matches=0`, so no VM capture, Scripts menu, Inject or addons (Replacement unaffected). Cause: the `_u44` lock signatures appended the prologue of the unrelated function the linker placed after each `mov rcx,[rcx]; mov rcx,[rcx]; jmp [IAT]` thunk; 44.0.2 relocated the thunks. Lock thunks now resolve by exact identity (thunk body + named `KERNEL32!Enter/LeaveCriticalSection` IAT slot from the import-name table), cross-checked against the locked dispatcher's +40 enter call and epilogue leave tail-jump; build allowlist and fail-closed uniqueness unchanged. Verified offline on U43, U44.0.0, U44.0.2; full 147-pattern census shows no other 44.0.0->44.0.2 change. `verify_client_44` now covers the lock chain. Private build PASS 0/0, DLL `15daf981af6ad7a358500f36084c9c23a94f4e9ac0881184bd29a118a7b73cea` (4,890,112 B) staged at `work/staging/bootstrapper-44.0.2-vmauthority/`; `Hotfix.owf` unchanged in content. **Deployment and live acceptance pending.** [Record](../RESEARCH/DE_VM_AUTHORITY_LOCK_IDENTITY_44_0_2_2026-09-29/README.md).
+
 ## 2026-09-29 Hotfix 44.0.2 certified and installed in the Steam folder
 
 Client `2026.09.28.13.06` (Steam `00cf8761…`, sideloadified `0124f0b9…`) added to the exact U44 allowlist; engine-damage exact RVAs added. All version44 signatures resolve uniquely, the Luau VM body is unchanged and all 14 bound stock modules are byte-identical, so no addon/replacement re-port was needed. DLL `a5508daebb21b89739102266775c3db94a676c4aea818e75fb66eccc34f88bbf` installed in `C:\Program Files (x86)\Steam\steamapps\common\Warframe`; OpenWF files unchanged. In-game acceptance pending. [Receipt](../RENOVICE_DEPLOYMENTS/HOTFIX_44_0_2_2026-09-29/README.md).

@@ -72,6 +72,40 @@ foreach ($marker in @(
     if (-not $source.Contains($marker)) { throw "DE VM AUTHORITY FAIL: exact-build primitive missing: $marker" }
 }
 
+# 2026-09-29 (Hotfix 44.0.2): ScriptMgr lock thunks resolve by exact identity
+# (thunk body + named KERNEL32 IAT slot), cross-checked against the locked
+# dispatcher's enter call and leave tail-jump. Neighbour-function prologue bytes
+# must never again be part of a lock signature: the linker moves them per build.
+$core = [IO.File]::ReadAllText((Join-Path $repo 'renovice\de_vm_authority_core.hpp'))
+foreach ($marker in @(
+    'signature_lock_thunk[] =',
+    '"48 8B 09 48 8B 09 48 FF 25 ? ? ? ?";',
+    'lock_import_module[] = "KERNEL32.dll";',
+    'signature_lock_enter_import[] = "EnterCriticalSection";',
+    'signature_lock_leave_import[] = "LeaveCriticalSection";',
+    'signature_locked_dispatcher_epilogue[] =',
+    'inline std::uint32_t find_import_slot_rva(',
+    'return matches == 1 ? found : 0;'
+)) {
+    if (-not $core.Contains($marker)) { throw "DE VM AUTHORITY FAIL: lock identity data missing: $marker" }
+}
+foreach ($marker in @(
+    '#include "de_vm_authority_core.hpp"',
+    'soup::Pointer resolve_lock_thunk(',
+    'find_import_slot_rva(',
+    'count < lock_thunk_scan_capacity && matches == 1',
+    'resolve_lock_thunk(',
+    'signature_locked_dispatcher_epilogue',
+    'dispatcher_leave != leave.as<void*>()'
+)) {
+    if (-not $source.Contains($marker)) { throw "DE VM AUTHORITY FAIL: lock identity resolution missing: $marker" }
+}
+foreach ($forbidden in @('48 FF 25 ? ? ? ? CC', 'signature_lock_enter_u44', 'signature_lock_leave_u44')) {
+    if ($source.Contains($forbidden) -or $core.Contains($forbidden)) {
+        throw "DE VM AUTHORITY FAIL: lock signature depends on linker-neighbour bytes: $forbidden"
+    }
+}
+
 $stockPredicate = Get-Region $source 'bool stock_flash_shutdown_will_teardown(' 'soup::Pointer resolve_unique(' 'stock Flash teardown predicate'
 foreach ($marker in @(
     'readable_committed_range(owner_slot, sizeof(void*))',

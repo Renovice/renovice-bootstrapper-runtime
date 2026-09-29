@@ -13,6 +13,7 @@
 #include "../../renovice/riven_core.hpp"
 #include "../../renovice/swf_core.hpp"
 #include "../../renovice/application_frame_profile.hpp"
+#include "../../renovice/de_vm_authority_core.hpp"
 
 namespace
 {
@@ -149,6 +150,128 @@ std::uint32_t read_u32(const std::vector<std::uint8_t>& data, std::size_t offset
 	std::memcpy(&value, data.data() + offset, sizeof(value));
 	return value;
 }
+
+std::uint16_t read_u16(const std::vector<std::uint8_t>& data, std::size_t offset)
+{
+	if (offset + sizeof(std::uint16_t) > data.size())
+	{
+		throw std::runtime_error("read outside executable");
+	}
+	std::uint16_t value;
+	std::memcpy(&value, data.data() + offset, sizeof(value));
+	return value;
+}
+
+// Map the PE file at its section RVAs so RVA arithmetic (rel32 targets, import
+// directory walk) matches the in-process soup::Module range exactly.
+std::vector<std::uint8_t> map_image(const std::vector<std::uint8_t>& file)
+{
+	const auto nt = static_cast<std::size_t>(read_u32(file, 0x3C));
+	const auto sections = read_u16(file, nt + 6);
+	const auto optional_size = read_u16(file, nt + 20);
+	const auto optional = nt + 24;
+	const auto image_size = static_cast<std::size_t>(read_u32(file, optional + 56));
+	const auto headers_size = static_cast<std::size_t>(read_u32(file, optional + 60));
+	if (image_size == 0 || headers_size > file.size() || headers_size > image_size)
+	{
+		throw std::runtime_error("invalid PE image size");
+	}
+	std::vector<std::uint8_t> image(image_size, 0);
+	std::memcpy(image.data(), file.data(), headers_size);
+	for (std::size_t i = 0; i != sections; ++i)
+	{
+		const auto header = optional + optional_size + i * 40;
+		const auto virtual_address = static_cast<std::size_t>(read_u32(file, header + 12));
+		const auto raw_size = static_cast<std::size_t>(read_u32(file, header + 16));
+		const auto raw_offset = static_cast<std::size_t>(read_u32(file, header + 20));
+		const auto virtual_size = static_cast<std::size_t>(read_u32(file, header + 8));
+		const auto copy = raw_size < virtual_size || virtual_size == 0 ? raw_size : virtual_size;
+		if (copy == 0)
+		{
+			continue;
+		}
+		if (raw_offset + copy > file.size() || virtual_address + copy > image.size())
+		{
+			throw std::runtime_error("section outside PE image");
+		}
+		std::memcpy(image.data() + virtual_address, file.data() + raw_offset, copy);
+	}
+	return image;
+}
+
+std::size_t rip_target(const std::vector<std::uint8_t>& image, std::size_t displacement_rva)
+{
+	const auto rel = static_cast<std::int32_t>(read_u32(image, displacement_rva));
+	return static_cast<std::size_t>(static_cast<std::int64_t>(displacement_rva) + 4 + rel);
+}
+
+// Mirrors the ScriptMgr lock part of renovice::de_vm_authority::initialise()
+// on the mapped image: exact-identity lock thunks and the unique locked
+// dispatcher with enter/leave cross-checks. (Its protected-call primitive is
+// the "inject protected call" row; the others are pinned in the .cpp by the
+// stock-loader/longjmp source gates.)
+bool verify_de_vm_authority(const std::vector<std::uint8_t>& file)
+{
+	namespace dva = renovice::de_vm_authority;
+	const auto image = map_image(file);
+	bool pass = true;
+	const auto thunks = scan(image, parse_pattern(dva::signature_lock_thunk));
+	const bool thunk_capacity = thunks.size() < dva::lock_thunk_scan_capacity;
+	std::size_t resolved[2]{};
+	const char* const imports[2]{dva::signature_lock_enter_import, dva::signature_lock_leave_import};
+	const char* const labels[2]{"lock-enter", "lock-leave"};
+	for (std::size_t k = 0; k != 2; ++k)
+	{
+		const auto slot = dva::find_import_slot_rva(
+			image.data(), image.size(), dva::lock_import_module, imports[k]);
+		std::size_t matches = 0;
+		for (const auto thunk : thunks)
+		{
+			if (slot != 0 && rip_target(image, thunk + dva::lock_thunk_slot_displacement) == slot)
+			{
+				resolved[k] = thunk;
+				++matches;
+			}
+		}
+		const bool ok = slot != 0 && thunk_capacity && matches == 1;
+		std::cout << (ok ? "PASS" : "FAIL") << "\tDE_VM_AUTHORITY " << labels[k]
+			<< "\tmatches=" << matches << " thunks=" << thunks.size()
+			<< " import=" << dva::lock_import_module << '!' << imports[k]
+			<< std::hex << " slot_rva=0x" << slot << " rva=0x" << resolved[k] << std::dec << '\n';
+		pass &= ok;
+	}
+
+	const auto dispatchers = scan(image, parse_pattern(dva::signature_locked_dispatcher));
+	bool dispatcher_ok = dispatchers.size() == 1;
+	std::size_t dispatcher_enter = 0;
+	std::size_t dispatcher_leave = 0;
+	std::size_t epilogue_count = 0;
+	if (dispatcher_ok)
+	{
+		const auto dispatcher = dispatchers.front();
+		dispatcher_enter = rip_target(image, dispatcher + dva::locked_dispatcher_enter_displacement);
+		const auto window_end = dispatcher + dva::locked_dispatcher_epilogue_window;
+		const std::vector<std::uint8_t> window(
+			image.begin() + static_cast<std::ptrdiff_t>(dispatcher),
+			image.begin() + static_cast<std::ptrdiff_t>(window_end));
+		const auto epilogues = scan(window, parse_pattern(dva::signature_locked_dispatcher_epilogue));
+		epilogue_count = epilogues.size();
+		if (epilogue_count == 1)
+		{
+			dispatcher_leave = rip_target(
+				image, dispatcher + epilogues.front() + dva::locked_dispatcher_leave_displacement);
+		}
+		dispatcher_ok = epilogue_count == 1
+			&& resolved[0] != 0 && dispatcher_enter == resolved[0]
+			&& resolved[1] != 0 && dispatcher_leave == resolved[1];
+	}
+	std::cout << (dispatcher_ok ? "PASS" : "FAIL") << "\tDE_VM_AUTHORITY locked-dispatcher"
+		<< "\tmatches=" << dispatchers.size() << " epilogues=" << epilogue_count
+		<< std::hex << " rva=0x" << (dispatchers.empty() ? 0 : dispatchers.front())
+		<< " enter=0x" << dispatcher_enter << " leave=0x" << dispatcher_leave << std::dec << '\n';
+	pass &= dispatcher_ok;
+	return pass;
+}
 }
 
 int main(int argc, char** argv)
@@ -198,6 +321,7 @@ int main(int argc, char** argv)
 	exact("inject game allocator", renovice::injection::signature_game_allocator);
 	exact("inject protected call", renovice::injection::signature_protected_call);
 	exact("inject Luau VM execute", renovice::injection::signature_vm_execute);
+	pass &= verify_de_vm_authority(data);
 	exact("SWF Oodle decompressor", renovice::swf::signature_oodle_decompress);
 	exact("SWF parser boundary", renovice::swf::signature_parser_u44);
 	exact("Riven GFx dispatcher", renovice::riven::signature_gfx_dispatch);
