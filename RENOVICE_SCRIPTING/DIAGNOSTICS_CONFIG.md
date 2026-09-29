@@ -64,6 +64,17 @@ Diagnostics are appended to
 `OpenWF\CustomScripts\Logs\renovice_source.log`. `DiagnosticsMode` controls
 diagnostic events independently of ordinary `Logging=true` output.
 
+Write path (2026-09-29, `feat/script-packages-2026-09-29`): the log file stays
+open; operational lines are written immediately, diagnostic lines go through a
+bounded 64 KiB buffer flushed at least every 250 ms, before every operational
+line, at process exit and when the near-null fault recorder fires. A hard kill
+can lose at most the last ~250 ms of diagnostic lines. In `trace` mode the
+per-hit lanes (`damage.*`, `dispatch.*`, `native.*`, `lua.call.*`) admit at most
+32 lines per event name per second; each limited second is summarized once as
+`event=trace.rate-limited suppressed_event=<name> admitted=<n> suppressed=<n>
+untracked_dropped=<n>`. Suppressed lines do not consume `DiagnosticsMaxEvents`.
+With `Diagnostics=false` no diagnostic string is formatted.
+
 ## Recommended profiles
 
 V80 native damage test profile: use the broad profile below with

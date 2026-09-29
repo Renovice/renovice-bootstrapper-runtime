@@ -1,7 +1,8 @@
 # CustomScripts: current single-DLL layout
 
-Repository copy (2026-09-29, branch `feat/multi-target-addon`). The copy in the
-installed game folder is older. This folder is not packed into the DLL archive.
+Repository copy (2026-09-29, branch `feat/script-packages-2026-09-29`). The copy
+in the installed game folder is older. This folder is not packed into the DLL
+archive.
 
 The source-built `wtsapi32.dll` reads this folder directly. The old
 `wtsapi32_owf.dll` companion is not required.
@@ -13,6 +14,7 @@ The source-built `wtsapi32.dll` reads this folder directly. The old
 | Managed addon | `CustomScripts\Inject\` | `<name>.addon.lua_B` | Returns `activate` and `cleanup` closures and takes part in transactional generation replacement. |
 | Target addon (one module) | `CustomScripts\Inject\` | `<16-hex-content-key>.<Name>.target.addon.lua_B` | Bound to the module whose content key is in the filename. |
 | Multi-target addon (several modules) | `CustomScripts\Inject\` | `<Name>.targets.addon.lua_B` (no key prefix) | One file, one Scripts row and one enable/disable state. The file binds to every module key it declares. |
+| Script package (optional) | `CustomScripts\Packages\<Name>\` | replacement and target-addon members, optional `package.json` | Several files, one `[PACKAGE] <Name>` row and one state `package:<name>`. Loose files are unaffected. See "Script packages". |
 | SWF replacement | `CustomScripts\` | `<name>.swf` | Replaces a matching uncompressed FWS body by content key. |
 | Growing SWF metadata | `CustomScripts\` | `<name>.swf.toc` | Optional exact cache-TOC metadata, needed when a replacement is larger than the original. |
 | Current logs | `CustomScripts\Logs\` | `renovice_source.log`, `renovice_fault.log` | Loader, addon and F9 evidence, plus native near-null fault records. |
@@ -159,6 +161,101 @@ Rules, all checked by the loader:
   `settings`, is ignored by this runtime. These names are reserved for the
   future in-game (F12) settings overlay.
 
+## Script packages (optional folders, one Scripts row)
+
+A package bundles several scripts behind **one** Scripts row, but only when you
+choose to: put them in their own folder. Loose files keep working exactly as
+before (same discovery, same state keys, same behavior). The loose scanners
+never look inside subfolders, so a package member is never loaded twice.
+
+```
+CustomScripts\
+  Packages\
+    Missions\
+      package.json                                          (optional)
+      Missions.targets.addon.lua_B                          multi-target addon
+      fc711ff621a75552 (missions_exact-replacement).lua_B   exact replacement
+```
+
+**Members.** Every `.lua_B` file directly in the folder is a member and loads
+through its normal lane with the normal validation:
+
+| Member file | Lane |
+|---|---|
+| `<16-hex key> (label).lua_B` | exact root replacement, keyed by the filename prefix |
+| `<16-hex key>.<Name>.target.addon.lua_B` | single-key target addon |
+| `<Name>.targets.addon.lua_B` | multi-target addon (declared keys from the bytecode) |
+
+Not admissible (the package is rejected with an exact reason):
+- an ordinary one-shot chunk (`<name>.lua_B` without a key): it cannot be
+  undone, so it cannot be part of an all-or-nothing package;
+- an untargeted managed addon (`*.addon.lua_B`): it shares one generation-wide
+  staging/activation transaction with every loose managed addon, so its failure
+  could not stay local to the package. Keep those as loose files.
+- `.spawn`/`.persist` names and bootstrapper infrastructure files.
+
+Other files (README, checksums) are ignored. Subfolders are ignored.
+
+**`package.json`** (optional, strict JSON, at most 64 KiB):
+
+```json
+{
+  "schema": 1,
+  "name": "Missions",
+  "description": "Shown in the tooltip.",
+  "members": {
+    "Missions.targets.addon.lua_B": { "label": "Mission tunables" },
+    "fc711ff621a75552 (missions_exact-replacement).lua_B": { "label": "Void Flood fractures" }
+  },
+  "settings": {}
+}
+```
+
+- Every field is optional. `name` (1-64 printable characters) replaces the
+  folder name in the row label; `description` (up to 1,024 characters) and the
+  member `label`s (up to 128) go into the tooltip.
+- If `members` is present, the folder must contain **exactly** those `.lua_B`
+  files (case-insensitive). A partially copied package fails as a whole.
+- `settings` (top level and per member) is reserved for the future in-game (F12)
+  editor. It must be valid JSON and is otherwise ignored.
+- Unknown fields, duplicate fields, a `schema` other than 1, and trailing data
+  reject the package. A per-member `enabled` field is reserved for future
+  per-member toggles and is rejected today.
+
+**Scripts menu.** One row, `[PACKAGE] <name>`, tooltip
+`PACKAGE | <description> | N members: <label> (<file>), ... | <status>`. One
+state, `package:<folder name lowercased>`, enables or disables every member.
+Status `INVALID: <reason>` means the package failed static validation;
+`BLOCKED: <reason>` means it is enabled but conflicts with another source.
+
+**All or nothing.** At startup and on every F9 the loader scans the Packages
+folder once, validates every package, and hands the same result to both the
+replacement lane and the Inject scanner of that transaction. A package with any
+invalid member, a manifest mismatch or a conflict contributes **nothing**; the
+log says
+`RENOVICE PACKAGE REJECT trigger=... package=<name> ... reason=<exact reason> scope=package-local generation=continues`,
+and every other script and package still loads. Deletion is part of the
+snapshot: remove the folder and press F9.
+
+**Conflicts.** Two sources that would both apply the same exact replacement
+key, or both bind addons to the same target key, conflict when at least one of
+them is a package. Loose files sort first, packages after them by lowercase
+folder name, and the later-sorted source (the package, or the later package)
+fails closed as a whole with
+`reason=conflict kind=replacement|target key=<key> holder=<loose:file|package:name>`.
+Both are never applied. Only enabled sources count, so disabling the loose file
+(or removing it) resolves the conflict on the next F9. Loose-vs-loose behavior
+is unchanged.
+
+**Runtime binding stays per module.** A package's target members bind lazily
+per module like any target addon. A binding that fails later, at a module load
+(for example `targets[key]-missing`), fails for that key only, with the usual
+`Inject FAIL ... target=<key>` line; it does not unload the package's other
+members. "All or nothing" covers the static F9/startup commit.
+
+**Disabled packages** keep their keys inventoried (like a disabled loose file),
+so enabling one later works without a restart.
+
 ## Module instances and environments
 
 DE loads a module and later runs its root in a runtime environment. That
@@ -178,11 +275,15 @@ this generically for single-key and multi-target addons alike:
   times in one session, and each instance paid a full clean-load-activate.)
 - **One root-return retry for an unbound module.** If a module's addons hold no
   binding (for example `activate` failed because it reads globals that the root
-  publishes), the runtime watches that module's root once per generation. The
-  root's environment is read **at its return**, because a root that calls
-  `module(...)` switches its own environment to the module table, and that is
-  where its globals live. The log shows
-  `TARGET ROOT RETURN ... reason=unbound retry=once-per-generation action=rebind-queued`,
+  publishes), the runtime watches that module's root once per generation. At
+  the root's normal return it binds in the environment the root **published
+  into**: the environment of the functions the root itself defined (read from
+  the closures still in the root's register window; they must all agree),
+  otherwise the root closure's own environment. This is how
+  `module(..., package.seeall)` modules work: on 44.0.2 DuviriUtil's root closure
+  kept its entry environment, while its functions resolve their globals
+  elsewhere. The log shows
+  `TARGET ROOT RETURN ... runtime_env=... env_source=child-closure|root-closure child_closures=N reason=unbound retry=once-per-generation action=rebind-queued`,
   then the addon runs and activates there at the next exact idle return. Such an
   addon logs one failed activation at load time, followed by a PASS.
 - An addon that needs a fresh lifecycle for every instance is not supported
@@ -199,8 +300,8 @@ is operational error reporting and appears even with `Diagnostics=false`.
 ## F9 transaction
 
 F9 does not poll the folder. When pressed, it reads the current `renovice.cfg`,
-SWFs, full replacements, `riven_lock.cfg`, `ScriptStates.json` and the whole
-`Inject` folder. It validates and stages them, cleans up the old managed
+SWFs, full replacements, `riven_lock.cfg`, `ScriptStates.json`, the whole
+`Inject` folder and the optional `Packages` folder. It validates and stages them, cleans up the old managed
 generation, activates the new one, and only then publishes the prepared
 snapshots. If a managed generation fails, it tries to roll back to the
 previous one. For multi-target files, the inventory of declared keys is part
@@ -211,7 +312,13 @@ of that same snapshot.
 - `renovice.cfg` supports `Logging`, `Verbose`, `Diagnostics` and `AutoSpawn`.
 - If `riven_lock.cfg` exists, the Riven lock UI system is enabled.
 - Source messages go to `CustomScripts\Logs\renovice_source.log` when logging
-  is enabled.
+  is enabled. The file stays open while the game runs. Operational lines are
+  written immediately; diagnostic lines are buffered (64 KiB, flushed at least
+  every 250 ms, before every operational line, at exit and on a recorded
+  near-null fault). In trace mode, per-hit lines (`damage.*`, `dispatch.*`,
+  `native.*`, `lua.call.*`) are limited to 32 per event name per second, and
+  each limited second ends with one `event=trace.rate-limited ... suppressed=N`
+  summary line.
 - Near-null runtime faults go to `Logs\renovice_fault.log`, with a minidump at
   `Diagnostics\renovice_fault.dmp`.
 

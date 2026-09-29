@@ -524,16 +524,58 @@ void loose_regression()
 }
 }
 
+// Optional: admit a real package folder (for example generator output) through
+// the exact loader scanner, with no loose files and the default policy.
+void admit_external(const std::filesystem::path& package_folder, const std::filesystem::path& work)
+{
+	std::error_code ec;
+	const auto root = work / "admit" / "CustomScripts";
+	std::filesystem::remove_all(work / "admit", ec);
+	std::filesystem::create_directories(root / "Inject");
+	const auto name = package_folder.filename();
+	std::filesystem::create_directories(root / "Packages" / name);
+	std::filesystem::copy(package_folder, root / "Packages" / name,
+		std::filesystem::copy_options::recursive, ec);
+	check(!ec, "external package copied into an empty CustomScripts tree");
+	gate::root = root;
+	gate::inject = root / "Inject";
+	gate::policy.clear();
+	gate::log_lines.clear();
+	check(packages::initialise(), "external package scan PASS");
+	const auto snapshot = packages::candidate();
+	const auto* package = find_package(*snapshot, name.string());
+	check(package != nullptr && package->structurally_valid && package->accepted,
+		"external package is accepted by the loader rules: " + name.string()
+			+ (package != nullptr && !package->reason.empty() ? " reason=" + package->reason : std::string()));
+	if (package == nullptr) return;
+	std::cout << "INFO\tpackage=" << package->folder << " id=" << package->id
+		<< " row=" << packages::menu_label(package->folder,
+			package->display == package->folder ? std::string_view{} : std::string_view{package->display})
+		<< " members=" << package->members.size() << '\n';
+	for (const auto& member : package->members)
+	{
+		std::cout << "INFO\tmember=" << member.filename
+			<< " kind=" << packages::member_kind_label(member.kind)
+			<< " key=" << (member.key != 0 ? packages::key_text(member.key) : std::string("-"))
+			<< " targets=" << member.target_keys.size()
+			<< " bytes=" << member.bytes.size()
+			<< " label=\"" << member.label << "\"\n";
+		for (const auto key : member.target_keys) std::cout << "INFO\t  target=" << packages::key_text(key) << '\n';
+	}
+	for (const auto& line : gate::log_lines) std::cout << "LOG\t" << line << '\n';
+}
+
 int main(int argc, char** argv)
 {
-	if (argc != 3)
+	if (argc != 3 && !(argc == 5 && std::string_view(argv[3]) == "--admit"))
 	{
-		std::cerr << "usage: verify_script_packages <fixture.lua_B> <work dir>\n";
+		std::cerr << "usage: verify_script_packages <fixture.lua_B> <work dir> [--admit <package folder>]\n";
 		return 2;
 	}
 	pure_rules();
 	end_to_end(argv[1], argv[2]);
 	loose_regression();
+	if (argc == 5) admit_external(argv[4], argv[2]);
 	std::cout << (pass ? "SCRIPT PACKAGES PASS" : "SCRIPT PACKAGES FAIL") << '\n';
 	return pass ? 0 : 1;
 }

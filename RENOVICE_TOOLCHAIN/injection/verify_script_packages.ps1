@@ -4,6 +4,11 @@
 # and runs it on a temporary CustomScripts tree under RENOVICE_TOOLCHAIN\bin,
 # then pins the source-level integration and the unchanged loose-file lanes.
 # It never reads or writes a game folder.
+param(
+    # Optional: also admit a real package folder (for example generator output)
+    # through the exact loader scanner and print its members.
+    [string]$AdmitPackage = ''
+)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -64,7 +69,8 @@ try {
     finally { Pop-Location }
     $output | Write-Output
     if ($compileExit -ne 0) { throw "SCRIPT PACKAGES GATE FAIL: checker compilation failed: $compileExit" }
-    & $binary $fixture $work
+    if ([string]::IsNullOrWhiteSpace($AdmitPackage)) { & $binary $fixture $work }
+    else { & $binary $fixture $work --admit ([IO.Path]::GetFullPath($AdmitPackage)) }
     if ($LASTEXITCODE -ne 0) { throw "SCRIPT PACKAGES GATE FAIL: checker failed: $LASTEXITCODE" }
 }
 finally {

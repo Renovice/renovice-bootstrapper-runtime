@@ -1,5 +1,29 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-29 Optional script packages + fix 3 (Circuit env, buffered diagnostics) staged (not deployed)
+
+Branch `feat/script-packages-2026-09-29` (from `8946bfd`). Generic changes only.
+
+- **Script packages (opt-in).** `CustomScripts\Packages\<Name>\` bundles exact replacements and single-key/multi-target addons behind one `[PACKAGE] <Name>` row and one state `package:<name>`.
+  - Loose files are untouched: same discovery, keys, IDs and behaviour; the loose scanners never descend into subfolders.
+  - Optional strict `package.json`: name, description, member labels, reserved `settings`.
+  - One package snapshot per startup/F9 transaction feeds both the replacement lane and the Inject scanner, so a package commits all or nothing.
+  - A bad member, a manifest mismatch or a conflict rejects only that package: `RENOVICE PACKAGE REJECT … reason=… scope=package-local`.
+  - Conflicts: the same replacement or target key held by a package and another enabled source. The later-sorted source (loose files sort first) fails closed.
+  - Untargeted managed addons and one-shot chunks are not admissible members.
+- **Circuit (fix 3).** Live pid 23260: DuviriUtil's root closure kept its entry environment across `module(...)` (`entry_env == runtime_env`), and the retry failed again. At the root's return, the runtime now binds in the environment of the root's own child closures (from its dead register window; all must agree), else in the root closure environment. The log shows `env_source=… child_closures=N`.
+- **Diagnostics.** The source log keeps one open handle; diagnostic lines are buffered (64 KiB, 250 ms, flushed before operational lines, on exit and on a recorded fault). Per-hit trace lanes are limited to 32 lines per event per second, with suppression summaries.
+- **Diagnostics=false** now formats nothing: dispatch labels, the performance line, the float-transform details and the hook-PASS identity (64-bit hash, checked first).
+- **Docs.** The hooks doc now states that `instruction` is the `NAMECALL` index (Mallet p16: 596).
+
+Gates and build:
+
+- All gates PASS, including new `verify_script_packages.ps1` and the injection/config core gates (both now in the build).
+- Private build PASS, 0 warnings, 0 errors.
+- DLL `6f100ebcb087cebf977781217897356a9ab208f9c5f273b62358f64462c79248` (5,081,088 B), staged at `work/staging/bootstrapper-packages/`.
+
+**Deployment and live checks are pending.** Rollback: `420e10a4…`. The Missions package (generator Phase 2h) replaces `Inject\Missions.targets.addon.lua_B` and the root `fc711ff621a75552 (missions_exact-replacement).lua_B`; remove both. [Record, migration and checklist](../RESEARCH/SCRIPT_PACKAGES_AND_FIX3_2026-09-29/README.md).
+
 ## 2026-09-29 Fix 2 after the first live run of `83e74faf…` staged (not deployed)
 
 Branch `fix/multi-target-live-run-2026-09-29` (from `67cd256`). Live run: 44.0.2, pid 32336, Diagnostics on.
