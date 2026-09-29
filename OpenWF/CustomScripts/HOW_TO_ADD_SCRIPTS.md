@@ -285,6 +285,22 @@ are unchanged.
 the settings of that package (`RENOVICE SETTINGS DECLARATIONS REJECT …`); its
 scripts still load with their compiled values.
 
+Optional `stock_check` (addon lane only; since bootstrapper 2026-09-30,
+`feat/ingame-settings-editor` after `7028479`) says how the addon guards a
+custom value. It only changes the SCRIPT SETTINGS tooltip; the addon still owns
+the rule.
+
+- `"live"` (the default when absent): the addon writes the value only where the
+  live game value still equals stock, for example generated data-table writes.
+  The tooltip ends with "Custom value applies only where the live value equals
+  stock."
+- `"none"`: the addon applies the value itself without comparing it to a live
+  value, for example a native argument transform or a damage rewrite. The
+  tooltip omits that sentence.
+
+A DLL built before the field existed rejects it as an unknown field, which
+disables only that package's settings (compiled values).
+
 **Values** (player state), `CustomScripts\Settings\<package folder>.json`:
 
 ```json

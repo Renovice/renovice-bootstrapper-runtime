@@ -66,6 +66,11 @@ $bridges = @(
 foreach ($required in @($derecomp, $apiChecker)) {
     Require (Test-Path -LiteralPath $required -PathType Leaf) "toolchain present: $required"
 }
+# derecomp.exe reads short copies and writes into the gate scratch folder (the
+# repository may be deeper than MAX_PATH); each result is then copied to its
+# repository path exactly as the tool wrote it.
+. (Join-Path $repo 'RENOVICE_TOOLCHAIN\gate_paths.ps1')
+$scratch = Get-GateScratch $repo 'settings-bridges'
 
 $built = 0
 foreach ($bridge in $bridges) {
@@ -85,15 +90,17 @@ foreach ($bridge in $bridges) {
     }
     Require (-not [regex]::IsMatch($text, 'Execute\("[A-Za-z]+"\)')) "$($bridge.Source) calls Execute with the two-argument stock form only"
 
-    & $derecomp recompile-u44 $source $output
+    $shortSource = Copy-GateInput $source $scratch
+    $shortOutput = Join-Path $scratch $bridge.Output
+    & $derecomp recompile-u44 $shortSource $shortOutput
     if ($LASTEXITCODE -ne 0) { throw "SCRIPT SETTINGS BRIDGE GATE FAIL: U44 compile failed: $($bridge.Source)" }
-    & $derecomp de-roundtrip $output
+    & $derecomp de-roundtrip $shortOutput
     if ($LASTEXITCODE -ne 0) { throw "SCRIPT SETTINGS BRIDGE GATE FAIL: byte-exact roundtrip failed: $($bridge.Output)" }
-    $resolvedSource = (Resolve-Path -LiteralPath $source).Path
-    $apiOutput = @(& $apiChecker $resolvedSource --show-unknown 2>&1 | ForEach-Object { $_.ToString() })
+    $apiOutput = @(& $apiChecker $shortSource --show-unknown 2>&1 | ForEach-Object { $_.ToString() })
     $apiExit = $LASTEXITCODE
     $apiOutput | Write-Output
     Require ($apiExit -eq 0) "$($bridge.Source) passes the Warframe API contract check (0 violations)"
+    Copy-Item -LiteralPath $shortOutput -Destination $output -Force
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $output).Hash
     $size = (Get-Item -LiteralPath $output).Length
     Write-Output "BRIDGE`t$($bridge.Output) bytes=$size sha256=$hash"

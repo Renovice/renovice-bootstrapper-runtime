@@ -575,6 +575,17 @@ void admit_external(const std::filesystem::path& package_folder, const std::file
 	for (const auto& line : gate::log_lines) std::cout << "LOG\t" << line << '\n';
 }
 
+// \\?\ form: MSVC std::filesystem then creates, copies and removes trees
+// beyond MAX_PATH (the repository or the work folder may be deep).
+std::filesystem::path long_path(const std::filesystem::path& path)
+{
+	const std::wstring& native = path.native();
+	if (native.rfind(LR"(\\?\)", 0) == 0) return path;
+	const std::wstring absolute = std::filesystem::absolute(path).native();
+	if (absolute.rfind(LR"(\\)", 0) == 0) return std::filesystem::path(LR"(\\?\UNC\)" + absolute.substr(2));
+	return std::filesystem::path(LR"(\\?\)" + absolute);
+}
+
 int main(int argc, char** argv)
 {
 	if (argc != 3 && !(argc == 5 && std::string_view(argv[3]) == "--admit"))
@@ -583,9 +594,9 @@ int main(int argc, char** argv)
 		return 2;
 	}
 	pure_rules();
-	end_to_end(argv[1], argv[2]);
+	end_to_end(long_path(argv[1]), long_path(argv[2]));
 	loose_regression();
-	if (argc == 5) admit_external(argv[4], argv[2]);
+	if (argc == 5) admit_external(long_path(argv[4]), long_path(argv[2]));
 	std::cout << (pass ? "SCRIPT PACKAGES PASS" : "SCRIPT PACKAGES FAIL") << '\n';
 	return pass ? 0 : 1;
 }

@@ -18,14 +18,23 @@ if ($observerOffset -lt 0 -or $sourceText.Substring(0, $observerOffset) -cne $ca
     throw 'Embedded automatic damage runtime no longer contains the exact canonical Battle Log V5 prefix'
 }
 
-& (Join-Path $toolchain 'luau.exe') (Join-Path $PSScriptRoot 'verify_automatic_damage_runtime.luau')
+# luau.exe and derecomp.exe read short copies and write into the gate scratch
+# folder (the repository may be deeper than MAX_PATH); results are copied to
+# their repository paths exactly as the tools wrote them.
+. (Join-Path (Split-Path $PSScriptRoot -Parent) 'gate_paths.ps1')
+$scratch = Get-GateScratch $repo 'automatic-damage-runtime'
+$shortDir = Join-Path (Copy-GateSources $repo $scratch @('RENOVICE_TOOLCHAIN\injection\automatic_damage_runtime.luau', 'RENOVICE_TOOLCHAIN\injection\verify_automatic_damage_runtime.luau')) 'RENOVICE_TOOLCHAIN\injection'
+$shortSource = Join-Path $shortDir 'automatic_damage_runtime.luau'
+$shortBytecode = Join-Path $scratch 'automatic_damage_runtime.lua_B'
+& (Join-Path $toolchain 'luau.exe') (Join-Path $shortDir 'verify_automatic_damage_runtime.luau')
 if ($LASTEXITCODE) { throw 'Automatic damage runtime semantics tests failed' }
-& (Join-Path $toolchain 'derecomp.exe') recompile $source $bytecode
+& (Join-Path $toolchain 'derecomp.exe') recompile $shortSource $shortBytecode
 if ($LASTEXITCODE) { throw 'Automatic damage runtime DE compilation failed' }
 foreach ($mode in @('de-roundtrip', 'semantic-ir-verify')) {
-    & (Join-Path $toolchain 'derecomp.exe') $mode $bytecode
+    & (Join-Path $toolchain 'derecomp.exe') $mode $shortBytecode
     if ($LASTEXITCODE) { throw "Automatic damage runtime $mode failed" }
 }
+Copy-Item -LiteralPath $shortBytecode -Destination $bytecode -Force
 
 $bytes = [IO.File]::ReadAllBytes($bytecode)
 $lines = @(
@@ -40,10 +49,13 @@ for ($i = 0; $i -lt $bytes.Length; $i += 16) {
 }
 $lines += '};'
 $u44Bytecode = Join-Path $generated 'automatic_damage_runtime.u44.lua_B'
-& (Join-Path $toolchain 'derecomp.exe') recompile-u44 $source $u44Bytecode (Join-Path $toolchain '..\profiles\u44\name-map.tsv')
+$shortU44Bytecode = Join-Path $scratch 'automatic_damage_runtime.u44.lua_B'
+$shortNameMap = Copy-GateInput (Join-Path $toolchain '..\profiles\u44\name-map.tsv') $scratch
+& (Join-Path $toolchain 'derecomp.exe') recompile-u44 $shortSource $shortU44Bytecode $shortNameMap
 if ($LASTEXITCODE) { throw 'U44 helper compilation failed' }
-& (Join-Path $toolchain 'derecomp.exe') de-roundtrip $u44Bytecode
+& (Join-Path $toolchain 'derecomp.exe') de-roundtrip $shortU44Bytecode
 if ($LASTEXITCODE) { throw 'U44 helper container roundtrip failed' }
+Copy-Item -LiteralPath $shortU44Bytecode -Destination $u44Bytecode -Force
 $u44Bytes = [IO.File]::ReadAllBytes($u44Bytecode)
 $lines += 'inline constexpr unsigned char automatic_damage_runtime_bytecode_u44[]{'
 for ($i = 0; $i -lt $u44Bytes.Length; $i += 16) {

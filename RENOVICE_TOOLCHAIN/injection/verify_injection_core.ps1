@@ -6,8 +6,12 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $toolchain = Split-Path -Parent $PSScriptRoot
-$source = Join-Path $PSScriptRoot "verify_injection_core.cpp"
-$binaryDir = Join-Path $toolchain "bin\injection"
+$repo = Split-Path -Parent $toolchain
+. (Join-Path $toolchain 'gate_paths.ps1')
+# cl.exe compiles short copies in the gate scratch folder (the repository may
+# be deeper than MAX_PATH).
+$binaryDir = Get-GateScratch $repo 'injection-core'
+$source = Join-Path (Copy-GateSources $repo $binaryDir @('renovice', 'RENOVICE_TOOLCHAIN\injection\verify_injection_core.cpp')) 'RENOVICE_TOOLCHAIN\injection\verify_injection_core.cpp'
 $binary = Join-Path $binaryDir "verify_injection_core.exe"
 $object = Join-Path $binaryDir "verify_injection_core.obj"
 

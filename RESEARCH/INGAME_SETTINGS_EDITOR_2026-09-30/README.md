@@ -8,6 +8,7 @@ Branch `feat/ingame-settings-editor-2026-09-30` from `3ca9564` (deployed DLL `6f
 |---|---|---|
 | `3230368` | Phase 0 probe build + optional internal bridges + second pause-menu row | probe DLL `1a40ecaa7d9b9823a15f3b2335a0262c8d463f5f41420d755e3482a25ba73a0d` (5,110,272 B) |
 | `c6ceec4` | Phase 2 ADDON_SETTINGS_V1, `member:` states; Phase 3 SCRIPT SETTINGS | main DLL `d2f2265071ea18caeccdde53a66aa4c6d16c387121d541bad20e23305b724372` (5,562,368 B) |
+| follow-up after `7028479` | R1: `stock_check` tooltip, `verify_addon_settings -Package/-Settings`, long-path-safe gates (section "Follow-up R1") | main DLL `ed2a996d92b4b73ef2567945ecb0d709241e0d7746902079ad982a270e6eddb5` (5,562,880 B); bridge unchanged `9c1450ed…` |
 
 Both builds: `build_private.ps1` (probe: `-SettingsProbeP0`), 0 warnings, 0 errors, every gate PASS. Staged in
 `work/staging/editor-phase0-probe/` (with `PROBE_CHECKLIST.md`) and `work/staging/editor-phase2-3/` (with the install
@@ -90,3 +91,54 @@ Lua-free like F9 and the open runs at the pending-only safe tick (never periodic
 - Hotkey (`SettingsMenuKey`), token search page and the status channel are Phase 4, not built.
 - Live evidence still required: N-1…H-2 (probe), Phase 2 Survival 150 s → `use_stock` 300 s, SCRIPT SETTINGS §4.6 look,
   and a second unrelated addon consuming `context.settings`.
+
+## Follow-up R1 (2026-09-30): tooltip from the declaration, real-package verification, long-path-safe gates
+
+Trigger: the second-consumer note (ability-editor `feat/settings-second-consumer-2026-09-30` `a32e4ab`,
+`RESEARCH/SETTINGS_SECOND_CONSUMER_2026-09-30/README.md`, "Limitations and follow-ups") found three owner issues here.
+Offline only; nothing was deployed, pushed or written to a game folder.
+
+| ID | Hypothesis | Result | Evidence |
+|---|---|---|---|
+| R1-1 | The fixed tooltip sentence "Custom value applies only where the live value equals stock" can be derived from the declaration without changing Missions behaviour | TRUE (offline) | New optional per-value `stock_check: "live" \| "none"` (addon lane only; absent = `live`). phase2i rows keep the exact text (gate); a `none` declaration omits it; delivery identities unchanged (`fee07438…`, `6f4414d1…` with and without the field) |
+| R1-2 | `verify_addon_settings` can run a real package and values file through the exact scanner, evaluation, deliveries and page model | TRUE | `-Package <dir> -Settings <file>`: Missions phase2i, Octavia and Frost each 150/150 PASS (137 base + 13 external) |
+| R1-3 | The gate scripts fail only because native tools and checkers see paths over MAX_PATH | TRUE | Baseline at a 213-character repository path: cl `C1083` / "The directory name is invalid" (CreateProcess cwd), derecomp/luau/g++ "Error opening". After R1: every gate that failed for path length PASSes at 213 characters |
+| R1-4 | MSVC `std::filesystem` handles `\\?\` paths for create/copy/iterate/remove | TRUE | probe: a 541-character tree created, written, copied, iterated and removed |
+| R1-5 | cl.exe accepts `\\?\` source paths | FALSE | `C1083: Cannot open source file: '\\verify_addon_settings.cpp'`; hence short copies for native tools |
+
+**1. `stock_check` (display only).** `settings_core.hpp`: `StockCheck { Live, None }`, strict parse
+(`stock_check-invalid[=<text>]`, `stock_check-only-for-addon-lane`), `stock_check_declared` for reports.
+`settings_ui_core.hpp` `value_tooltip`: addon rows append `live_stock_sentence` only for `Live`. The host enforces
+nothing and delivers nothing new; the addon keeps its own rule (CONTRACT_PHASE1 item 11). A DLL before R1 (e.g.
+`d2f22650`) rejects the field as `unknown-field=stock_check`, i.e. that package's settings capability only (compiled
+values). Generator change (not made here; ability-editor owner): `CONTRACT_PHASE1.md` "Revision R1".
+
+**2. `verify_addon_settings.ps1 -Package <folder> [-Settings <file>]`.** Runs the regression (phase2i fixtures), then
+copies the folder into an empty `CustomScripts\Packages\<folder>` and the file to `Settings\<folder>.json`, scans with
+the exact `packages.cpp`, and prints `LOG` (operational lines), `DECL` (with `stock_check`), `REJECT`, `MEMBER`,
+`DELIVER` (`context.settings[...]`) and every `ROW` with its tooltip. Checks: accepted, declarations accepted, file
+found and valid, no value rejected, a delivery for every addon member that declares values, labels/tooltips within
+budget, and the live-stock sentence exactly on addon rows with `stock_check` live.
+
+**3. Long paths.** `RENOVICE_TOOLCHAIN/gate_paths.ps1` (dot-sourced): `Get-GateScratch` (`%TEMP%\rnvg\<8 hex of the
+repo path>\<gate>`, recreated per run, refuses reparse points), `Copy-GateSources` (mirror with the same relative
+layout so `#include "../../renovice/..."` and `require("./...")` resolve), `Copy-GateInput`, `ConvertTo-GateLongPath`.
+Applied to every gate that runs a native tool on repository paths: `verify_addon_settings`, `verify_script_packages`,
+`verify_multi_target_addon`, `verify_injection_core`, `verify_config_core`, `verify_target_root_binding`,
+`verify_detour_relocatability` (checker only), `verify_scripts_ui_core`, `verify_scripts_ui_bridge`,
+`verify_script_settings_bridges`, `build_callback_runtime`, `build_automatic_damage_runtime`. The two C++ checkers
+with work trees also use `\\?\`. Tool outputs of record (bridge `.lua_B`, semantic render, `injection/generated/*`)
+are copied back byte for byte; `git status` shows none of them changed after the full gate run. Gate binaries no
+longer land in `RENOVICE_TOOLCHAIN\bin\{settings,injection,config,runtime}`.
+
+**Gates and build.** Full `build_private.ps1` gate list 29/29 PASS at the repository path (99 characters). Same list
+from a `git ls-files` copy at a 213-character path: 27/29, all path failures gone; the two remaining
+(`verify_dependencies`, `verify_manifest`) need `.git` and the legacy archive, which the copy does not carry (not path
+related). Release build `build_private.ps1`: `PRIVATE BUILD PASS flavor=main warnings=0 errors=0`, 5,562,880 B,
+`ed2a996d92b4b73ef2567945ecb0d709241e0d7746902079ad982a270e6eddb5`. The V1 bridge is byte-identical
+(`9c1450ed…`). Staged in `work/staging/editor-phase2-3/` (previous `d2f22650` files in `older/`).
+
+**Limits (exact).** `verify_detour_relocatability` still reads the Soup headers and `soup.lib` (17 MB build
+product) in place, so it holds up to a repository path of about 200 characters. `verify_dependencies`/`verify_manifest`
+were not tested beyond MAX_PATH (git-based). `%TEMP%` itself must be short (it is 34 characters here). The Release
+build (Sun/clang under `int\`) was not made long-path safe; it is not a gate. U-1 stays UNRESOLVED (live).

@@ -2,8 +2,12 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$source = Join-Path $PSScriptRoot 'verify_detour_relocatability.cpp'
-$binaryDir = Join-Path $repo 'RENOVICE_TOOLCHAIN\bin\runtime'
+. (Join-Path $repo 'RENOVICE_TOOLCHAIN\gate_paths.ps1')
+# The checker source, object and binary live in the short gate scratch folder.
+# The Soup headers and soup.lib (a 17 MB build product) are still read in place,
+# which bounds this gate at a repository path of about 200 characters.
+$binaryDir = Get-GateScratch $repo 'detour-relocatability'
+$source = Join-Path (Copy-GateSources $repo $binaryDir @('RENOVICE_TOOLCHAIN\runtime\verify_detour_relocatability.cpp')) 'RENOVICE_TOOLCHAIN\runtime\verify_detour_relocatability.cpp'
 $binary = Join-Path $binaryDir 'verify_detour_relocatability.exe'
 $object = Join-Path $binaryDir 'verify_detour_relocatability.obj'
 $soupDir = Join-Path $repo 'modules\Soup\soup'

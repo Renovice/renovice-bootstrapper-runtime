@@ -26,10 +26,12 @@ try {
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
 
-    $binaryDir = Join-Path $toolchain "bin\config"
-    New-Item -ItemType Directory -Path $binaryDir -Force | Out-Null
+    # cl.exe compiles short copies in the gate scratch folder (the repository
+    # may be deeper than MAX_PATH).
+    . (Join-Path $toolchain 'gate_paths.ps1')
+    $binaryDir = Get-GateScratch $repo 'config-core'
     $binary = Join-Path $binaryDir "verify_config_core.exe"
-    $source = Join-Path $PSScriptRoot "verify_config_core.cpp"
+    $source = Join-Path (Copy-GateSources $repo $binaryDir @('renovice', 'RENOVICE_TOOLCHAIN\config\verify_config_core.cpp')) 'RENOVICE_TOOLCHAIN\config\verify_config_core.cpp'
 
     $object = Join-Path $binaryDir "verify_config_core.obj"
     & cl /nologo /std:c++20 /W4 /WX /EHsc /O2 $source /Fo:$object /Fe:$binary

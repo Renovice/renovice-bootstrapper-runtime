@@ -391,6 +391,14 @@ inline std::string number_text(double value)
 enum class ValueType { Int, Float, Enum };
 enum class Lane { Addon, Literal, Metadata };
 enum class Applies { LiveNextRead, NextInstance, NextMission, Restart };
+// How the consuming addon guards a custom value (display only; the host never
+// enforces it, the addon owns the rule). `live`: the addon writes the custom
+// value only where the live game value still equals the declared stock (for
+// example generated data-table writes). `none`: no live stock comparison, the
+// addon applies the value itself (for example a native argument transform or a
+// damage rewrite). Optional, addon lane only; absent means `live`, so
+// declarations written before the field existed keep their tooltip text.
+enum class StockCheck { Live, None };
 
 inline const char* value_type_label(ValueType type) noexcept
 {
@@ -426,6 +434,16 @@ inline const char* applies_label(Applies applies) noexcept
 	return "unknown";
 }
 
+inline const char* stock_check_label(StockCheck check) noexcept
+{
+	switch (check)
+	{
+	case StockCheck::Live: return "live";
+	case StockCheck::None: return "none";
+	}
+	return "unknown";
+}
+
 struct EnumOption
 {
 	std::string label;
@@ -454,6 +472,8 @@ struct ValueDecl
 	double maximum = 0.0;
 	Lane lane = Lane::Addon;
 	Applies applies = Applies::LiveNextRead;
+	StockCheck stock_check = StockCheck::Live;
+	bool stock_check_declared = false; // the field was present (reporting only)
 	std::vector<EnumOption> options;
 };
 
@@ -589,8 +609,9 @@ inline std::string parse_value_decl(
 	const std::string where = "value=" + id;
 	if (!valid_value_id(id)) return "value-id-invalid=" + id;
 	if (!value.is_object()) return where + " declaration-not-object";
-	static constexpr std::array<std::string_view, 11> fields{
-		"group", "label", "unit", "type", "stock", "min", "max", "scope", "lane", "applies", "options"};
+	static constexpr std::array<std::string_view, 12> fields{
+		"group", "label", "unit", "type", "stock", "min", "max", "scope", "lane", "applies", "options",
+		"stock_check"};
 	for (const auto& [key, field] : value.members)
 	{
 		(void)field;
@@ -663,6 +684,15 @@ inline std::string parse_value_decl(
 		else if (applies->text == "next_mission") out.applies = Applies::NextMission;
 		else if (applies->text == "restart") out.applies = Applies::Restart;
 		else return where + " applies-invalid=" + applies->text;
+	}
+	if (const auto* stock_check = value.find("stock_check"))
+	{
+		if (!stock_check->is_string()) return where + " stock_check-invalid";
+		if (stock_check->text == "live") out.stock_check = StockCheck::Live;
+		else if (stock_check->text == "none") out.stock_check = StockCheck::None;
+		else return where + " stock_check-invalid=" + stock_check->text;
+		if (out.lane != Lane::Addon) return where + " stock_check-only-for-addon-lane";
+		out.stock_check_declared = true;
 	}
 	const auto* options = value.find("options");
 	if (out.type == ValueType::Enum)

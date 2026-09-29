@@ -1,18 +1,32 @@
 # Deterministic gates for ADDON_SETTINGS_V1, `member:` states and the SCRIPT
 # SETTINGS page model (2026-09-30). Offline only: builds the exact
 # renovice/packages.cpp scanner plus settings_core.hpp / settings_ui_core.hpp
-# with stub providers, runs it on a temporary CustomScripts tree under
-# RENOVICE_TOOLCHAIN\bin, then pins the runtime integration in injection.cpp,
-# replacements.cpp and script_control.cpp. It never reads or writes a game
-# folder.
+# with stub providers, runs it on a temporary CustomScripts tree in the gate
+# scratch folder (gate_paths.ps1, long-path safe), then pins the runtime
+# integration in injection.cpp, replacements.cpp and script_control.cpp. It
+# never reads or writes a game folder.
+#
+# -Package <folder> [-Settings <file>]: additionally run a real package folder
+# (package.json plus its member files) and, optionally, its values file through
+# the same scanner, the settings evaluation, the deliveries and the SCRIPT
+# SETTINGS page model, and print every row. The values file is copied to
+# Settings\<package folder>.json in the temporary tree. Without -Settings the
+# package is checked with no values file (every value stock).
+param(
+    [string]$Package = '',
+    [string]$Settings = ''
+)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $settingsDir = $PSScriptRoot
 $toolchainDir = Split-Path -Parent $settingsDir
 $repo = Split-Path -Parent $toolchainDir
-$binaryDir = Join-Path $toolchainDir "bin\settings"
-New-Item -ItemType Directory -Path $binaryDir -Force | Out-Null
+. (Join-Path $toolchainDir 'gate_paths.ps1')
+if ([string]::IsNullOrWhiteSpace($Package) -and -not [string]::IsNullOrWhiteSpace($Settings)) {
+    throw "ADDON SETTINGS GATE FAIL: -Settings requires -Package"
+}
+$scratch = Get-GateScratch $repo 'addon-settings'
 
 function Get-Region([string]$Text, [string]$Begin, [string]$End, [string]$Label) {
     $start = $Text.IndexOf($Begin, [StringComparison]::Ordinal)
@@ -26,7 +40,7 @@ function Require([bool]$Condition, [string]$Message) {
 }
 
 # 1. Pure rules + the real scanner end to end (MSVC /W4 /WX, like the build).
-$work = Join-Path $binaryDir 'addon-settings-work'
+$work = ConvertTo-GateLongPath (Join-Path $scratch 'work')
 $originalEnvironment = @{}
 foreach ($entry in Get-ChildItem Env:) { $originalEnvironment[$entry.Name] = $entry.Value }
 try {
@@ -38,10 +52,12 @@ try {
     }
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
-    $source = Join-Path $settingsDir 'verify_addon_settings.cpp'
-    $scanner = Join-Path $repo 'renovice\packages.cpp'
-    $binary = Join-Path $binaryDir 'verify_addon_settings.exe'
-    $objects = Join-Path $binaryDir 'addon-settings-obj'
+    # cl.exe compiles short copies (the repository may be deeper than MAX_PATH).
+    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.cpp')
+    $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.cpp'
+    $scanner = Join-Path $mirror 'renovice\packages.cpp'
+    $binary = Join-Path $scratch 'verify_addon_settings.exe'
+    $objects = Join-Path $scratch 'obj'
     New-Item -ItemType Directory -Path $objects -Force | Out-Null
     Push-Location $objects
     try {
@@ -51,7 +67,12 @@ try {
     finally { Pop-Location }
     $output | Write-Output
     if ($compileExit -ne 0) { throw "ADDON SETTINGS GATE FAIL: checker compilation failed: $compileExit" }
-    & $binary $work (Join-Path $settingsDir 'fixtures\phase2i')
+    $arguments = @($work, (ConvertTo-GateLongPath (Join-Path $settingsDir 'fixtures\phase2i')))
+    if (-not [string]::IsNullOrWhiteSpace($Package)) {
+        $arguments += @('--package', (ConvertTo-GateLongPath $Package))
+        if (-not [string]::IsNullOrWhiteSpace($Settings)) { $arguments += @('--settings', (ConvertTo-GateLongPath $Settings)) }
+    }
+    & $binary @arguments
     if ($LASTEXITCODE -ne 0) { throw "ADDON SETTINGS GATE FAIL: checker failed: $LASTEXITCODE" }
 }
 finally {

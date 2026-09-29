@@ -26,24 +26,35 @@ foreach ($requiredCall in @(
     }
 }
 
-& $derecomp recompile $source $bytecode
+# derecomp.exe reads a short copy and writes into the gate scratch folder (the
+# repository may be deeper than MAX_PATH); the results are then copied to their
+# repository paths exactly as the tool wrote them.
+. (Join-Path $repo 'RENOVICE_TOOLCHAIN\gate_paths.ps1')
+$scratch = Get-GateScratch $repo 'scripts-ui-bridge'
+$shortSource = Copy-GateInput $source $scratch
+$shortBytecode = Join-Path $scratch (Split-Path -Leaf $bytecode)
+$shortSemantic = Join-Path $scratch (Split-Path -Leaf $semantic)
+
+& $derecomp recompile $shortSource $shortBytecode
 if ($LASTEXITCODE -ne 0) { throw "Scripts UI bridge recompile failed: $LASTEXITCODE" }
 
-& $derecomp de-roundtrip $bytecode
+& $derecomp de-roundtrip $shortBytecode
 if ($LASTEXITCODE -ne 0) { throw "Scripts UI bridge byte-exact roundtrip failed: $LASTEXITCODE" }
 
-& $derecomp plan-verify $bytecode
+& $derecomp plan-verify $shortBytecode
 if ($LASTEXITCODE -ne 0) { throw "Scripts UI bridge ownership plan failed: $LASTEXITCODE" }
 
-& $derecomp semantic-ir-verify $bytecode
+& $derecomp semantic-ir-verify $shortBytecode
 if ($LASTEXITCODE -ne 0) { throw "Scripts UI bridge Semantic IR failed: $LASTEXITCODE" }
 
-& $derecomp semantic-ir-render-module $bytecode $semantic
+& $derecomp semantic-ir-render-module $shortBytecode $shortSemantic
 if ($LASTEXITCODE -ne 0) { throw "Scripts UI bridge Semantic IR render failed: $LASTEXITCODE" }
 
-$resolvedSource = (Resolve-Path -LiteralPath $source).Path
-& $apiChecker $resolvedSource --show-unknown
+& $apiChecker $shortSource --show-unknown
 if ($LASTEXITCODE -ne 0) { throw "Scripts UI bridge API contract check failed: $LASTEXITCODE" }
+
+Copy-Item -LiteralPath $shortBytecode -Destination $bytecode -Force
+Copy-Item -LiteralPath $shortSemantic -Destination $semantic -Force
 
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $bytecode).Hash
 $size = (Get-Item -LiteralPath $bytecode).Length

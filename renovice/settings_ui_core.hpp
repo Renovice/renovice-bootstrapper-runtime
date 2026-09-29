@@ -223,7 +223,11 @@ inline std::string editor_label(const settings::ValueDecl& declaration)
 
 // The tooltip always starts with the stock value (CONTRACT_PHASE1 D1: when
 // the "(stock ...)" suffix does not fit the 40-character label, this is where
-// the player reads it), then the range, the scope and the apply timing.
+// the player reads it), then the range, the scope and the apply timing. The
+// live-stock sentence is derived from the declaration (`stock_check`): only an
+// addon that compares the live value with stock before writing says so.
+inline constexpr std::string_view live_stock_sentence = " Custom value applies only where the live value equals stock.";
+
 inline std::string value_tooltip(const settings::ValueDecl& declaration)
 {
 	std::string text = "Stock " + with_unit(declaration, declaration.stock) + ".";
@@ -238,7 +242,10 @@ inline std::string value_tooltip(const settings::ValueDecl& declaration)
 	else if (declaration.lane == settings::Lane::Metadata)
 		text += " Metadata value: read-only here; applies after a game restart.";
 	else
-		text += " Applies: " + applies_text(declaration.applies) + ". Custom value applies only where the live value equals stock.";
+	{
+		text += " Applies: " + applies_text(declaration.applies) + ".";
+		if (declaration.stock_check == settings::StockCheck::Live) text += live_stock_sentence;
+	}
 	return bounded_tooltip(text);
 }
 

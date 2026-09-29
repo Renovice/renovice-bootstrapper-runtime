@@ -10,9 +10,13 @@
 //         declarations, malformed values file (package-local stock), invalid
 //         declarations (capability-local compiled defaults), `member:` policy,
 //         and the exact operational log lines.
-// Part 6: page model of the SCRIPT SETTINGS UI (when compiled with it).
+// Part 6: page model of the SCRIPT SETTINGS UI (when compiled with it),
+//         including the declaration-derived tooltip (`stock_check`).
+// Part 7: optional real package folder and values file (--package/--settings).
 //
 // Usage: verify_addon_settings <work dir> <phase2i fixture dir>
+//            [--package <folder> [--settings <file>]]
+// Paths are used in \\?\ form, so deep work folders stay long-path safe.
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -206,6 +210,9 @@ void declarations_parser()
 		{top_with(""), value_with(base_value + ", \"options\": []"), "member=M value=g.v options-only-for-enum"},
 		{top_with(""), value_with("\"group\": \"g\", \"label\": \"V\", \"type\": \"int\", \"stock\": 5, \"min\": 0, \"max\": 10, \"lane\": \"server\""), "member=M value=g.v lane-invalid=server"},
 		{top_with(""), value_with("\"group\": \"g\", \"label\": \"V\", \"type\": \"int\", \"stock\": 5, \"min\": 0, \"max\": 10, \"applies\": \"now\""), "member=M value=g.v applies-invalid=now"},
+		{top_with(""), value_with(base_value + ", \"stock_check\": \"sometimes\""), "member=M value=g.v stock_check-invalid=sometimes"},
+		{top_with(""), value_with(base_value + ", \"stock_check\": true"), "member=M value=g.v stock_check-invalid"},
+		{top_with(""), value_with("\"group\": \"g\", \"label\": \"V\", \"type\": \"int\", \"stock\": 5, \"min\": 0, \"max\": 10, \"lane\": \"literal\", \"stock_check\": \"none\""), "member=M value=g.v stock_check-only-for-addon-lane"},
 		{top_with(""), value_with("\"group\": \"g\", \"label\": \"" + std::string(65, 'x') + "\", \"type\": \"int\", \"stock\": 5, \"min\": 0, \"max\": 10"), "member=M value=g.v label-invalid"},
 		{top_with(""), "{ \"values\": { \"bad id\": {} } }", "member=M value-id-invalid=bad id"},
 		{top_with(""), "{ \"values\": {}, \"enabled\": true }", "member=M settings-must-be-exactly-values-object"},
@@ -223,6 +230,20 @@ void declarations_parser()
 		const auto error = settings::parse_declarations(top_with(""),
 			{{"A", value_with(base_value)}, {"B", value_with(base_value)}}, duplicate);
 		check(error == "value-duplicate-in-package=g.v", "a value id is unique across the members of a package");
+	}
+	{
+		// stock_check (optional, addon lane): absent = live, so earlier
+		// declarations (the phase2i generator output) keep their meaning.
+		settings::Declarations absent, live, none;
+		const bool parsed = settings::parse_declarations(top_with(""), {{"M", value_with(base_value)}}, absent).empty()
+			&& settings::parse_declarations(top_with(""), {{"M", value_with(base_value + ", \"stock_check\": \"live\"")}}, live).empty()
+			&& settings::parse_declarations(top_with(""), {{"M", value_with(base_value + ", \"stock_check\": \"none\"")}}, none).empty();
+		check(parsed && absent.values[0].stock_check == settings::StockCheck::Live && !absent.values[0].stock_check_declared
+			&& live.values[0].stock_check == settings::StockCheck::Live && live.values[0].stock_check_declared
+			&& none.values[0].stock_check == settings::StockCheck::None && none.values[0].stock_check_declared
+			&& std::all_of(declarations.values.begin(), declarations.values.end(),
+				[](const settings::ValueDecl& value) { return value.stock_check == settings::StockCheck::Live; }),
+			"stock_check: \"live\" | \"none\" parse; absent means live (backward compatible)");
 	}
 }
 
@@ -683,6 +704,15 @@ void phase1_contract(const std::filesystem::path& fixtures, const std::filesyste
 	for (const auto& row : page.rows)
 		within_budget &= row.label.size() <= (row.kind == RowKind::Title ? maximum_title_label : maximum_row_label);
 	check(within_budget, "phase2i: every row label is within the width budget");
+	const auto tooltip_of = [&](std::string_view setting) -> std::string
+	{
+		for (const auto& row : page.rows)
+			if (row.setting == setting) return row.tooltip;
+		return {};
+	};
+	check(tooltip_of("value:missions/survival.reward_interval").find(live_stock_sentence) != std::string::npos
+		&& tooltip_of("value:missions/void_flood.fractures_per_round.normal").find(live_stock_sentence) == std::string::npos,
+		"phase2i: without stock_check the addon rows keep the live-stock sentence (backward compatible); literal rows never carry it");
 }
 
 // -----------------------------------------------------------------------------
@@ -767,6 +797,35 @@ void ui_page_model()
 	check(custom != nullptr && custom->tooltip.find("All Survival nodes") != std::string::npos
 		&& custom->tooltip.find("Applies: live, at the next read") != std::string::npos,
 		"tooltips carry scope and apply timing");
+	check(custom != nullptr && editor != nullptr && literal_value != nullptr
+		&& custom->tooltip.find(live_stock_sentence) != std::string::npos
+		&& editor->tooltip.find(live_stock_sentence) != std::string::npos
+		&& literal_value->tooltip.find(live_stock_sentence) == std::string::npos,
+		"stock_check absent (live): addon rows say the value applies only where the live value equals stock; literal rows do not");
+	{
+		// An addon that applies its value without a live stock comparison
+		// (stock_check "none") must not claim one.
+		settings::Declarations none;
+		const auto error = settings::parse_declarations(
+			"{ \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"b\", \"groups\": ["
+			" { \"id\": \"g\", \"label\": \"Group\", \"order\": 1, \"aliases\": [] } ] }",
+			{{"Other.target.addon.lua_B",
+				"{ \"values\": { \"g.transform\": { \"group\": \"g\", \"label\": \"Forced level\", \"unit\": \"\","
+				" \"type\": \"int\", \"stock\": 5, \"min\": 0, \"max\": 5, \"scope\": \"Unticked: dynamic\","
+				" \"lane\": \"addon\", \"applies\": \"live_next_read\", \"stock_check\": \"none\" } } }"}},
+			none);
+		PackageView other;
+		other.folder = "Other";
+		other.display = "Other";
+		other.declarations = &none;
+		const auto other_page = build_flat_page({other});
+		const auto* none_custom = find_row(other_page, "custom:other/g.transform");
+		const auto* none_editor = find_row(other_page, "value:other/g.transform");
+		check(error.empty() && none_custom != nullptr && none_editor != nullptr
+			&& none_editor->tooltip == "Stock 5. Range 0 to 5. Unticked: dynamic. Applies: live, at the next read."
+			&& none_custom->tooltip == "Off: the stock value is used. " + none_editor->tooltip,
+			"stock_check none: the tooltip is derived from the declaration and omits the live-stock sentence");
+	}
 
 	const auto root = build_root_page({view});
 	check(root.rows.size() >= 2 && root.rows[0].kind == RowKind::Title
@@ -820,23 +879,175 @@ void ui_page_model()
 	(void)stage(same_session, {view}, "value:missions/survival.reward_interval", StagedValue::of_number(150));
 	check(apply(same_session, {view}).packages.empty(), "restaging the current value is not a change");
 }
+
+// -----------------------------------------------------------------------------
+// Part 7 (optional, --package <folder> [--settings <file>]): a REAL package
+// folder and values file through the exact scanner, the settings evaluation,
+// the member deliveries and the SCRIPT SETTINGS page model (built the way the
+// host's build_script_settings_views builds it). Every declaration, delivery
+// and row is printed so the result can be read without the game.
+void external_package(const std::filesystem::path& package_folder, const std::filesystem::path* values_path,
+	const std::filesystem::path& work)
+{
+	using namespace renovice::settings_ui;
+	const auto source = package_folder.filename().empty() ? package_folder.parent_path() : package_folder;
+	const std::string folder = source.filename().string();
+	const std::string label = "external " + folder + ": ";
+	std::cout << "INFO\texternal package folder=" << folder << " settings="
+		<< (values_path != nullptr ? values_path->filename().string() : std::string("<none: every value stock>")) << '\n';
+	std::error_code ec;
+	std::filesystem::remove_all(work, ec);
+	gate::root = work / "CustomScripts";
+	gate::inject = gate::root / "Inject";
+	std::filesystem::create_directories(gate::inject);
+	gate::policy.clear();
+	std::filesystem::create_directories(gate::root / "Packages" / folder, ec);
+	std::filesystem::copy(source, gate::root / "Packages" / folder, std::filesystem::copy_options::recursive, ec);
+	check(!ec && std::filesystem::is_regular_file(gate::root / "Packages" / folder / "package.json"),
+		label + "package folder copied into an empty CustomScripts tree");
+	std::string values_text;
+	if (values_path != nullptr)
+	{
+		values_text = read_text(*values_path);
+		check(!values_text.empty(), label + "values file read");
+		write_text(gate::root / "Settings" / settings::values_file_name(folder), values_text);
+	}
+	gate::log_lines.clear();
+	check(packages::initialise(), label + "startup scan PASS");
+	const auto snapshot = packages::candidate();
+	const auto* package = snapshot ? find_package(*snapshot, folder) : nullptr;
+	for (const auto& line : gate::log_lines) std::cout << "LOG\t" << line << '\n';
+	check(package != nullptr && package->accepted,
+		label + "package accepted" + (package != nullptr && !package->reason.empty() ? " (reason " + package->reason + ")" : ""));
+	check(package != nullptr && package->declarations != nullptr && package->settings_reason.empty(),
+		label + "settings declarations accepted by the runtime parser"
+			+ (package != nullptr && !package->settings_reason.empty() ? " (reason " + package->settings_reason + ")" : ""));
+	if (package == nullptr || package->declarations == nullptr) return;
+	const auto& declarations = *package->declarations;
+	for (const auto& value : declarations.values)
+	{
+		std::cout << "DECL\tid=" << value.id << " member=" << value.member << " group=" << value.group
+			<< " lane=" << settings::lane_label(value.lane) << " type=" << settings::value_type_label(value.type)
+			<< " stock=" << settings::json::number_text(value.stock) << " min=" << settings::json::number_text(value.minimum)
+			<< " max=" << settings::json::number_text(value.maximum) << " applies=" << settings::applies_label(value.applies)
+			<< " stock_check=" << (value.lane != settings::Lane::Addon ? "n/a"
+				: std::string(settings::stock_check_label(value.stock_check)) + (value.stock_check_declared ? "" : "(default)"))
+			<< '\n';
+	}
+
+	// The values file exactly as the runtime reads it.
+	settings::UserState state;
+	std::string file_error;
+	const bool present = packages::read_settings_values(*package, state, file_error);
+	check(present == (values_path != nullptr), label + (values_path != nullptr
+		? "the runtime finds Settings/" + settings::values_file_name(folder)
+		: std::string("no values file (every value stock)")));
+	check(file_error.empty(), label + "values file valid" + (file_error.empty() ? "" : " (reason " + file_error + ")"));
+	const auto evaluation = settings::evaluate(declarations, present && file_error.empty() ? &state : nullptr, file_error);
+	for (const auto& rejection : evaluation.rejections)
+		std::cout << "REJECT\tid=" << rejection.id << " reason=" << rejection.reason << '\n';
+	std::cout << "INFO\tfile=" << settings::file_status_label(evaluation.file) << " use_stock=" << (evaluation.use_stock ? 1 : 0)
+		<< " effective=" << evaluation.effective.size() << " rejected=" << evaluation.rejections.size()
+		<< " unknown_entries=" << evaluation.unknown_entries << '\n';
+	check(evaluation.rejections.empty(), label + "no value in the values file is rejected");
+
+	// Deliveries: every addon member that declares values receives one.
+	bool deliveries = true;
+	for (const auto& member : package->members)
+	{
+		std::cout << "MEMBER\t" << member.filename << " staged=" << (member.staged ? 1 : 0)
+			<< " enabled=" << (member.enabled ? 1 : 0) << " delivery=" << (member.delivery ? "yes" : "nil");
+		if (member.delivery) std::cout << " values=" << member.delivery->values.size() << " identity=" << member.delivery->identity;
+		std::cout << '\n';
+		if (member.delivery)
+		{
+			for (const auto& value : member.delivery->values)
+			{
+				std::cout << "DELIVER\t" << member.filename << " context.settings[\"" << value.id << "\"] = { enabled = true, value = "
+					<< settings::json::number_text(value.value) << ", stock = " << settings::json::number_text(value.stock) << " }\n";
+			}
+		}
+		const bool addon = member.kind != packages::MemberKind::Replacement;
+		if (addon && settings::member_declares_values(declarations, member.filename)) deliveries &= member.delivery != nullptr;
+	}
+	check(deliveries, label + "every addon member that declares values receives a delivery (context.settings)");
+
+	// SCRIPT SETTINGS page model, as build_script_settings_views builds it.
+	PackageView view;
+	view.folder = package->folder;
+	view.display = package->display;
+	view.declarations = &declarations;
+	for (const auto& member : package->members)
+	{
+		view.members.push_back(MemberView{member.filename, member.label, member.state_id, member.enabled,
+			member.kind == packages::MemberKind::Replacement});
+	}
+	if (present && file_error.empty()) view.state = state;
+	const auto page = build_flat_page({view});
+	bool labels_fit = true;
+	bool tooltips_fit = true;
+	bool sentence_rule = true;
+	for (const auto& row : page.rows)
+	{
+		std::cout << "ROW\t" << row_kind_name(row.kind) << '\t' << row.setting << '\t' << row.label;
+		if (row.kind == RowKind::InputCount) std::cout << "\tcount=" << settings::json::number_text(row.count);
+		if (row.kind == RowKind::InputBox) std::cout << "\tcontent=" << row.content;
+		if (row.kind == RowKind::Checkbox) std::cout << "\tvalue=" << (row.value ? "on" : "off");
+		if (row.locked) std::cout << "\tlocked";
+		if (!row.tooltip.empty()) std::cout << "\ttooltip=" << row.tooltip;
+		std::cout << '\n';
+		labels_fit &= row.label.size() <= (row.kind == RowKind::Title ? maximum_title_label : maximum_row_label);
+		tooltips_fit &= row.tooltip.size() <= maximum_tooltip;
+		for (const auto& declaration : declarations.values)
+		{
+			const std::string suffix = settings_ui::folder_key(view.folder) + "/" + declaration.id;
+			if (row.setting != "value:" + suffix && row.setting != "custom:" + suffix) continue;
+			const bool claims = row.tooltip.find(live_stock_sentence) != std::string::npos;
+			sentence_rule &= claims == (declaration.lane == settings::Lane::Addon
+				&& declaration.stock_check == settings::StockCheck::Live);
+		}
+	}
+	check(!page.rows.empty(), label + "SCRIPT SETTINGS page has rows");
+	check(labels_fit, label + "every row label fits the width budget (40 value / 48 title)");
+	check(tooltips_fit, label + "every tooltip fits the tooltip budget");
+	check(sentence_rule, label + "the live-stock tooltip sentence appears exactly on addon rows with stock_check live");
+}
+
+std::filesystem::path long_path(const std::filesystem::path& path)
+{
+	// \\?\ form: MSVC std::filesystem then creates, copies and removes trees
+	// beyond MAX_PATH (the repository or the work folder may be deep).
+	const std::wstring& native = path.native();
+	if (native.rfind(LR"(\\?\)", 0) == 0) return path;
+	const std::wstring absolute = std::filesystem::absolute(path).native();
+	if (absolute.rfind(LR"(\\)", 0) == 0) return std::filesystem::path(LR"(\\?\UNC\)" + absolute.substr(2));
+	return std::filesystem::path(LR"(\\?\)" + absolute);
+}
 }
 
 int main(int argc, char** argv)
 {
-	if (argc != 3)
+	const bool with_package = argc >= 5 && std::string_view(argv[3]) == "--package";
+	const bool with_settings = argc == 7 && with_package && std::string_view(argv[5]) == "--settings";
+	if (!(argc == 3 || (argc == 5 && with_package) || with_settings))
 	{
-		std::cerr << "usage: verify_addon_settings <work dir> <phase2i fixture dir>\n";
+		std::cerr << "usage: verify_addon_settings <work dir> <phase2i fixture dir> [--package <folder> [--settings <file>]]\n";
 		return 2;
 	}
+	const auto work = long_path(argv[1]);
 	declarations_parser();
 	values_file();
 	effective_rules();
 	delivery_identity();
 	member_states();
-	end_to_end(argv[1]);
-	phase1_contract(argv[2], std::filesystem::path(argv[1]) / "phase2i");
+	end_to_end(work);
+	phase1_contract(long_path(argv[2]), work / "phase2i");
 	ui_page_model();
+	if (with_package)
+	{
+		const auto values = with_settings ? long_path(argv[6]) : std::filesystem::path();
+		external_package(long_path(argv[4]), with_settings ? &values : nullptr, work / "external");
+	}
 	std::cout << (pass ? "ADDON SETTINGS PASS" : "ADDON SETTINGS FAIL") << '\n';
 	return pass ? 0 : 1;
 }

@@ -14,8 +14,12 @@ $unrelated = Join-Path $corpus 'Lotus_Scripts_Arbitration.lua_B'
 foreach ($path in @($survival, $unrelated)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "TARGET ROOT GATE FAIL: fixture missing: $path" }
 }
-$binaryDir = Join-Path $toolchainDir "bin\runtime"
-New-Item -ItemType Directory -Path $binaryDir -Force | Out-Null
+. (Join-Path $toolchainDir 'gate_paths.ps1')
+# Native tools read short copies and write to the gate scratch folder (the
+# repository may be deeper than MAX_PATH).
+$binaryDir = Get-GateScratch $repo 'target-root'
+$survival = Copy-GateInput $survival $binaryDir
+$unrelated = Copy-GateInput $unrelated $binaryDir
 
 function Get-Region([string]$Text, [string]$Begin, [string]$End, [string]$Label) {
     $start = $Text.IndexOf($Begin, [StringComparison]::Ordinal)
@@ -45,7 +49,7 @@ try {
     }
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
-    $source = Join-Path $runtimeDir 'verify_target_root_binding.cpp'
+    $source = Join-Path (Copy-GateSources $repo $binaryDir @('renovice', 'RENOVICE_TOOLCHAIN\runtime\verify_target_root_binding.cpp')) 'RENOVICE_TOOLCHAIN\runtime\verify_target_root_binding.cpp'
     $binary = Join-Path $binaryDir 'verify_target_root_binding.exe'
     $object = Join-Path $binaryDir 'verify_target_root_binding.obj'
     $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /Fo:$object /Fe:$binary $source 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })

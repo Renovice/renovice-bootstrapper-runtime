@@ -1,9 +1,9 @@
 # Deterministic gates for optional folder script packages (2026-09-29).
 # Offline only: compiles the real multi-target fixture with the DE Luau
 # toolchain, builds the exact renovice/packages.cpp scanner with stub providers
-# and runs it on a temporary CustomScripts tree under RENOVICE_TOOLCHAIN\bin,
-# then pins the source-level integration and the unchanged loose-file lanes.
-# It never reads or writes a game folder.
+# and runs it on a temporary CustomScripts tree in the gate scratch folder
+# (gate_paths.ps1, long-path safe), then pins the source-level integration and
+# the unchanged loose-file lanes. It never reads or writes a game folder.
 param(
     # Optional: also admit a real package folder (for example generator output)
     # through the exact loader scanner and print its members.
@@ -16,8 +16,8 @@ $injectionDir = $PSScriptRoot
 $toolchainDir = Split-Path -Parent $injectionDir
 $repo = Split-Path -Parent $toolchainDir
 $deToolchain = [IO.Path]::GetFullPath((Join-Path $repo '..\..\toolchains\de-luau-toolchain\bin'))
-$binaryDir = Join-Path $toolchainDir "bin\injection"
-New-Item -ItemType Directory -Path $binaryDir -Force | Out-Null
+. (Join-Path $toolchainDir 'gate_paths.ps1')
+$scratch = Get-GateScratch $repo 'script-packages'
 
 function Get-Region([string]$Text, [string]$Begin, [string]$End, [string]$Label) {
     $start = $Text.IndexOf($Begin, [StringComparison]::Ordinal)
@@ -34,15 +34,16 @@ function Index([string]$Text, [string]$Needle) {
 }
 
 # 1. Real DE bytecode fixture (same source as the multi-target gate).
-$fixtureSource = Join-Path $injectionDir 'fixtures\MultiTargetFixture.targets.addon.luau'
-$fixture = Join-Path $binaryDir 'PackageFixture.targets.addon.u44.lua_B'
+# derecomp.exe reads a short copy (the repository may be deeper than MAX_PATH).
+$fixtureSource = Copy-GateInput (Join-Path $injectionDir 'fixtures\MultiTargetFixture.targets.addon.luau') $scratch
+$fixture = Join-Path $scratch 'PackageFixture.targets.addon.u44.lua_B'
 & (Join-Path $deToolchain 'derecomp.exe') recompile-u44 $fixtureSource $fixture
 if ($LASTEXITCODE) { throw 'SCRIPT PACKAGES GATE FAIL: fixture U44 compilation failed' }
 & (Join-Path $deToolchain 'derecomp.exe') de-roundtrip $fixture
 if ($LASTEXITCODE) { throw 'SCRIPT PACKAGES GATE FAIL: fixture container roundtrip failed' }
 
 # 2. Pure rules + the real scanner end to end.
-$work = Join-Path $binaryDir 'script-packages-work'
+$work = ConvertTo-GateLongPath (Join-Path $scratch 'work')
 $originalEnvironment = @{}
 foreach ($entry in Get-ChildItem Env:) { $originalEnvironment[$entry.Name] = $entry.Value }
 try {
@@ -54,12 +55,14 @@ try {
     }
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
-    $source = Join-Path $injectionDir 'verify_script_packages.cpp'
-    $scanner = Join-Path $repo 'renovice\packages.cpp'
-    $binary = Join-Path $binaryDir 'verify_script_packages.exe'
+    # cl.exe compiles short copies (the repository may be deeper than MAX_PATH).
+    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\injection\verify_script_packages.cpp')
+    $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\injection\verify_script_packages.cpp'
+    $scanner = Join-Path $mirror 'renovice\packages.cpp'
+    $binary = Join-Path $scratch 'verify_script_packages.exe'
     # Two translation units: compile inside a dedicated object folder so no
     # /Fo directory argument (with a trailing backslash) is needed.
-    $objects = Join-Path $binaryDir 'script-packages-obj'
+    $objects = Join-Path $scratch 'obj'
     New-Item -ItemType Directory -Path $objects -Force | Out-Null
     Push-Location $objects
     try {
@@ -70,7 +73,7 @@ try {
     $output | Write-Output
     if ($compileExit -ne 0) { throw "SCRIPT PACKAGES GATE FAIL: checker compilation failed: $compileExit" }
     if ([string]::IsNullOrWhiteSpace($AdmitPackage)) { & $binary $fixture $work }
-    else { & $binary $fixture $work --admit ([IO.Path]::GetFullPath($AdmitPackage)) }
+    else { & $binary $fixture $work --admit (ConvertTo-GateLongPath $AdmitPackage) }
     if ($LASTEXITCODE -ne 0) { throw "SCRIPT PACKAGES GATE FAIL: checker failed: $LASTEXITCODE" }
 }
 finally {

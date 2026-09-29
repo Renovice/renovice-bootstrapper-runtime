@@ -10,8 +10,10 @@ $injectionDir = $PSScriptRoot
 $toolchainDir = Split-Path -Parent $injectionDir
 $repo = Split-Path -Parent $toolchainDir
 $deToolchain = [IO.Path]::GetFullPath((Join-Path $repo '..\..\toolchains\de-luau-toolchain\bin'))
-$binaryDir = Join-Path $toolchainDir "bin\injection"
-New-Item -ItemType Directory -Path $binaryDir -Force | Out-Null
+. (Join-Path $toolchainDir 'gate_paths.ps1')
+# Native tools read short copies and write to the gate scratch folder (the
+# repository may be deeper than MAX_PATH).
+$scratch = Get-GateScratch $repo 'multi-target'
 
 function Get-Region([string]$Text, [string]$Begin, [string]$End, [string]$Label) {
     $start = $Text.IndexOf($Begin, [StringComparison]::Ordinal)
@@ -25,14 +27,14 @@ function Require([bool]$Condition, [string]$Message) {
 }
 
 # 1. Real DE bytecode fixture through the loader's own discovery code.
-$fixtureSource = Join-Path $injectionDir 'fixtures\MultiTargetFixture.targets.addon.luau'
-$fixture = Join-Path $binaryDir 'MultiTargetFixture.targets.addon.u44.lua_B'
+$fixtureSource = Copy-GateInput (Join-Path $injectionDir 'fixtures\MultiTargetFixture.targets.addon.luau') $scratch
+$fixture = Join-Path $scratch 'MultiTargetFixture.targets.addon.u44.lua_B'
 & (Join-Path $deToolchain 'derecomp.exe') recompile-u44 $fixtureSource $fixture
 if ($LASTEXITCODE) { throw 'MULTI-TARGET GATE FAIL: fixture U44 compilation failed' }
 & (Join-Path $deToolchain 'derecomp.exe') de-roundtrip $fixture
 if ($LASTEXITCODE) { throw 'MULTI-TARGET GATE FAIL: fixture container roundtrip failed' }
-$probeSource = Join-Path $injectionDir 'fixtures\MultiTargetProbe.targets.addon.luau'
-$probe = Join-Path $binaryDir 'MultiTargetProbe.targets.addon.lua_B'
+$probeSource = Copy-GateInput (Join-Path $injectionDir 'fixtures\MultiTargetProbe.targets.addon.luau') $scratch
+$probe = Join-Path $scratch 'MultiTargetProbe.targets.addon.lua_B'
 & (Join-Path $deToolchain 'derecomp.exe') recompile-u44 $probeSource $probe
 if ($LASTEXITCODE) { throw 'MULTI-TARGET GATE FAIL: live-probe U44 compilation failed' }
 & (Join-Path $deToolchain 'derecomp.exe') de-roundtrip $probe
@@ -49,9 +51,10 @@ try {
     }
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
-    $source = Join-Path $injectionDir 'verify_multi_target_addon.cpp'
-    $binary = Join-Path $binaryDir 'verify_multi_target_addon.exe'
-    $object = Join-Path $binaryDir 'verify_multi_target_addon.obj'
+    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\injection\verify_multi_target_addon.cpp')
+    $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\injection\verify_multi_target_addon.cpp'
+    $binary = Join-Path $scratch 'verify_multi_target_addon.exe'
+    $object = Join-Path $scratch 'verify_multi_target_addon.obj'
     $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /Fo:$object /Fe:$binary $source 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
     $output | Write-Output
     if ($LASTEXITCODE -ne 0) { throw "MULTI-TARGET GATE FAIL: checker compilation failed: $LASTEXITCODE" }
