@@ -218,12 +218,34 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 		package.description = manifest.description;
 	}
 
+	// ADDON_SETTINGS_V1 declarations. A bad declaration rejects only the
+	// settings capability of this package (members keep compiled defaults).
+	{
+		std::vector<std::pair<std::string, std::string>> member_jsons;
+		for (const auto& declared : manifest.members)
+		{
+			if (!declared.settings_json.empty())
+				member_jsons.emplace_back(declared.filename, declared.settings_json);
+		}
+		if (settings::declarations_present(manifest.settings_json, member_jsons))
+		{
+			auto declarations = std::make_shared<settings::Declarations>();
+			auto error = settings::parse_declarations(
+				manifest.settings_json.empty() ? std::string_view("{}") : std::string_view(manifest.settings_json),
+				member_jsons, *declarations);
+			if (error.empty()) package.declarations = std::move(declarations);
+			else package.settings_reason = std::move(error);
+		}
+	}
+
 	std::vector<std::uint64_t> replacement_keys;
 	for (const auto& [name, path] : files)
 	{
 		Member member;
 		member.filename = name;
 		member.label = manifest_label(manifest, name);
+		member.state_id = script_control::member_state_id(package.folder, name);
+		member.enabled = script_control::candidate_enabled(member.state_id);
 		if (const char* error = classify_member(name, member.kind, member.key))
 		{
 			package.reason = "member=" + name + " " + error;
@@ -283,6 +305,9 @@ SourceClaims package_claims(const Package& package)
 	SourceClaims claims{"package:" + package.folder, {}, {}};
 	for (const auto& member : package.members)
 	{
+		// A member disabled by its `member:` policy claims nothing, exactly
+		// like a disabled loose file.
+		if (!member.enabled) continue;
 		if (member.kind == MemberKind::Replacement) claims.replacement_keys.push_back(member.key);
 		claims.target_keys.insert(
 			claims.target_keys.end(), member.target_keys.begin(), member.target_keys.end());
@@ -319,6 +344,143 @@ void log_package(const Package& package, const char* trigger)
 		<< " target_keys=" << declared
 		<< (package.accepted ? " lanes=replacement+inject" : " inventory-only=1");
 	report(line.str());
+}
+
+// ---------------------------------------------------------------------------
+// ADDON_SETTINGS_V1 + member policy (2026-09-30). Runs after the package's
+// acceptance is known. Every decision is local to this package.
+// ---------------------------------------------------------------------------
+std::filesystem::path settings_file_path(std::string_view folder)
+{
+	return config::custom_scripts_directory()
+		/ std::filesystem::path(std::string(settings::directory_name))
+		/ std::filesystem::path(settings::values_file_name(folder));
+}
+
+// Returns false when the file is absent. On a read or parse failure it returns
+// true with a non-empty error (the package reverts to stock).
+bool read_values_file(
+	const Package& package, settings::UserState& state, std::string& error)
+{
+	error.clear();
+	const auto path = settings_file_path(package.folder);
+	std::error_code ec;
+	if (!std::filesystem::exists(path, ec))
+	{
+		if (ec) error = "values-file-unreadable";
+		return !error.empty();
+	}
+	std::vector<unsigned char> bytes;
+	if (!read_bounded(path, settings::maximum_values_file_bytes + 1, bytes))
+	{
+		error = "values-file-unreadable-empty-or-too-large";
+		return true;
+	}
+	error = settings::parse_values_file(std::string_view(
+		reinterpret_cast<const char*>(bytes.data()), bytes.size()), package.id, state);
+	return true;
+}
+
+std::string short_identity(const std::string& identity)
+{
+	const auto colon = identity.find(':');
+	const auto hex = colon == std::string::npos ? identity : identity.substr(colon + 1);
+	return hex.substr(0, 16);
+}
+
+void apply_member_policy_and_settings(Package& package, bool committing, const char* trigger)
+{
+	for (auto& member : package.members) member.staged = package.accepted && member.enabled;
+	if (trigger != nullptr && package.accepted)
+	{
+		for (const auto& member : package.members)
+		{
+			if (member.enabled) continue;
+			report("RENOVICE PACKAGE MEMBER DISABLED trigger=" + std::string(trigger)
+				+ " package=" + package.folder + " member=" + member.filename
+				+ " id=" + member.state_id + " scope=member-local");
+		}
+	}
+	if (!package.settings_reason.empty() && trigger != nullptr)
+	{
+		report("RENOVICE SETTINGS DECLARATIONS REJECT trigger=" + std::string(trigger)
+			+ " package=" + package.folder + " reason=" + package.settings_reason
+			+ " scope=settings-capability-local members=compiled-defaults");
+	}
+	if (!package.declarations || !committing) return;
+	const auto& declarations = *package.declarations;
+	settings::UserState state;
+	std::string file_error;
+	const bool present = read_values_file(package, state, file_error);
+	const auto evaluation = settings::evaluate(
+		declarations, present && file_error.empty() ? &state : nullptr, file_error);
+	const settings::UserState* usable = evaluation.file == settings::FileStatus::Valid ? &state : nullptr;
+	std::size_t staged = 0;
+	for (auto& member : package.members)
+	{
+		if (member.kind == MemberKind::Replacement)
+		{
+			if (member.staged && !settings::literal_member_admitted(
+				declarations, usable, evaluation, member.filename))
+			{
+				member.staged = false;
+				if (trigger != nullptr)
+				{
+					report("RENOVICE SETTINGS LITERAL MEMBER STOCK trigger=" + std::string(trigger)
+						+ " package=" + package.folder + " member=" + member.filename
+						+ " reason=literal-values-not-enabled scope=member-local");
+				}
+			}
+		}
+		else if (settings::member_declares_values(declarations, member.filename))
+		{
+			member.delivery = settings::member_delivery(
+				declarations, usable, evaluation, member.filename);
+		}
+		if (member.staged) ++staged;
+	}
+	if (trigger == nullptr) return;
+	if (evaluation.file == settings::FileStatus::Malformed)
+	{
+		report("RENOVICE SETTINGS FILE REJECT trigger=" + std::string(trigger)
+			+ " package=" + package.folder + " file=Settings/" + settings::values_file_name(package.folder)
+			+ " reason=" + evaluation.file_reason + " scope=package-local values=stock");
+	}
+	std::size_t logged = 0;
+	for (const auto& rejection : evaluation.rejections)
+	{
+		if (logged++ == settings::maximum_logged_value_rejections) break;
+		report("RENOVICE SETTINGS VALUE REJECT trigger=" + std::string(trigger)
+			+ " package=" + package.folder + " id=" + rejection.id
+			+ " reason=" + rejection.reason + " scope=value-local value=stock");
+	}
+	if (evaluation.rejections.size() > settings::maximum_logged_value_rejections)
+	{
+		report("RENOVICE SETTINGS VALUE REJECT trigger=" + std::string(trigger)
+			+ " package=" + package.folder + " suppressed="
+			+ std::to_string(evaluation.rejections.size() - settings::maximum_logged_value_rejections));
+	}
+	std::ostringstream summary;
+	summary << "RENOVICE SETTINGS PACKAGE trigger=" << trigger
+		<< " package=" << package.folder
+		<< " declarations=" << declarations.values.size()
+		<< " groups=" << declarations.groups.size()
+		<< " file=" << settings::file_status_label(evaluation.file)
+		<< " use_stock=" << (evaluation.use_stock ? 1 : 0)
+		<< " effective=" << evaluation.effective.size()
+		<< " rejected=" << evaluation.rejections.size()
+		<< " unknown_entries=" << evaluation.unknown_entries
+		<< " members_staged=" << staged << "/" << package.members.size();
+	report(summary.str());
+	for (const auto& member : package.members)
+	{
+		if (!member.delivery) continue;
+		report("RENOVICE SETTINGS DELIVERY trigger=" + std::string(trigger)
+			+ " package=" + package.folder + " member=" + member.filename
+			+ " values=" + std::to_string(member.delivery->values.size())
+			+ " identity=" + short_identity(member.delivery->identity)
+			+ " staged=" + (member.staged ? "1" : "0"));
+	}
 }
 
 // Returns false only when the Packages root exists but cannot be enumerated.
@@ -408,6 +570,11 @@ bool scan(Snapshot& output, bool committing, const char* trigger)
 			if (!decisions[j].accepted) package.reason = decisions[j].reason;
 		}
 	}
+	for (auto& package : output.packages)
+	{
+		if (package.structurally_valid) apply_member_policy_and_settings(package, committing, trigger);
+	}
+
 	std::size_t accepted = 0, disabled = 0, rejected = 0;
 	for (auto& package : output.packages)
 	{
@@ -416,6 +583,17 @@ bool scan(Snapshot& output, bool committing, const char* trigger)
 			// Only accepted, enabled packages keep bytes; keys stay for inventory.
 			for (auto& member : package.members)
 			{
+				member.bytes.clear();
+				member.bytes.shrink_to_fit();
+			}
+		}
+		else
+		{
+			// A member held back by its policy or the literal settings gate keeps
+			// its keys (inventory) but no bytes can enter a lane.
+			for (auto& member : package.members)
+			{
+				if (member.staged) continue;
 				member.bytes.clear();
 				member.bytes.shrink_to_fit();
 			}
@@ -435,6 +613,16 @@ bool scan(Snapshot& output, bool committing, const char* trigger)
 	}
 	return true;
 }
+}
+
+std::filesystem::path settings_values_path(std::string_view folder)
+{
+	return settings_file_path(folder);
+}
+
+bool read_settings_values(const Package& package, settings::UserState& state, std::string& error)
+{
+	return read_values_file(package, state, error);
 }
 
 std::filesystem::path directory()

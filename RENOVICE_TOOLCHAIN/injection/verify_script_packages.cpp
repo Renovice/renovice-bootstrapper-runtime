@@ -240,7 +240,17 @@ void pure_rules()
 			"manifest nesting deeper than 32 is rejected");
 		check(packages::parse_manifest(std::string(packages::maximum_manifest_bytes + 1, ' '), manifest)
 				== "manifest-too-large",
-			"manifest larger than 64 KiB is rejected");
+			"manifest larger than 512 KiB is rejected");
+		check(packages::maximum_manifest_bytes == 512u * 1024u,
+			"manifest bound is 512 KiB (a full-registry settings declaration is about 260 KiB)");
+		{
+			// A 300 KiB manifest (bigger than any generated package) still parses.
+			std::string large = "{\"settings\": {\"pad\": \"";
+			large.append(300u * 1024u, 'a');
+			large += "\"}}";
+			check(packages::parse_manifest(large, manifest).empty() && manifest.settings_present,
+				"a 300 KiB manifest is admitted and its settings captured");
+		}
 	}
 
 	// Manifest/disk reconciliation.

@@ -57,6 +57,11 @@ struct Flags
 	bool diagnostics_damage_type_filter_set = false;
 	bool diagnostics_damage_type_filter_valid = true;
 	std::int32_t diagnostics_damage_type = -1;
+	// SCRIPT SETTINGS layout (2026-09-30). false (default): the proven-safe
+	// single flat GenericSettings list with TITLE sections. true: nested
+	// package -> section pages pushed from BUTTON rows; enable only after the
+	// Phase 0 probe proves gate N-1 (nested GenericSettings) live.
+	bool settings_menu_nested = false;
 };
 
 inline std::string trim_ascii(std::string_view value)
@@ -252,6 +257,7 @@ inline Flags parse(std::string_view text)
 				{
 					set_diagnostics_damage_type_filter(result, value);
 				}
+				else if (key == "settingsmenunested") result.settings_menu_nested = enabled_value(value);
 			}
 		}
 		if (line_end == std::string_view::npos) break;

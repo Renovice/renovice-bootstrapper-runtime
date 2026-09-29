@@ -1,0 +1,140 @@
+{
+  "description": "RENOVICE universal mission editor output for client build 2026.09.28.13.06. One Scripts row for every generated Lua mission change. Every value is declared in settings; CustomScripts/Settings/Missions.json selects which values apply.",
+  "members": {
+    "Missions.targets.addon.lua_B": {
+      "label": "Mission tunables: Purgatory, HalloweenLanternEndless, SurvivalMission",
+      "settings": {
+        "values": {
+          "lantern.tier_up_interval": {
+            "applies": "live_next_read",
+            "group": "lantern",
+            "label": "Tier up interval",
+            "lane": "addon",
+            "max": 9000,
+            "min": 0,
+            "scope": "Lantern",
+            "stock": 90,
+            "type": "float",
+            "unit": "s"
+          },
+          "purgatory.difficulty1.warrior_level": {
+            "applies": "live_next_read",
+            "group": "purgatory",
+            "label": "Difficulty 1 warrior level",
+            "lane": "addon",
+            "max": 1000,
+            "min": 1,
+            "scope": "Purgatory",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "survival.reward_interval": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Reward interval",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "All Survival nodes (30) incl. Conjunction Survival, Hell-Scrub. Case: normal",
+            "stock": 300,
+            "type": "float",
+            "unit": "s"
+          }
+        }
+      }
+    },
+    "fc711ff621a75552 (missions_exact-replacement).lua_B": {
+      "label": "Exact replacement: ZarimanCorruptionMission (void_flood.fractures_per_round.normal)",
+      "settings": {
+        "values": {
+          "void_flood.fractures_per_round.normal": {
+            "applies": "next_mission",
+            "group": "void_flood",
+            "label": "Fractures per round normal",
+            "lane": "literal",
+            "max": 32767,
+            "min": 1,
+            "scope": "Nodes: Everview Arc. Case: normal",
+            "stock": 3,
+            "type": "int",
+            "unit": ""
+          }
+        }
+      }
+    }
+  },
+  "name": "Missions",
+  "schema": 1,
+  "settings": {
+    "build": "2026.09.28.13.06",
+    "format": "RENOVICE_SETTINGS_DECL_V1",
+    "groups": [
+      {
+        "aliases": [
+          "Halloween"
+        ],
+        "id": "lantern",
+        "label": "Lantern",
+        "order": 300
+      },
+      {
+        "aliases": [],
+        "id": "purgatory",
+        "label": "Purgatory",
+        "order": 370
+      },
+      {
+        "aliases": [
+          "Hellscrubber",
+          "MT_SURVIVAL",
+          "Conjunction Survival",
+          "Malva",
+          "Zeugma",
+          "Piscinas",
+          "Amarna",
+          "Assur",
+          "Zabala",
+          "Kelashin",
+          "Gabii",
+          "Cameria",
+          "Wahiba",
+          "Stickney",
+          "Elara",
+          "V Prime",
+          "Draco",
+          "Nimus",
+          "Selkie",
+          "Tycho",
+          "Yuvarium",
+          "Circulus",
+          "Ani",
+          "Mot",
+          "Ophelia",
+          "Terrorem",
+          "Persto",
+          "Taveuni",
+          "Palus",
+          "Hell-Scrub",
+          "Hell-Scrub: Scaldra",
+          "Hell-Scrub: Techrot",
+          "Apollodorus",
+          "Titan"
+        ],
+        "id": "survival",
+        "label": "Survival",
+        "order": 460
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "MT_CORRUPTION",
+          "Everview Arc"
+        ],
+        "id": "void_flood",
+        "label": "Void Flood",
+        "order": 490
+      }
+    ]
+  }
+}

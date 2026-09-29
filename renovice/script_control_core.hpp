@@ -43,6 +43,27 @@ inline std::string stable_id(Kind kind, std::string_view filename)
 	return std::string(prefix) + ascii_lower(filename);
 }
 
+// Per-member enable policy inside a folder package (2026-09-30):
+// `member:<package folder>/<member filename>`, lowercased like every other ID.
+// Member rows never appear in the SCRIPTS menu; they are edited from SCRIPT
+// SETTINGS (or by hand) and stored in the same ScriptStates.json authority.
+inline constexpr std::string_view member_state_prefix = "member:";
+
+inline std::string member_state_id(std::string_view folder, std::string_view filename)
+{
+	std::string id(member_state_prefix);
+	id += ascii_lower(folder);
+	id.push_back('/');
+	id += ascii_lower(filename);
+	return id;
+}
+
+inline bool is_member_state_id(std::string_view id) noexcept
+{
+	return id.size() > member_state_prefix.size()
+		&& id.substr(0, member_state_prefix.size()) == member_state_prefix;
+}
+
 inline bool is_internal_hook_shim(std::string_view filename)
 {
 	// Target-module call edges are bootstrapper infrastructure, not optional

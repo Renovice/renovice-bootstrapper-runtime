@@ -164,6 +164,8 @@ bool merge_package_replacements(
 			if (member.kind != packages::MemberKind::Replacement) continue;
 			if (available_keys != nullptr) available_keys->emplace(member.key);
 			if (!package.accepted) continue;
+			// `member:` policy or the literal settings gate held it back.
+			if (!member.staged) continue;
 			if (member.bytes.empty())
 			{
 				conout << "RENOVICE replacement rejected: package member bytes missing package="

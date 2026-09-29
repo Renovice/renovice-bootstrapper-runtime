@@ -351,6 +351,14 @@ void discard_prepared_reload()
 	prepared_state.reset();
 }
 
+bool displayed_enabled(std::string_view id)
+{
+	std::lock_guard lock(state_mutex);
+	if (const auto requested = requested_state.find(std::string(id)); requested != requested_state.end())
+		return requested->second;
+	return state_enabled(active_state, id);
+}
+
 bool candidate_enabled(std::string_view id)
 {
 	std::lock_guard lock(state_mutex);
@@ -399,9 +407,28 @@ bool request_enabled_batch(
 		}
 	}
 	const auto inventory = snapshot();
+	std::shared_ptr<const packages::Snapshot> package_inventory;
 	for (const auto& [id, enabled] : requests)
 	{
 		(void)enabled;
+		if (is_member_state_id(id))
+		{
+			// `member:` ids are never Scripts-menu rows; they must name a member
+			// of a structurally valid package on disk.
+			if (!package_inventory) package_inventory = packages::inventory();
+			bool known = false;
+			for (const auto& package : package_inventory->packages)
+			{
+				if (!package.structurally_valid) continue;
+				for (const auto& member : package.members) known |= member.state_id == id;
+			}
+			if (!known)
+			{
+				error = "package member does not exist or its package is invalid: " + id;
+				return false;
+			}
+			continue;
+		}
 		if (std::none_of(inventory.begin(), inventory.end(), [&](const ScriptInfo& info)
 			{ return info.id == id && info.valid; }))
 		{

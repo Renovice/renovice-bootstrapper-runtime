@@ -26,6 +26,7 @@
 #include "injection_core.hpp"
 #include "replacements_core.hpp"
 #include "script_control_core.hpp"
+#include "settings_core.hpp"
 
 namespace renovice::packages
 {
@@ -33,7 +34,11 @@ inline constexpr std::string_view directory_name = "Packages";
 inline constexpr std::string_view manifest_filename = "package.json";
 inline constexpr std::size_t maximum_packages = 256;
 inline constexpr std::size_t maximum_members = 256;
-inline constexpr std::size_t maximum_manifest_bytes = 64u * 1024u;
+// 512 KiB (2026-09-30, CONTRACT_PHASE1 item 12): a package that declares all
+// 289 addon-lane mission values is about 127 KiB (129,775 bytes measured); the
+// full 594-row registry would be about 260 KiB. 512 KiB keeps a 2x margin over
+// that while staying a hard, bounded read (JSON depth 32, 4,096 values).
+inline constexpr std::size_t maximum_manifest_bytes = 512u * 1024u;
 inline constexpr std::size_t maximum_folder_name_length = 64;
 inline constexpr std::size_t maximum_display_name_length = 64;
 inline constexpr std::size_t maximum_description_length = 1024;
@@ -182,8 +187,10 @@ inline const char* classify_member(
 // ---------------------------------------------------------------------------
 // Strict, bounded JSON reader for package.json. It accepts RFC 8259 JSON with an
 // optional UTF-8 BOM, rejects duplicate keys and trailing data, and only
-// materializes the fields the runtime reads. `settings` is reserved for the
-// future in-game (F12) editor: it is syntax-checked and otherwise ignored.
+// materializes the fields the runtime reads. `settings` (top level and per
+// member) is syntax-checked here and captured verbatim; its declaration schema
+// (ADDON_SETTINGS_V1, settings_core.hpp) is validated separately so that a bad
+// declaration rejects only the settings capability, never the package bytes.
 // ---------------------------------------------------------------------------
 namespace json_detail
 {
@@ -397,6 +404,8 @@ struct ManifestMember
 {
 	std::string filename;
 	std::string label;
+	// Raw JSON text of `members[f].settings`; empty when absent.
+	std::string settings_json;
 };
 
 struct Manifest
@@ -407,6 +416,8 @@ struct Manifest
 	bool members_declared = false;
 	std::vector<ManifestMember> members;
 	bool settings_present = false;
+	// Raw JSON text of the top-level `settings`; empty when absent.
+	std::string settings_json;
 };
 
 inline bool printable_text(std::string_view text) noexcept
@@ -493,8 +504,12 @@ inline std::string parse_manifest(std::string_view text, Manifest& manifest)
 			}
 			else if (field == "settings")
 			{
+				json_detail::skip_ws(c);
+				const std::size_t settings_start = c.pos;
 				if (!json_detail::skip_value(c)) return "manifest-settings-invalid-json";
 				manifest.settings_present = true;
+				manifest.settings_json = std::string(
+					c.text.substr(settings_start, c.pos - settings_start));
 			}
 			else if (field == "members")
 			{
@@ -551,8 +566,12 @@ inline std::string parse_manifest(std::string_view text, Manifest& manifest)
 								}
 								else if (member_field == "settings")
 								{
+									json_detail::skip_ws(c);
+									const std::size_t settings_start = c.pos;
 									if (!json_detail::skip_value(c))
 										return "manifest-member-settings-invalid-json=" + member.filename;
+									member.settings_json = std::string(
+										c.text.substr(settings_start, c.pos - settings_start));
 								}
 								else
 								{

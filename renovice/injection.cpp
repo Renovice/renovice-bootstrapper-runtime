@@ -19,6 +19,7 @@
 #include "replacements.hpp"
 #include "riven.hpp"
 #include "script_control.hpp"
+#include "settings_ui_core.hpp"
 #include "swf.hpp"
 
 #include <algorithm>
@@ -95,6 +96,10 @@ struct Chunk
 	// declared key. Each binding selects `returned.targets["<key>"]` as its
 	// lifecycle root; the file name, bytes and Scripts policy stay shared.
 	bool multi_target = false;
+	// ADDON_SETTINGS_V1 (package members that declare values). nullptr for
+	// loose files and members without declarations: activate() is called with
+	// no argument, exactly as before.
+	std::shared_ptr<const settings::MemberDelivery> settings;
 };
 
 struct AddonRecord
@@ -124,6 +129,10 @@ struct TargetAddonRecord
 	AddonRecord addon;
 	std::uint64_t target_key = 0;
 	std::uint64_t content_key = 0;
+	// ADDON_SETTINGS_V1 reuse identity ("" without declarations) and the
+	// delivery its activate(context) receives.
+	std::string settings_identity;
+	std::shared_ptr<const settings::MemberDelivery> settings;
 	std::uintptr_t shared_table_identity = 0;
 	// Exact module environment this binding's chunk executed in.
 	void* bound_environment = nullptr;
@@ -1949,6 +1958,8 @@ void append_package_chunks(
 			target_keys.insert(
 				target_keys.end(), member.target_keys.begin(), member.target_keys.end());
 			if (!package.accepted || member.kind == packages::MemberKind::Replacement) continue;
+			// `member:` policy: a disabled member stays inventoried, never staged.
+			if (!member.staged) continue;
 			const auto name = packages::chunk_name(package.folder, member.filename);
 			for (const auto key : member.target_keys)
 			{
@@ -1958,6 +1969,8 @@ void append_package_chunks(
 				chunk.target_key = key;
 				chunk.multi_target = member.kind == packages::MemberKind::MultiTargetAddon;
 				chunk.bytes = member.bytes;
+				// ADDON_SETTINGS_V1: generation-owned values for activate(context).
+				chunk.settings = member.delivery;
 				snapshot.emplace_back(std::move(chunk));
 			}
 		}
@@ -4849,6 +4862,15 @@ bool raw_table_set_bool(
 	return raw_table_set_value(state, table_index, key, boolean);
 }
 
+bool raw_table_set_number(
+	luau_State* state, int table_index, const char* key, float value) noexcept
+{
+	luau_TValue number{};
+	number.value.as_float = value;
+	number.type = LUAU_NUMBER;
+	return raw_table_set_value(state, table_index, key, number);
+}
+
 bool raw_table_set_array_value(
 	luau_State* state, int table_index, std::size_t index,
 	const luau_TValue& value) noexcept
@@ -5539,6 +5561,705 @@ void run_settings_probe_hotkey_open(luau_State* state)
 #endif
 // END SETTINGS_PROBE_P0
 
+// BEGIN SCRIPT_SETTINGS_HOST
+#if !defined(RENOVICE_SETTINGS_PROBE_P0)
+// (The Phase 0 diagnostic build carries only the probe row.)
+// SCRIPT SETTINGS pause-menu editor (Phase 3, 2026-09-30). One host-owned
+// session per open, keyed by the owning DE VM and an open token. Page tables
+// are rebuilt from plain host data on every request; no Lua reference is ever
+// retained by native code. Row clicks only stage; the ROOT page close applies
+// one batch (Settings\<pkg>.json atomic writes + one ScriptStates.json batch)
+// and queues the ordinary F9 transaction. Nothing applies inside a click.
+struct ScriptSettingsHostSession
+{
+	bool open = false;
+	std::uint64_t token = 0;
+	void* global_state = nullptr;
+	bool nested = false;
+	std::shared_ptr<const packages::Snapshot> snapshot; // owns the declarations
+	std::vector<settings_ui::PackageView> views;
+	settings_ui::Session session;
+	std::size_t stage_calls = 0;
+	std::size_t stage_rejections = 0;
+};
+std::mutex script_settings_session_mutex;
+ScriptSettingsHostSession script_settings_session;
+std::uint64_t next_script_settings_token = 1;
+constexpr std::size_t script_settings_logged_rejections = 16;
+constexpr const char* script_settings_page_return_root =
+	"RENOVICE.script-settings-page.return.v1";
+
+bool read_short_lua_string(
+	const luau_TValue& value, std::string& output, std::size_t maximum) noexcept
+{
+	output.clear();
+	if ((value.type != LUAU_STRING && value.type != deployed_string_tag)
+		|| value.value.as_uintptr == 0
+		|| value.value.as_uintptr > (std::numeric_limits<std::uintptr_t>::max)() - 0x18)
+	{
+		return false;
+	}
+	const char* const text = reinterpret_cast<const char*>(value.value.as_uintptr + 0x18);
+	if (diagnostics::bad_read_ptr(text, 1)) return false;
+	std::size_t length = 0;
+	while (length <= maximum && text[length] != '\0') ++length;
+	if (length > maximum) return false;
+	try
+	{
+		output.assign(text, length);
+	}
+	catch (...)
+	{
+		output.clear();
+		return false;
+	}
+	return true;
+}
+
+bool script_settings_row_available()
+{
+	if (!script_settings_bridge_ready.load(std::memory_order_acquire)) return false;
+	const auto snapshot = packages::candidate();
+	if (!snapshot) return false;
+	return std::any_of(snapshot->packages.begin(), snapshot->packages.end(),
+		[](const packages::Package& package)
+		{
+			return package.structurally_valid && package.declarations != nullptr;
+		});
+}
+
+std::vector<settings_ui::PackageView> build_script_settings_views(
+	const std::shared_ptr<const packages::Snapshot>& snapshot)
+{
+	std::vector<settings_ui::PackageView> views;
+	if (!snapshot) return views;
+	for (const auto& package : snapshot->packages)
+	{
+		if (!package.structurally_valid || !package.declarations) continue;
+		settings_ui::PackageView view;
+		view.folder = package.folder;
+		view.display = package.display;
+		view.package_enabled = script_control::displayed_enabled(package.id);
+		view.declarations = package.declarations.get();
+		for (const auto& member : package.members)
+		{
+			view.members.push_back(settings_ui::MemberView{
+				member.filename, member.label, member.state_id,
+				script_control::displayed_enabled(member.state_id),
+				member.kind == packages::MemberKind::Replacement});
+		}
+		settings::UserState state;
+		std::string error;
+		const bool present = packages::read_settings_values(package, state, error);
+		if (present && error.empty()) view.state = std::move(state);
+		else if (present)
+		{
+			view.file_malformed = true;
+			view.file_reason = error;
+		}
+		views.push_back(std::move(view));
+	}
+	return views;
+}
+
+bool write_settings_values_atomic(
+	std::string_view folder, const std::string& text, std::string& error)
+{
+	const auto path = packages::settings_values_path(folder);
+	std::error_code ec;
+	std::filesystem::create_directories(path.parent_path(), ec);
+	if (ec)
+	{
+		error = "create-settings-directory-failed";
+		return false;
+	}
+	const auto temporary = path.parent_path() /
+		(L".settings." + std::to_wstring(GetCurrentProcessId()) + L".tmp");
+	{
+		std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+		if (!output || !output.write(text.data(), static_cast<std::streamsize>(text.size()))
+			|| !output.flush())
+		{
+			error = "write-temporary-failed";
+			std::filesystem::remove(temporary, ec);
+			return false;
+		}
+	}
+	if (!MoveFileExW(temporary.c_str(), path.c_str(),
+		MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+	{
+		error = "atomic-replace-failed win32=" + std::to_string(GetLastError());
+		std::filesystem::remove(temporary, ec);
+		return false;
+	}
+	return true;
+}
+
+struct SettingsOptionView
+{
+	const char* label = nullptr;
+	float value = 0.0f;
+};
+static_assert(std::is_trivially_copyable_v<SettingsOptionView>);
+
+struct SettingsRowView
+{
+	const char* kind = nullptr;
+	const char* label = nullptr;
+	const char* tooltip = nullptr;
+	const char* setting = nullptr;
+	const char* action = nullptr;
+	const char* sub_label = nullptr;
+	const char* content = nullptr;
+	const char* invalid = nullptr;
+	bool value = false;
+	bool validate = false;
+	bool integer = false;
+	bool locked = false;
+	float count = 0.0f;
+	float minimum = 0.0f;
+	float maximum = 0.0f;
+	float number = 0.0f;
+	const SettingsOptionView* options = nullptr;
+	std::size_t option_count = 0;
+};
+static_assert(std::is_trivially_copyable_v<SettingsRowView>);
+
+struct SettingsPageLeafContext
+{
+	const char* title = nullptr;
+	const char* empty = nullptr;
+	bool search = false;
+	const SettingsRowView* rows = nullptr;
+	std::size_t row_count = 0;
+	std::size_t failure_index = 0;
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<SettingsPageLeafContext>);
+
+bool raw_table_set_optional_string(
+	luau_State* state, const char* key, const char* value) noexcept
+{
+	return value == nullptr || raw_table_set_string(state, -1, key, value);
+}
+
+// BEGIN SCRIPT_SETTINGS_PAGE_PROTECTED_LEAF
+// Builds { title, empty, search, rows = { {kind, label, ...}, ... } } from
+// plain data and roots it in the registry for the outer read. Destructor-free.
+void script_settings_page_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<SettingsPageLeafContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| check_stack == nullptr || luau_createtable == nullptr
+		|| luau_pushstring == nullptr || luau_settable == nullptr || setfield == nullptr
+		|| context->title == nullptr || context->empty == nullptr
+		|| context->row_count > static_cast<std::size_t>(1u << 20)
+		|| (context->row_count != 0 && context->rows == nullptr)
+		|| !check_stack(state, 48)) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	luau_createtable(state, 0, 4);
+	if (!raw_table_set_string(state, -1, "title", context->title)
+		|| !raw_table_set_string(state, -1, "empty", context->empty)
+		|| !raw_table_set_bool(state, -1, "search", context->search)) return;
+	luau_createtable(state, static_cast<int>(context->row_count), 0);
+	for (std::size_t index = 0; index != context->row_count; ++index)
+	{
+		context->failure_index = index;
+		const auto& row = context->rows[index];
+		auto* base = luau_restorestack(state, base_offset);
+		state->outtop = base + 2;
+		luau_createtable(state, 0, 18);
+		if (!raw_table_set_string(state, -1, "kind", row.kind)
+			|| !raw_table_set_optional_string(state, "label", row.label)
+			|| !raw_table_set_optional_string(state, "tooltip", row.tooltip)
+			|| !raw_table_set_optional_string(state, "setting", row.setting)
+			|| !raw_table_set_optional_string(state, "action", row.action)
+			|| !raw_table_set_optional_string(state, "subLabel", row.sub_label)
+			|| !raw_table_set_optional_string(state, "content", row.content)
+			|| !raw_table_set_optional_string(state, "invalid", row.invalid)
+			|| !raw_table_set_bool(state, -1, "value", row.value)
+			|| !raw_table_set_bool(state, -1, "validate", row.validate)
+			|| !raw_table_set_bool(state, -1, "integer", row.integer)
+			|| !raw_table_set_bool(state, -1, "locked", row.locked)
+			|| !raw_table_set_number(state, -1, "count", row.count)
+			|| !raw_table_set_number(state, -1, "minimum", row.minimum)
+			|| !raw_table_set_number(state, -1, "maximum", row.maximum)
+			|| !raw_table_set_number(state, -1, "number", row.number)) return;
+		if (row.option_count != 0)
+		{
+			if (row.options == nullptr) return;
+			luau_createtable(state, static_cast<int>(row.option_count), 0);
+			for (std::size_t option = 0; option != row.option_count; ++option)
+			{
+				base = luau_restorestack(state, base_offset);
+				state->outtop = base + 4;
+				luau_createtable(state, 0, 2);
+				if (!raw_table_set_string(state, -1, "label", row.options[option].label)
+					|| !raw_table_set_number(state, -1, "value", row.options[option].value)) return;
+				base = luau_restorestack(state, base_offset);
+				const auto option_value = *(base + 4);
+				state->outtop = base + 4;
+				if (!raw_table_set_array_value(state, -1, option + 1, option_value)) return;
+			}
+			base = luau_restorestack(state, base_offset);
+			state->outtop = base + 4;
+			setfield(state, -2, "options");
+		}
+		base = luau_restorestack(state, base_offset);
+		const auto row_value = *(base + 2);
+		state->outtop = base + 2;
+		if (!raw_table_set_array_value(state, -1, index + 1, row_value)) return;
+	}
+	auto* base = luau_restorestack(state, base_offset);
+	state->outtop = base + 2;
+	setfield(state, -2, "rows");
+	base = luau_restorestack(state, base_offset);
+	state->outtop = base + 1;
+	const auto result = *base;
+	if (luau_pushstring(state, script_settings_page_return_root) == nullptr
+		|| !append_game_vm_stack_value(state, result)) return;
+	luau_settable(state, -10000);
+	context->completed = true;
+}
+// END SCRIPT_SETTINGS_PAGE_PROTECTED_LEAF
+
+struct RegistryTableRootContext
+{
+	const char* key = nullptr;
+	luau_TValue value{};
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<RegistryTableRootContext>);
+
+void read_registry_table_root_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<RegistryTableRootContext*>(raw_context);
+	if (context == nullptr || context->key == nullptr || state == nullptr
+		|| state->outtop == nullptr || getfield == nullptr) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	getfield(state, -10000, context->key);
+	auto* const base = luau_restorestack(state, base_offset);
+	if (is_table(base->type))
+	{
+		context->value = *base;
+		context->completed = true;
+	}
+}
+
+void clear_registry_root_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<RegistryTableRootContext*>(raw_context);
+	if (context == nullptr || context->key == nullptr || state == nullptr || setfield == nullptr) return;
+	luau_TValue nil{};
+	nil.type = LUAU_NIL;
+	if (!append_game_vm_stack_value(state, nil)) return;
+	setfield(state, -10000, context->key);
+	context->completed = true;
+}
+
+bool clear_script_settings_page_root(luau_State* state) noexcept
+{
+	RegistryTableRootContext context;
+	context.key = script_settings_page_return_root;
+	const auto result = de_vm_authority::run_current_vm_protected(
+		state, &clear_registry_root_leaf, &context);
+	return result.admitted && result.restored && result.status == 0 && context.completed;
+}
+
+void log_script_settings(const std::string& message)
+{
+	config::log(message);
+}
+
+settings_ui::Page select_script_settings_page(
+	const std::vector<settings_ui::PackageView>& views, const std::string& page_id, bool& found)
+{
+	found = true;
+	if (page_id == "flat") return settings_ui::build_flat_page(views);
+	if (page_id == "root") return settings_ui::build_root_page(views);
+	const auto view_for = [&](std::string_view folder) -> const settings_ui::PackageView*
+	{
+		for (const auto& view : views)
+			if (view.folder == folder && view.declarations != nullptr) return &view;
+		return nullptr;
+	};
+	if (page_id.rfind("pkg:", 0) == 0)
+	{
+		if (const auto* view = view_for(std::string_view(page_id).substr(4)))
+			return settings_ui::build_package_page(*view);
+	}
+	else if (page_id.rfind("grp:", 0) == 0)
+	{
+		const auto body = std::string_view(page_id).substr(4);
+		const auto slash = body.find('/');
+		if (slash != std::string_view::npos)
+		{
+			if (const auto* view = view_for(body.substr(0, slash)))
+			{
+				if (view->declarations->group(body.substr(slash + 1)) != nullptr)
+					return settings_ui::build_group_page(*view, body.substr(slash + 1));
+			}
+		}
+	}
+	found = false;
+	return {};
+}
+
+int script_settings_page_callback(luau_State* state)
+{
+	try
+	{
+		if (state == nullptr || state->outtop == nullptr || state->intop == nullptr
+			|| check_stack == nullptr)
+		{
+			return 0;
+		}
+		const int argument_count = luau_gettop(state);
+		std::string page_id;
+		if (argument_count < 1 || !read_short_lua_string(state->intop[0], page_id, 256))
+		{
+			log_script_settings("RENOVICE Script Settings page FAIL reason=page-id-argument");
+			return 0;
+		}
+		// Reserve the one result slot before any owning C++ object is built.
+		if (!check_stack(state, 1)) return 0;
+		settings_ui::Page page;
+		bool found = false;
+		{
+			std::lock_guard lock(script_settings_session_mutex);
+			if (script_settings_session.open
+				&& script_settings_session.global_state == state->global_state)
+			{
+				page = select_script_settings_page(
+					settings_ui::overlay(script_settings_session.session, script_settings_session.views),
+					page_id, found);
+			}
+		}
+		if (!found)
+		{
+			log_script_settings("RENOVICE Script Settings page FAIL id=" + page_id
+				+ " reason=no-open-session-or-unknown-page");
+			return 0;
+		}
+		std::size_t option_total = 0;
+		for (const auto& row : page.rows) option_total += row.options.size();
+		std::vector<SettingsOptionView> options;
+		options.reserve(option_total);
+		std::vector<SettingsRowView> rows;
+		rows.reserve(page.rows.size());
+		for (const auto& row : page.rows)
+		{
+			SettingsRowView view;
+			view.kind = settings_ui::row_kind_name(row.kind);
+			view.label = row.label.c_str();
+			view.tooltip = row.tooltip.empty() ? nullptr : row.tooltip.c_str();
+			view.setting = row.setting.empty() ? nullptr : row.setting.c_str();
+			view.action = row.action.empty() ? nullptr : row.action.c_str();
+			view.sub_label = row.sub_label.empty() ? nullptr : row.sub_label.c_str();
+			view.content = row.kind == settings_ui::RowKind::InputBox ? row.content.c_str() : nullptr;
+			view.invalid = row.invalid_message.empty() ? nullptr : row.invalid_message.c_str();
+			view.value = row.value;
+			view.validate = row.validate;
+			view.integer = row.integer;
+			view.locked = row.locked;
+			view.count = static_cast<float>(row.count);
+			view.minimum = static_cast<float>(row.minimum);
+			view.maximum = static_cast<float>(row.maximum);
+			view.number = static_cast<float>(row.number);
+			if (!row.options.empty())
+			{
+				view.options = options.data() + options.size();
+				view.option_count = row.options.size();
+				for (const auto& option : row.options)
+					options.push_back(SettingsOptionView{option.label.c_str(), static_cast<float>(option.value)});
+			}
+			rows.push_back(view);
+		}
+		SettingsPageLeafContext build{};
+		build.title = page.title.c_str();
+		build.empty = page.empty_message.c_str();
+		build.search = page.search;
+		build.rows = rows.data();
+		build.row_count = rows.size();
+		const auto build_result = de_vm_authority::run_current_vm_protected(
+			state, &script_settings_page_leaf, &build);
+		if (!build_result.admitted || !build_result.restored
+			|| build_result.status != 0 || !build.completed)
+		{
+			(void)clear_script_settings_page_root(state);
+			log_script_settings("RENOVICE Script Settings page FAIL id=" + page_id
+				+ " reason=protected-build index=" + std::to_string(build.failure_index)
+				+ " status=" + std::to_string(build_result.status));
+			return 0;
+		}
+		RegistryTableRootContext read{};
+		read.key = script_settings_page_return_root;
+		const auto read_result = de_vm_authority::run_current_vm_protected(
+			state, &read_registry_table_root_leaf, &read);
+		if (!read_result.admitted || !read_result.restored || read_result.status != 0
+			|| !read.completed || !append_game_vm_stack_value_reserved(state, read.value))
+		{
+			(void)clear_script_settings_page_root(state);
+			log_script_settings("RENOVICE Script Settings page FAIL id=" + page_id
+				+ " reason=protected-root-read");
+			return 0;
+		}
+		if (!clear_script_settings_page_root(state))
+		{
+			log_script_settings("RENOVICE Script Settings page FAIL reason=temporary-root-clear");
+		}
+		log_script_settings("RENOVICE Script Settings page PASS id=" + page_id
+			+ " rows=" + std::to_string(rows.size()) + " search=" + (page.search ? "1" : "0"));
+		return 1;
+	}
+	catch (...)
+	{
+		log_script_settings("RENOVICE Script Settings page FAIL reason=native-exception");
+		return 0;
+	}
+}
+
+int script_settings_stage_callback(luau_State* state)
+{
+	try
+	{
+		if (state == nullptr || state->intop == nullptr || state->outtop == nullptr) return 0;
+		const int argument_count = luau_gettop(state);
+		if (argument_count < 2) return 0;
+		std::string setting;
+		if (!read_short_lua_string(state->intop[1], setting, 512)) return 0;
+		if (setting.rfind("action:", 0) == 0 || setting.rfind("note:", 0) == 0) return 0;
+		const auto& raw = state->intop[0];
+		settings_ui::StagedValue staged;
+		if (raw.type == LUAU_BOOL) staged = settings_ui::StagedValue::of_bool(raw.value.as_bool != 0);
+		else if (raw.type == LUAU_NUMBER)
+			staged = settings_ui::StagedValue::of_number(static_cast<double>(raw.value.as_float));
+		else
+		{
+			std::string text;
+			if (!read_short_lua_string(raw, text, 64)) return 0;
+			staged = settings_ui::StagedValue::of_text(std::move(text));
+		}
+		std::string reason;
+		std::size_t rejection_index = 0;
+		{
+			std::lock_guard lock(script_settings_session_mutex);
+			if (!script_settings_session.open
+				|| script_settings_session.global_state != state->global_state)
+			{
+				return 0;
+			}
+			++script_settings_session.stage_calls;
+			reason = settings_ui::stage(
+				script_settings_session.session, script_settings_session.views, setting, staged);
+			if (!reason.empty()) rejection_index = ++script_settings_session.stage_rejections;
+		}
+		if (!reason.empty() && rejection_index <= script_settings_logged_rejections)
+		{
+			log_script_settings("RENOVICE Script Settings stage REJECT setting=" + setting
+				+ " reason=" + reason + " value=kept");
+		}
+	}
+	catch (...)
+	{
+		log_script_settings("RENOVICE Script Settings stage FAIL reason=native-exception");
+	}
+	return 0;
+}
+
+int script_settings_action_callback(luau_State* state)
+{
+	try
+	{
+		if (state == nullptr || state->intop == nullptr || state->outtop == nullptr
+			|| luau_gettop(state) < 1) return 0;
+		std::string action;
+		if (!read_short_lua_string(state->intop[0], action, 256)) return 0;
+		if (action.rfind("restore:", 0) != 0) return 0;
+		{
+			std::lock_guard lock(script_settings_session_mutex);
+			if (!script_settings_session.open
+				|| script_settings_session.global_state != state->global_state)
+			{
+				return 0;
+			}
+			settings_ui::restore(script_settings_session.session,
+				script_settings_session.views, std::string_view(action).substr(8));
+		}
+		log_script_settings("RENOVICE Script Settings action PASS " + action + " staged=restore");
+	}
+	catch (...)
+	{
+		log_script_settings("RENOVICE Script Settings action FAIL reason=native-exception");
+	}
+	return 0;
+}
+
+void apply_script_settings_session(ScriptSettingsHostSession& closed, const char* route)
+{
+	auto applied = settings_ui::apply(closed.session, closed.views);
+	std::size_t written = 0;
+	std::size_t failed = 0;
+	for (const auto& package : applied.packages)
+	{
+		const auto text = settings::write_values_file(package.state, package.declarations);
+		std::string error;
+		if (write_settings_values_atomic(package.folder, text, error)) ++written;
+		else
+		{
+			++failed;
+			log_script_settings("RENOVICE Script Settings write FAIL package=" + package.folder
+				+ " reason=" + error + " scope=package-local");
+		}
+	}
+	bool policy_committed = false;
+	if (!applied.policy.empty())
+	{
+		std::string error;
+		policy_committed = script_control::request_enabled_batch(applied.policy, error);
+		if (!policy_committed)
+			log_script_settings("RENOVICE Script Settings policy FAIL reason=" + error);
+	}
+	std::ostringstream line;
+	line << "RENOVICE Script Settings apply " << (failed == 0 ? "PASS" : "PARTIAL")
+		<< " route=" << route
+		<< " files=" << written << " file_failures=" << failed
+		<< " policy=" << (policy_committed ? applied.policy.size() : 0)
+		<< " stage_calls=" << closed.stage_calls
+		<< " stage_rejections=" << closed.stage_rejections
+		<< " restores=" << closed.session.restores.size();
+	log_script_settings(line.str());
+	if (written != 0 || policy_committed) request_reload("Script settings applied");
+	else log_script_settings("RENOVICE Script Settings close PASS action=no-changes");
+}
+
+int script_settings_done_callback(luau_State* state)
+{
+	try
+	{
+		const auto argument_count = state != nullptr && state->intop != nullptr
+			? luau_gettop(state) : 0;
+		const bool depth_is_number = argument_count >= 1 && state->intop[0].type == LUAU_NUMBER;
+		const int depth = depth_is_number ? static_cast<int>(state->intop[0].value.as_float) : 0;
+		const auto decision = classify_scripts_settings_completion(
+			argument_count >= 1 ? static_cast<std::size_t>(argument_count - 1) : 0,
+			argument_count >= 3 && state->intop[2].type == LUAU_NIL,
+			argument_count >= 3 && state->intop[2].type == LUAU_BOOL,
+			argument_count >= 3 && state->intop[2].value.as_bool != 0);
+		const bool recognized = decision == ScriptsSettingsCompletionDecision::Confirm
+			|| decision == ScriptsSettingsCompletionDecision::Cancel;
+		const char* route = decision == ScriptsSettingsCompletionDecision::Confirm ? "confirm"
+			: decision == ScriptsSettingsCompletionDecision::Cancel ? "close" : "reject";
+		if (depth != 1)
+		{
+			log_script_settings("RENOVICE Script Settings page CLOSE depth=" + std::to_string(depth)
+				+ " route=" + route + " session=kept");
+			return 0;
+		}
+		ScriptSettingsHostSession closed;
+		bool same_vm = false;
+		{
+			std::lock_guard lock(script_settings_session_mutex);
+			if (!script_settings_session.open) return 0;
+			same_vm = state != nullptr && script_settings_session.global_state == state->global_state;
+			closed = std::move(script_settings_session);
+			script_settings_session = ScriptSettingsHostSession{};
+		}
+		if (!same_vm)
+		{
+			log_script_settings("RENOVICE Script Settings close FAIL reason=owning-vm-changed staged=discarded");
+			return 0;
+		}
+		if (!recognized)
+		{
+			log_script_settings("RENOVICE Script Settings close FAIL reason=completion-contract staged=discarded");
+			return 0;
+		}
+		// Same rule as SCRIPTS (V34): any recognized close keeps the staged edits;
+		// the host re-validated every value when it was staged.
+		apply_script_settings_session(closed, route);
+	}
+	catch (...)
+	{
+		log_script_settings("RENOVICE Script Settings close FAIL reason=native-exception");
+	}
+	return 0;
+}
+
+int open_script_settings_callback(luau_State* state)
+{
+	try
+	{
+		SettingsBridgeCallContext context;
+		if (!captured_parent_movie(state, context.parent_movie))
+		{
+			log_script_settings("RENOVICE Script Settings open FAIL reason=captured-parent-mMovie");
+			return 0;
+		}
+		context.has_parent = true;
+		if (!optional_bridge_hook_value(
+				state, InternalChunk::ScriptSettingsBridgeV1, "openScriptSettings", context.function))
+		{
+			log_script_settings("RENOVICE Script Settings open FAIL reason=settings-bridge-not-committed");
+			return 0;
+		}
+		const auto snapshot = packages::candidate();
+		auto views = build_script_settings_views(snapshot);
+		const bool nested = config::flags().settings_menu_nested;
+		std::size_t packages_listed = views.size();
+		{
+			std::lock_guard lock(script_settings_session_mutex);
+			script_settings_session = ScriptSettingsHostSession{};
+			script_settings_session.open = true;
+			script_settings_session.token = next_script_settings_token++;
+			script_settings_session.global_state = state->global_state;
+			script_settings_session.nested = nested;
+			script_settings_session.snapshot = snapshot;
+			script_settings_session.views = std::move(views);
+		}
+		context.strings[0] = nested ? "nested" : "flat";
+		context.string_count = 1;
+		context.natives[0] = &script_settings_page_callback;
+		context.native_names[0] = "RENOVICE script settings page";
+		context.natives[1] = &script_settings_stage_callback;
+		context.native_names[1] = "RENOVICE script settings stage";
+		context.natives[2] = &script_settings_done_callback;
+		context.native_names[2] = "RENOVICE script settings close";
+		context.natives[3] = &script_settings_action_callback;
+		context.native_names[3] = "RENOVICE script settings action";
+		context.native_count = 4;
+		const bool opened = call_settings_bridge(state, context);
+		if (!opened)
+		{
+			{
+				std::lock_guard lock(script_settings_session_mutex);
+				script_settings_session = ScriptSettingsHostSession{};
+			}
+			std::ostringstream failure;
+			failure << "RENOVICE Script Settings open FAIL reason=protected-lua-namecall-bridge"
+				<< " completed=" << context.completed << " status=" << context.callback_status;
+			if (context.error_tag >= 0)
+				failure << " error_tag=" << context.error_tag << " error=\"" << context.error_text << '"';
+			log_script_settings(failure.str());
+			return 0;
+		}
+		log_script_settings(std::string("RENOVICE Script Settings open PASS renderer=ThemedGenericSettings layout=")
+			+ (nested ? "nested" : "flat") + " packages=" + std::to_string(packages_listed)
+			+ " bridge=ScriptSettingsBridgeV1");
+	}
+	catch (...)
+	{
+		{
+			std::lock_guard lock(script_settings_session_mutex);
+			script_settings_session = ScriptSettingsHostSession{};
+		}
+		log_script_settings("RENOVICE Script Settings open FAIL reason=native-exception");
+	}
+	return 0;
+}
+#endif
+// END SCRIPT_SETTINGS_HOST
+
 bool select_settings_menu_row(SettingsMenuRowSelection& selection)
 {
 #if defined(RENOVICE_SETTINGS_PROBE_P0)
@@ -5549,8 +6270,14 @@ bool select_settings_menu_row(SettingsMenuRowSelection& selection)
 	selection.debug_name = "RENOVICE open settings probe";
 	return true;
 #else
-	(void)selection;
-	return false;
+	// SCRIPT SETTINGS appears only when its optional bridge is committed and at
+	// least one valid package declares settings (no I/O: active snapshot).
+	if (!script_settings_row_available()) return false;
+	selection.label = "SCRIPT SETTINGS";
+	selection.description = "Edit the values of RENOVICE script packages";
+	selection.callback = &open_script_settings_callback;
+	selection.debug_name = "RENOVICE open script settings";
+	return true;
 #endif
 }
 
@@ -12357,12 +13084,27 @@ enum class LifecycleLeafFailure : std::uint8_t
 	lifecycle_root_not_table,
 	operation_not_function,
 	protected_call_rejected,
+	settings_table,
 };
+
+// ADDON_SETTINGS_V1: one delivered value as plain data for the protected leaf.
+struct SettingsValueView
+{
+	const char* id = nullptr;
+	float value = 0.0f;
+	float stock = 0.0f;
+};
+static_assert(std::is_trivially_copyable_v<SettingsValueView>);
 
 struct LifecycleLeafContext
 {
 	const char* registry_key = nullptr;
 	const char* field = nullptr;
+	// When set (activate of an addon member with declarations), the leaf calls
+	// activate(context) with a fresh context.settings table built in this VM.
+	bool deliver_settings = false;
+	const SettingsValueView* settings_values = nullptr;
+	std::size_t settings_count = 0;
 	bool guard_prepared = false;
 	bool returned = false;
 	bool success = false;
@@ -12453,7 +13195,48 @@ void lifecycle_operation_protected_leaf(
 			return;
 		}
 		state->outtop = guard_base() + 2;
-		if (protected_call(state, 0, 0, 0) != 0)
+		int lifecycle_arguments = 0;
+		if (context->deliver_settings)
+		{
+			// Fresh, generation-owned table in the committing VM:
+			// { settings = { [id] = { enabled = true, value = v, stock = s } } }.
+			// Nothing native retains it; the addon's closures own it.
+			if (check_stack(state, 8) == 0 || luau_createtable == nullptr
+				|| (context->settings_count != 0 && context->settings_values == nullptr))
+			{
+				restore_lua_top();
+				finish_guard();
+				context->failure = LifecycleLeafFailure::stack_capacity;
+				context->returned = true;
+				return;
+			}
+			guard.stage = 21;
+			luau_createtable(state, 0, 1);
+			luau_createtable(state, 0, static_cast<int>(context->settings_count));
+			for (std::size_t index = 0; index != context->settings_count; ++index)
+			{
+				const auto& entry = context->settings_values[index];
+				luau_createtable(state, 0, 3);
+				if (!raw_table_set_bool(state, -1, "enabled", true)
+					|| !raw_table_set_number(state, -1, "value", entry.value)
+					|| !raw_table_set_number(state, -1, "stock", entry.stock))
+				{
+					restore_lua_top();
+					finish_guard();
+					context->failure = LifecycleLeafFailure::settings_table;
+					context->returned = true;
+					return;
+				}
+				setfield(state, -2, entry.id);
+			}
+			setfield(state, -2, "settings");
+			state->outtop = guard_base() + 3;
+			lifecycle_arguments = 1;
+		}
+		const int lifecycle_status = lifecycle_arguments == 0
+			? protected_call(state, 0, 0, 0)
+			: protected_call(state, 1, 0, 0);
+		if (lifecycle_status != 0)
 		{
 			if (state->outtop > guard_base())
 			{
@@ -12475,7 +13258,22 @@ void lifecycle_operation_protected_leaf(
 }
 // END LIFECYCLE_OPERATION_PROTECTED_LEAF
 
+bool lifecycle_operation(
+	luau_State* state, const AddonRecord& addon, const char* field,
+	const settings::MemberDelivery* delivery);
+
 bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char* field)
+{
+	return lifecycle_operation(state, addon, field, nullptr);
+}
+
+// ADDON_SETTINGS_V1: `delivery` is non-null only for "activate" of an addon
+// member that declares values; every other lifecycle call is unchanged.
+bool lifecycle_operation(
+	luau_State* state,
+	const AddonRecord& addon,
+	const char* field,
+	const settings::MemberDelivery* delivery)
 {
 	std::lock_guard execution_lock(lua_execution_mutex);
 	ScopedExecutionDepth execution_depth;
@@ -12510,6 +13308,16 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 
 	context.registry_key = addon.registry_key.c_str();
 	context.field = field;
+	std::vector<SettingsValueView> settings_views;
+	if (delivery != nullptr && field != nullptr)
+	{
+		settings_views.reserve(delivery->values.size());
+		for (const auto& value : delivery->values)
+			settings_views.push_back(SettingsValueView{value.id.c_str(), value.value, value.stock});
+		context.deliver_settings = true;
+		context.settings_values = settings_views.data();
+		context.settings_count = settings_views.size();
+	}
 	const auto protected_result = de_vm_authority::run_current_vm_protected(
 		state, &lifecycle_operation_protected_leaf, &context);
 	if (context.guard_prepared)
@@ -12566,6 +13374,9 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 		break;
 	case LifecycleLeafFailure::protected_call_rejected:
 		reason = "protected-call-rejected";
+		break;
+	case LifecycleLeafFailure::settings_table:
+		reason = "settings-context-table";
 		break;
 	case LifecycleLeafFailure::none:
 	case LifecycleLeafFailure::native_fault:
@@ -15218,10 +16029,18 @@ bool activate_target_addons_locked(
 			const auto content_key = replacements::body_key(std::string_view(
 				reinterpret_cast<const char*>(desired[i]->bytes.data()),
 				desired[i]->bytes.size()));
-			exact_name_and_content_match = current[i].addon.name == desired[i]->name
-				&& current[i].content_key == content_key
+			// ADDON_SETTINGS_V1: the settings identity joins the reuse identity,
+			// so a settings-only change re-activates unchanged bytes.
+			const std::string desired_settings_identity = desired[i]->settings
+				? desired[i]->settings->identity : std::string();
+			const bool binding_reusable = settings::target_addon_binding_reusable(
+				current[i].addon.name == desired[i]->name,
+				current[i].content_key == content_key,
+				true, current[i].settings_identity, desired_settings_identity);
+			exact_name_and_content_match = binding_reusable
 				&& current[i].bound_environment == target_environment;
 			exact_shared_table_match = exact_shared_table_match
+				&& current[i].settings_identity == desired_settings_identity
 				&& same_target_addon_generation(
 					current[i].content_key, current[i].shared_table_identity,
 					content_key, current_shared_table_identity);
@@ -15252,7 +16071,8 @@ bool activate_target_addons_locked(
 				},
 				[&](const TargetAddonRecord& addon)
 				{
-					return lifecycle_operation(state, addon.addon, "activate");
+					return lifecycle_operation(
+						state, addon.addon, "activate", addon.settings.get());
 				});
 			if (transaction != TransactionResult::Committed)
 			{
@@ -15329,6 +16149,8 @@ bool activate_target_addons_locked(
 		candidate.target_key = target_key;
 		candidate.content_key = replacements::body_key(std::string_view(
 			reinterpret_cast<const char*>(chunk->bytes.data()), chunk->bytes.size()));
+		candidate.settings = chunk->settings;
+		candidate.settings_identity = chunk->settings ? chunk->settings->identity : std::string();
 		// The successful bridge install above proved the exact `_T` identity
 		// against which this chunk is about to execute.
 		candidate.shared_table_identity = current_shared_table_identity;
@@ -15466,7 +16288,10 @@ bool activate_target_addons_locked(
 		},
 		[&](const TargetAddonRecord& addon)
 		{
-			return lifecycle_operation(state, addon.addon, "activate");
+			// ADDON_SETTINGS_V1: activate(context) for members with
+			// declarations; plain activate() for everything else.
+			return lifecycle_operation(
+				state, addon.addon, "activate", addon.settings.get());
 		},
 		[&](const TargetAddonRecord& addon)
 		{

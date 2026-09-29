@@ -23,6 +23,18 @@ struct Member
 	// scan (startup/F9). Inventory scans never keep replacement bytes.
 	std::vector<unsigned char> bytes;
 	std::string label;
+	// `member:<folder>/<file>` enable policy (ScriptStates.json). A disabled
+	// member is still structurally validated and its keys stay inventoried.
+	std::string state_id;
+	bool enabled = true;
+	// Enters its lane in this generation: package accepted, member enabled
+	// and, for a replacement with literal declarations, admitted by the
+	// literal-lane settings gate.
+	bool staged = false;
+	// ADDON_SETTINGS_V1 delivery for an addon member that declares values
+	// (committing scans only). nullptr: no declarations, the addon receives
+	// context.settings = nil and keeps its compiled defaults.
+	std::shared_ptr<const settings::MemberDelivery> delivery;
 };
 
 struct Package
@@ -40,6 +52,10 @@ struct Package
 	bool accepted = false;
 	std::string reason;
 	std::vector<Member> members;
+	// Validated settings declarations, or nullptr (none, or rejected with
+	// settings_reason; a rejection is local to the settings capability).
+	std::shared_ptr<const settings::Declarations> declarations;
+	std::string settings_reason;
 };
 
 struct Snapshot
@@ -48,6 +64,12 @@ struct Snapshot
 };
 
 std::filesystem::path directory();
+
+// ADDON_SETTINGS_V1 user values: CustomScripts\Settings\<folder>.json.
+// read_settings_values returns false when the file is absent; on a read or
+// parse failure it returns true with a non-empty error.
+std::filesystem::path settings_values_path(std::string_view folder);
+bool read_settings_values(const Package& package, settings::UserState& state, std::string& error);
 
 // Startup: scan with the active policy and publish it as the active snapshot.
 // Returns false only for a Packages-root I/O error; per-package problems are

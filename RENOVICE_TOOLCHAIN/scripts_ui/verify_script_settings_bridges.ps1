@@ -46,7 +46,7 @@ $bridges = @(
     @{
         Source = 'ScriptSettingsBridgeV1.luau'
         Output = '_RENOVICE_INTERNAL_ScriptSettingsBridgeV1.lua_B'
-        Required = $false
+        Required = $true
         Pins = @(
             'openScriptSettings = openScriptSettings',
             'child:Execute("SetConfirmButtonVisibleWhenInactive", "true")',
@@ -114,5 +114,24 @@ $scan = $injection.Substring($injection.IndexOf('// BEGIN OPTIONAL_INTERNAL_BRID
 $scan = $scan.Substring(0, $scan.IndexOf('// END OPTIONAL_INTERNAL_BRIDGE_SCAN', [StringComparison]::Ordinal))
 Require ($scan.Contains('continue;') -and -not $scan.Contains('snapshot.emplace_back')) 'reserved internal files never enter the ordinary Inject lanes'
 Require ($injection.Contains('"RENOVICE Script Settings row append ")')) 'the second pause-menu row reports its own PASS/FAIL'
+
+# SCRIPT SETTINGS host (main build only; the probe build carries the probe row).
+$hostStart = $injection.IndexOf('// BEGIN SCRIPT_SETTINGS_HOST', [StringComparison]::Ordinal)
+$hostEnd = $injection.IndexOf('// END SCRIPT_SETTINGS_HOST', [StringComparison]::Ordinal)
+Require ($hostStart -ge 0 -and $hostEnd -gt $hostStart) 'SCRIPT SETTINGS host block present'
+$hostBlock = $injection.Substring($hostStart, $hostEnd - $hostStart)
+Require ($hostBlock.Contains('#if !defined(RENOVICE_SETTINGS_PROBE_P0)')) 'the diagnostic probe build never carries the editor'
+Require ($injection.Contains('if (!script_settings_row_available()) return false;')) 'SCRIPT SETTINGS row only with a committed bridge and declared settings'
+Require ($hostBlock.Contains('request_reload("Script settings applied");') -and -not $hostBlock.Contains('apply_generation(')) 'changes apply only through the ordinary F9 transaction'
+Require ($hostBlock.Contains('settings_ui::stage(') -and $hostBlock.Contains('if (depth != 1)')) 'clicks and child closes only stage; the root close applies'
+Require ($hostBlock.Contains('staged=discarded') -and $hostBlock.Contains('owning-vm-changed')) 'a VM change or a malformed completion discards the session (fail closed)'
+$pageLeafStart = $injection.IndexOf('// BEGIN SCRIPT_SETTINGS_PAGE_PROTECTED_LEAF', [StringComparison]::Ordinal)
+$pageLeafEnd = $injection.IndexOf('// END SCRIPT_SETTINGS_PAGE_PROTECTED_LEAF', [StringComparison]::Ordinal)
+$pageLeaf = $injection.Substring($pageLeafStart, $pageLeafEnd - $pageLeafStart)
+foreach ($forbidden in @('std::string', 'std::vector', 'std::lock_guard', 'std::shared_ptr', 'std::ostringstream', 'config::', 'conout', 'catch (', ' new ', ' delete ')) {
+    Require (-not $pageLeaf.Contains($forbidden)) "page leaf is destructor-free: no $forbidden"
+}
+Require ($injection.Contains('static_assert(std::is_trivially_copyable_v<SettingsPageLeafContext>);') -and $injection.Contains('static_assert(std::is_trivially_copyable_v<SettingsRowView>);')) 'page leaf contexts are POD'
+Require (-not $injection.Contains('Pluto') -or $hostBlock.IndexOf('pluto', [StringComparison]::OrdinalIgnoreCase) -lt 0) 'no Pluto involvement in the editor host'
 
 Write-Output "SCRIPT SETTINGS BRIDGES PASS built=$built"

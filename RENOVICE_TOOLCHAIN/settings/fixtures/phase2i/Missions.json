@@ -1,0 +1,26 @@
+{
+  "format": "RENOVICE_SCRIPT_SETTINGS_V1",
+  "package": "package:missions",
+  "build": "2026.09.28.13.06",
+  "use_stock": false,
+  "groups": {
+    "lantern": true,
+    "purgatory": true,
+    "survival": true,
+    "void_flood": true
+  },
+  "values": {
+    "survival.reward_interval": {
+      "enabled": true,
+      "value": 150
+    },
+    "purgatory.difficulty1.warrior_level": {
+      "enabled": false,
+      "value": 15
+    },
+    "void_flood.fractures_per_round.normal": {
+      "enabled": true,
+      "value": 4
+    }
+  }
+}

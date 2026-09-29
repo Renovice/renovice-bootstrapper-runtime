@@ -32,6 +32,9 @@ void discard_prepared_reload();
 // Scanners use the prepared policy during an F9 transaction and the active
 // policy at startup. An absent entry is enabled for backward compatibility.
 bool candidate_enabled(std::string_view id);
+// Active policy overlaid with requests saved but not yet committed by F9 (what
+// the next generation will use). For UI display only.
+bool displayed_enabled(std::string_view id);
 
 std::vector<ScriptInfo> snapshot();
 bool request_enabled(std::string_view id, bool enabled, std::string& error);
