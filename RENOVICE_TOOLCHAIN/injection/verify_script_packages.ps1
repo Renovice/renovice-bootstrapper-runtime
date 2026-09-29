@@ -114,7 +114,7 @@ Require ($merge.Contains('packages::candidate()')) 'replacement lane consumes th
 $drainPrepare = Get-Region $injection 'if (!config::prepare_reload())' 'if (!transaction_valid) discard_prepared();' 'F9 prepare sequence'
 $policy = Index $drainPrepare 'script_control::prepare_reload()'
 $pkg = Index $drainPrepare 'packages::prepare_reload()'
-Require ($policy -ge 0 -and $pkg -gt $policy -and $pkg -lt (Index $drainPrepare 'replacements::prepare_reload()') -and $pkg -lt (Index $drainPrepare 'scan_snapshot(candidate, candidate_target_keys)')) 'F9 scans packages once, after the prepared policy and before both consuming lanes'
+Require ($policy -ge 0 -and $pkg -gt $policy -and $pkg -lt (Index $drainPrepare 'replacements::prepare_reload()') -and $pkg -lt (Index $drainPrepare 'scan_snapshot(candidate, candidate_target_keys, candidate_optional_bridges)')) 'F9 scans packages once, after the prepared policy and before both consuming lanes'
 Require ($drainPrepare.Contains('reject_prepared_member("RENOVICE F9 package reload rejected: previous snapshot retained");')) 'an unreadable Packages root rejects F9 with an exact logged reason'
 $discard = Get-Region $injection 'auto discard_prepared = []' '};' 'F9 discard'
 Require ($discard.Contains('packages::discard_prepared_reload();')) 'F9 rollback discards the prepared package snapshot'

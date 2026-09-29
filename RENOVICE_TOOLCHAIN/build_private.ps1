@@ -1,3 +1,8 @@
+param(
+    # Phase 0 in-game settings editor UI probe: builds the clearly labelled
+    # diagnostic DLL (RENOVICE_SETTINGS_PROBE_P0) from _renovice_private_msvc_probe.sun.
+    [switch]$SettingsProbeP0
+)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -10,6 +15,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\build_automatic_damage_runtime.ps1") -VerifyOnly
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_bridge.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_scripts_ui_core.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_script_settings_bridges.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_injection_core.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\config\verify_config_core.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_multi_target_addon.ps1")
@@ -90,7 +96,9 @@ try {
     }
     $archiveOutput | Write-Output
 
-    $buildOutput = @(& $sunExe _renovice_private_msvc 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    $sunProject = if ($SettingsProbeP0) { "_renovice_private_msvc_probe" } else { "_renovice_private_msvc" }
+    Write-Output "PRIVATE BUILD PROJECT $sunProject"
+    $buildOutput = @(& $sunExe $sunProject 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
     $buildExitCode = $LASTEXITCODE
     [System.IO.File]::WriteAllText(
         $buildLog,
@@ -138,4 +146,5 @@ if ($dependents -match "wtsapi32_owf\.dll") {
 
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $dll).Hash.ToLowerInvariant()
 $size = (Get-Item -LiteralPath $dll).Length
-Write-Host "PRIVATE BUILD PASS warnings=0 errors=0 x64=yes companion_import=no bytes=$size sha256=$hash"
+$flavor = if ($SettingsProbeP0) { "settings-probe-p0-DIAGNOSTIC" } else { "main" }
+Write-Host "PRIVATE BUILD PASS flavor=$flavor warnings=0 errors=0 x64=yes companion_import=no bytes=$size sha256=$hash"

@@ -1,0 +1,20 @@
+name wtsapi32
+dynamic
++*.cpp
++renovice/*.cpp
+-RENOVICE_DEPLOYMENTS/*.cpp
+require modules/Soup/soup
+require modules/Pluto/src
+arg -Wno-invalid-offsetof
+
+arg -DLOGGING=true
+arg -DPRIVATE=true
+# Phase 0 in-game settings editor UI probe (diagnostic build only).
+arg -DRENOVICE_SETTINGS_PROBE_P0=1
+
+arg -O3
+
+# The official source expects Clang's Windows/MSVC target. The local MSYS2
+# clang executable defaults to MinGW, so make the intended target explicit
+# without changing the copied upstream .sun baseline.
+global_arg --target=x86_64-pc-windows-msvc

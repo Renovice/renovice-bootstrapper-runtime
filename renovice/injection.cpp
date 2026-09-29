@@ -551,6 +551,10 @@ std::atomic<SafeRuntimeControlPoll> safe_runtime_control_poll = nullptr;
 std::atomic_bool first_safe_runtime_tick_logged = false;
 std::atomic_bool subsystem_enabled = false;
 std::atomic_bool startup_pending = false;
+// Optional internal bridges (see OPTIONAL_INTERNAL_BRIDGES). Published only by
+// reconcile_optional_bridges_locked after a committed generation.
+std::atomic_bool script_settings_bridge_ready = false;
+std::atomic_bool settings_probe_bridge_ready = false;
 std::atomic_bool f9_pending = false;
 std::atomic_bool execution_running = false;
 std::atomic_bool observe_target_addons = false;
@@ -1824,6 +1828,8 @@ int open_scripts_settings_callback(luau_State* state);
 int scripts_settings_elements_callback(luau_State* state);
 int scripts_settings_changed_callback(luau_State* state);
 int scripts_settings_done_callback(luau_State* state);
+bool optional_bridge_hook_value(
+	luau_State* state, InternalChunk kind, const char* hook, luau_TValue& output);
 void disable_native_hook_adapters(const char* reason);
 bool decorate_pause_initialize_assignment(
 	std::uint64_t body_key,
@@ -1959,11 +1965,19 @@ void append_package_chunks(
 }
 // END PACKAGE_INJECT_MEMBERS
 
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+constexpr bool settings_probe_build = true;
+#else
+constexpr bool settings_probe_build = false;
+#endif
+
 bool scan_snapshot(
 	std::vector<Chunk>& snapshot,
-	std::vector<std::uint64_t>& target_keys
+	std::vector<std::uint64_t>& target_keys,
+	std::vector<Chunk>& optional_bridges
 )
 {
+	optional_bridges.clear();
 	const auto& directory = config::injection_directory();
 	std::error_code ec;
 	std::filesystem::create_directories(directory, ec);
@@ -1986,6 +2000,37 @@ bool scan_snapshot(
 			continue;
 		}
 		const auto name = path.filename().string();
+		// BEGIN OPTIONAL_INTERNAL_BRIDGE_SCAN
+		const auto internal_kind = classify_internal_chunk(name);
+		if (internal_kind != InternalChunk::None
+			&& internal_kind != InternalChunk::ScriptsBridgeV10)
+		{
+			// Reserved infrastructure never enters the ordinary lanes. Optional
+			// bridges are staged after the managed transaction commits, so a
+			// missing or broken one removes only its own menu row.
+			if (optional_internal_bridge_admitted(internal_kind, settings_probe_build))
+			{
+				Chunk bridge;
+				bridge.name = name;
+				bridge.kind = ScriptKind::ManagedAddon;
+				if (read_file(path, bridge.bytes))
+				{
+					optional_bridges.emplace_back(std::move(bridge));
+				}
+				else
+				{
+					config::log("RENOVICE internal bridge SKIP file=" + name
+						+ " reason=unreadable-empty-or-oversized scope=capability-local");
+				}
+			}
+			else
+			{
+				config::log("RENOVICE internal chunk IGNORED file=" + name
+					+ " reason=reserved-infrastructure-name-not-loaded-by-this-build");
+			}
+			continue;
+		}
+		// END OPTIONAL_INTERNAL_BRIDGE_SCAN
 		const bool internal_bridge = is_internal_scripts_ui_bridge(name);
 		const auto kind = runtime_script_kind(name);
 		script_control::Kind control_kind = script_control::Kind::OneShot;
@@ -5265,6 +5310,250 @@ int open_scripts_settings_callback(luau_State* state)
 	return 0;
 }
 
+// BEGIN SETTINGS_BRIDGE_CALL
+// Calls one hook of an optional internal bridge in compiled DE Luau:
+//   hook([parentMovie,] UIMovie_GenericSettings, strings..., natives...)
+// Engine userdata NAMECALLs (PushChildMovie, Execute, OpenScreen) must run in
+// bytecode (GENERIC_SETTINGS_NATIVE_DISPATCH_MAP H1/H5), so native code only
+// resolves the resource, pushes plain arguments and fresh C closures, and reads
+// one boolean result. Nothing here retains a Lua reference after the call.
+struct SettingsBridgeCallContext
+{
+	luau_TValue function{};
+	luau_TValue parent_movie{};
+	bool has_parent = false;
+	luau_CFunction natives[6]{};
+	const char* native_names[6]{};
+	std::size_t native_count = 0;
+	const char* strings[2]{};
+	std::size_t string_count = 0;
+	bool completed = false;
+	bool returned_true = false;
+	int callback_status = -1;
+	int error_tag = -1;
+	char error_text[lua_error_text_capacity]{};
+};
+static_assert(std::is_trivially_copyable_v<SettingsBridgeCallContext>);
+
+void settings_bridge_call_leaf(luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<SettingsBridgeCallContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| check_stack == nullptr || luau_pushcclosurek == nullptr
+		|| luau_pushstring == nullptr || protected_call == nullptr
+		|| context->native_count > 6 || context->string_count > 2
+		|| !is_function(context->function.type) || !check_stack(state, 24)) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	auto* base = luau_restorestack(state, base_offset);
+	if (!raw_push_vm_global_noexcept(state, "_G") || !is_table(base->type)
+		|| !raw_push_hashed_table_field_noexcept(
+			state, -1, "UIMovie_GenericSettings")) return;
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 2 || (base + 1)->type == LUAU_NIL
+		|| (base + 1)->value.as_uintptr == 0) return;
+	const auto settings_resource = *(base + 1);
+	state->outtop = base;
+	int arguments = 0;
+	if (!append_game_vm_stack_value(state, context->function)) return;
+	if (context->has_parent)
+	{
+		if (!append_game_vm_stack_value(state, context->parent_movie)) return;
+		++arguments;
+	}
+	if (!append_game_vm_stack_value(state, settings_resource)) return;
+	++arguments;
+	for (std::size_t i = 0; i != context->string_count; ++i)
+	{
+		if (context->strings[i] == nullptr
+			|| luau_pushstring(state, context->strings[i]) == nullptr) return;
+		++arguments;
+	}
+	for (std::size_t i = 0; i != context->native_count; ++i)
+	{
+		if (context->natives[i] == nullptr) return;
+		luau_pushcclosurek(state, context->natives[i],
+			context->native_names[i] != nullptr
+				? context->native_names[i] : "RENOVICE settings native",
+			0, nullptr);
+		++arguments;
+	}
+	context->callback_status = protected_call(state, arguments, 1, 0);
+	base = luau_restorestack(state, base_offset);
+	context->completed = true;
+	if (context->callback_status == 0)
+	{
+		context->returned_true = state->outtop == base + 1
+			&& base->type == LUAU_BOOL && base->value.as_bool != 0;
+	}
+	else if (state->outtop > base)
+	{
+		context->error_tag = static_cast<int>((state->outtop - 1)->type);
+		capture_lua_error_text(*(state->outtop - 1),
+			context->error_text, sizeof(context->error_text));
+	}
+	state->outtop = base;
+}
+
+bool call_settings_bridge(luau_State* state, SettingsBridgeCallContext& context)
+{
+	const auto result = de_vm_authority::run_current_vm_protected(
+		state, &settings_bridge_call_leaf, &context);
+	return result.admitted && result.restored && result.status == 0
+		&& context.completed && context.callback_status == 0
+		&& context.returned_true;
+}
+
+bool captured_parent_movie(luau_State* state, luau_TValue& parent_movie) noexcept
+{
+	parent_movie = {};
+	const auto* wrapper = state != nullptr && state->ci != nullptr
+		&& state->ci->func != nullptr && is_function(state->ci->func->type)
+		? reinterpret_cast<const luau_Closure*>(state->ci->func->value.as_uintptr)
+		: nullptr;
+	if (wrapper == nullptr || !wrapper->isC || wrapper->nupvalues < 1
+		|| state->outtop == nullptr)
+	{
+		return false;
+	}
+	parent_movie = dereference_upvalue(wrapper->c.upvals[0]);
+	return is_userdata(parent_movie.type) && parent_movie.value.as_uintptr != 0;
+}
+// END SETTINGS_BRIDGE_CALL
+
+struct SettingsMenuRowSelection
+{
+	const char* label = nullptr;
+	const char* description = nullptr;
+	luau_CFunction callback = nullptr;
+	const char* debug_name = nullptr;
+};
+
+// BEGIN SETTINGS_PROBE_P0_DECLARATIONS
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+int open_settings_probe_callback(luau_State* state);
+#endif
+// END SETTINGS_PROBE_P0_DECLARATIONS
+
+// BEGIN SETTINGS_PROBE_P0
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+// Phase 0 UI probe: DIAGNOSTIC BUILD ONLY (build_private.ps1 -SettingsProbeP0).
+// It adds one "SETTINGS PROBE" pause-menu row and an F12 open request. The
+// probe bridge builds static demo pages in compiled DE Luau, writes no file,
+// stages nothing and never touches an addon, a package or a generation. Every
+// observation is one bounded "RENOVICE SETTINGS PROBE" source-log line.
+std::atomic<std::uint32_t> settings_probe_log_lines{0};
+constexpr std::uint32_t settings_probe_log_line_limit = 4096;
+std::atomic_bool settings_probe_open_pending = false;
+bool settings_probe_key_was_down = false;
+
+int settings_probe_log_callback(luau_State* state)
+{
+	try
+	{
+		const auto line = settings_probe_log_lines.fetch_add(1, std::memory_order_acq_rel);
+		if (line >= settings_probe_log_line_limit)
+		{
+			if (line == settings_probe_log_line_limit)
+				config::log("RENOVICE SETTINGS PROBE log-limit reached; further probe lines suppressed");
+			return 0;
+		}
+		char text[lua_error_text_capacity]{};
+		if (state != nullptr && state->intop != nullptr && luau_gettop(state) >= 1)
+			capture_lua_error_text(state->intop[0], text, sizeof(text));
+		config::log(std::string("RENOVICE SETTINGS PROBE tick_ms=")
+			+ std::to_string(static_cast<std::uint64_t>(GetTickCount64())) + " " + text);
+	}
+	catch (...)
+	{
+	}
+	return 0;
+}
+
+void log_settings_probe_call(
+	const char* source, bool opened, const SettingsBridgeCallContext& context)
+{
+	std::ostringstream line;
+	line << "RENOVICE SETTINGS PROBE open source=" << source
+		<< " result=" << (opened ? "PASS" : "FAIL")
+		<< " completed=" << context.completed
+		<< " status=" << context.callback_status
+		<< " returned_true=" << context.returned_true;
+	if (context.error_tag >= 0)
+		line << " error_tag=" << context.error_tag << " error=\"" << context.error_text << '"';
+	config::log(line.str());
+}
+
+int open_settings_probe_callback(luau_State* state)
+{
+	try
+	{
+		SettingsBridgeCallContext context;
+		if (!captured_parent_movie(state, context.parent_movie))
+		{
+			config::log("RENOVICE SETTINGS PROBE open FAIL reason=captured-parent-mMovie");
+			return 0;
+		}
+		context.has_parent = true;
+		if (!optional_bridge_hook_value(
+				state, InternalChunk::SettingsProbeP0, "openProbe", context.function))
+		{
+			config::log("RENOVICE SETTINGS PROBE open FAIL reason=probe-bridge-not-committed");
+			return 0;
+		}
+		context.natives[0] = &settings_probe_log_callback;
+		context.native_names[0] = "RENOVICE settings probe log";
+		context.native_count = 1;
+		const bool opened = call_settings_bridge(state, context);
+		log_settings_probe_call("pause-menu", opened, context);
+	}
+	catch (...)
+	{
+		config::log("RENOVICE SETTINGS PROBE open FAIL reason=native-exception");
+	}
+	return 0;
+}
+
+void run_settings_probe_hotkey_open(luau_State* state)
+{
+	try
+	{
+		SettingsBridgeCallContext context;
+		if (!optional_bridge_hook_value(
+				state, InternalChunk::SettingsProbeP0, "openProbeFromHotkey",
+				context.function))
+		{
+			config::log("RENOVICE SETTINGS PROBE H-1 open FAIL reason=probe-bridge-not-committed");
+			return;
+		}
+		context.natives[0] = &settings_probe_log_callback;
+		context.native_names[0] = "RENOVICE settings probe log";
+		context.native_count = 1;
+		const bool opened = call_settings_bridge(state, context);
+		log_settings_probe_call("hotkey-F12-safe-tick", opened, context);
+	}
+	catch (...)
+	{
+		config::log("RENOVICE SETTINGS PROBE H-1 open FAIL reason=native-exception");
+	}
+}
+#endif
+// END SETTINGS_PROBE_P0
+
+bool select_settings_menu_row(SettingsMenuRowSelection& selection)
+{
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+	if (!settings_probe_bridge_ready.load(std::memory_order_acquire)) return false;
+	selection.label = "SETTINGS PROBE";
+	selection.description = "RENOVICE Phase 0 UI probe (diagnostic build). Writes nothing.";
+	selection.callback = &open_settings_probe_callback;
+	selection.debug_name = "RENOVICE open settings probe";
+	return true;
+#else
+	(void)selection;
+	return false;
+#endif
+}
+
 std::size_t array_next_index(luau_State* state, int table_index)
 {
 	if (state == nullptr || state->outtop == nullptr || luau_next == nullptr) return 1;
@@ -5504,6 +5793,86 @@ bool append_scripts_menu_raw(
 	return true;
 }
 
+// The optional second pause-menu row (SCRIPT SETTINGS, or SETTINGS PROBE in
+// the Phase 0 diagnostic build). It is appended only after SCRIPTS was
+// appended, in its own protected leaf, so a failure can never remove SCRIPTS
+// or suppress the stock menu. Same {Name, Description, CallBack} shape.
+bool append_settings_menu_row_raw(
+	luau_State* state,
+	const luau_TValue& stock_entries,
+	const luau_TValue& parent_movie,
+	const char* label,
+	const char* description,
+	luau_CFunction callback,
+	const char* debug_name
+) noexcept
+{
+	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
+		|| luau_createtable == nullptr || luau_settable == nullptr
+		|| setfield == nullptr || luau_pushcclosurek == nullptr
+		|| luau_pushstring == nullptr || label == nullptr
+		|| description == nullptr || callback == nullptr || debug_name == nullptr
+		|| !is_table(stock_entries.type)
+		|| !is_userdata(parent_movie.type) || parent_movie.value.as_uintptr == 0)
+	{
+		return false;
+	}
+	if (check_stack(state, 12) == 0) return false;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!append_game_vm_stack_value_reserved(state, stock_entries)) return false;
+	const auto insertion_index = ui_leaf_array_next_index(state, -1);
+	if (insertion_index == 0) return false;
+	luau_createtable(state, 0, 3);
+	const auto row_offset = luau_savestack(state, state->outtop - 1);
+	if (!ui_leaf_set_literal(state, -1, "Name", label)
+		|| !ui_leaf_set_literal(state, -1, "Description", description))
+	{
+		return false;
+	}
+	if (!append_game_vm_stack_value_reserved(state, parent_movie)) return false;
+	luau_pushcclosurek(state, callback, debug_name, 1, nullptr);
+	setfield(state, -2, "CallBack");
+	auto* const row_slot = luau_restorestack(state, row_offset);
+	const auto row = *row_slot;
+	state->outtop = row_slot;
+	if (!ui_leaf_set_array_value(state, -1, insertion_index, row)) return false;
+	state->outtop = luau_restorestack(state, base_offset);
+	return true;
+}
+
+struct SettingsMenuAppendContext
+{
+	luau_TValue stock_entries{};
+	luau_TValue parent_movie{};
+	const char* label = nullptr;
+	const char* description = nullptr;
+	luau_CFunction callback = nullptr;
+	const char* debug_name = nullptr;
+	bool completed = false;
+	bool appended = false;
+};
+static_assert(std::is_trivially_copyable_v<SettingsMenuAppendContext>);
+
+// BEGIN SETTINGS_MENU_APPEND_PROTECTED_LEAF
+void settings_menu_append_protected_leaf(
+	luau_State* state,
+	void* raw_context) noexcept
+{
+	auto* const context = static_cast<SettingsMenuAppendContext*>(raw_context);
+	if (context == nullptr || state == nullptr || check_stack == nullptr) return;
+	if (check_stack(state, 16) == 0)
+	{
+		context->completed = true;
+		return;
+	}
+	context->appended = append_settings_menu_row_raw(
+		state, context->stock_entries, context->parent_movie,
+		context->label, context->description, context->callback,
+		context->debug_name);
+	context->completed = true;
+}
+// END SETTINGS_MENU_APPEND_PROTECTED_LEAF
+
 enum class PauseMenuAppendFailure : std::uint8_t
 {
 	none,
@@ -5518,6 +5887,8 @@ struct PauseMenuAppendContext
 {
 	void* environment = nullptr;
 	luau_TValue stock_entries{};
+	// Captured module mMovie, reused by the optional second row.
+	luau_TValue parent_movie{};
 	std::uint32_t stock_entries_tag = LUAU_NIL;
 	PauseMenuAppendFailure failure = PauseMenuAppendFailure::none;
 	bool completed = false;
@@ -5579,6 +5950,7 @@ void pause_menu_append_protected_leaf(
 		context->completed = true;
 		return;
 	}
+	context->parent_movie = parent_movie;
 	context->appended = true;
 	context->completed = true;
 }
@@ -5647,8 +6019,31 @@ int pause_menu_builder_wrapper(luau_State* state)
 				<< " raw_status=" << protected_append.status;
 			config::log(failure.str());
 		}
-		else config::log(
-			"RENOVICE Scripts UI row append PASS owner=Initialize.U14.Builder.U58 parent_movie=captured");
+		else
+		{
+			config::log(
+				"RENOVICE Scripts UI row append PASS owner=Initialize.U14.Builder.U58 parent_movie=captured");
+			// Optional second row, only after SCRIPTS is in place.
+			SettingsMenuRowSelection selection{};
+			if (select_settings_menu_row(selection))
+			{
+				SettingsMenuAppendContext settings_context{};
+				settings_context.stock_entries = context.stock_entries;
+				settings_context.parent_movie = context.parent_movie;
+				settings_context.label = selection.label;
+				settings_context.description = selection.description;
+				settings_context.callback = selection.callback;
+				settings_context.debug_name = selection.debug_name;
+				const auto settings_append = de_vm_authority::run_current_vm_protected(
+					state, &settings_menu_append_protected_leaf, &settings_context);
+				const bool settings_appended = settings_append.admitted
+					&& settings_append.restored && settings_append.status == 0
+					&& settings_context.completed && settings_context.appended;
+				config::log(std::string("RENOVICE Script Settings row append ")
+					+ (settings_appended ? "PASS" : "FAIL")
+					+ " row=\"" + selection.label + "\" after=SCRIPTS scope=capability-local");
+			}
+		}
 	}
 	// The wrapper is an additive observer around DE's final dispatch callback.
 	// Forward the original call even when our row cannot be appended; otherwise
@@ -15555,11 +15950,148 @@ bool maintain_current_vm_generation(luau_State* state)
 	return bridge_ready && target_ready;
 }
 
+// BEGIN OPTIONAL_INTERNAL_BRIDGES
+// Optional internal bridges (SCRIPT SETTINGS V1, Phase 0 probe) own registry
+// roots exactly like managed addons, but they are reconciled only AFTER the
+// managed-addon transaction has committed and never take part in it. A load,
+// activation or hook failure releases that bridge's own root and removes only
+// its menu row; SCRIPTS, Inject, target addons and Replacement are unaffected.
+// Unchanged bytes in the same VM keep their existing root (no F9 churn).
+struct OptionalBridgeRecord
+{
+	AddonRecord addon;
+	std::uint64_t content_key = 0;
+	InternalChunk kind = InternalChunk::None;
+};
+std::vector<OptionalBridgeRecord> active_optional_bridges; // generation_mutex
+std::uint64_t next_optional_bridge_identity = 1;
+
+void reconcile_optional_bridges_locked(
+	luau_State* state,
+	const std::vector<Chunk>& candidates
+)
+{
+	std::vector<OptionalBridgeRecord> next;
+	std::vector<bool> satisfied(candidates.size(), false);
+	for (auto& active : active_optional_bridges)
+	{
+		bool keep = false;
+		for (std::size_t i = 0; i != candidates.size(); ++i)
+		{
+			if (satisfied[i] || candidates[i].name != active.addon.name) continue;
+			const auto content_key = replacements::body_key(std::string_view(
+				reinterpret_cast<const char*>(candidates[i].bytes.data()),
+				candidates[i].bytes.size()));
+			if (content_key == active.content_key
+				&& active.addon.global_state == state->global_state)
+			{
+				satisfied[i] = true;
+				keep = true;
+			}
+			break;
+		}
+		if (keep)
+		{
+			next.push_back(std::move(active));
+			continue;
+		}
+		bool released = true;
+		if (active.addon.global_state == state->global_state)
+		{
+			(void)lifecycle_operation(state, active.addon, "cleanup");
+			released = lifecycle_operation(state, active.addon, nullptr);
+		}
+		config::log("RENOVICE internal bridge RETIRED file=" + active.addon.name
+			+ " released=" + (released ? "1" : "0") + " scope=capability-local");
+	}
+	for (std::size_t i = 0; i != candidates.size(); ++i)
+	{
+		if (satisfied[i]) continue;
+		const auto& chunk = candidates[i];
+		OptionalBridgeRecord record;
+		record.kind = classify_internal_chunk(chunk.name);
+		record.content_key = replacements::body_key(std::string_view(
+			reinterpret_cast<const char*>(chunk.bytes.data()), chunk.bytes.size()));
+		record.addon.name = chunk.name;
+		record.addon.registry_key = "__RENOVICE_OPTIONAL_BRIDGE_"
+			+ std::to_string(next_optional_bridge_identity++);
+		record.addon.generation = active_generation;
+		record.addon.global_state = state->global_state;
+		record.addon.owner_thread = GetCurrentThreadId();
+		const char* hook = optional_internal_bridge_hook(record.kind);
+		const char* failure = nullptr;
+		if (hook == nullptr) failure = "not-an-optional-bridge";
+		else if (!run_chunk(chunk, state, &record.addon.registry_key)) failure = "load-failed";
+		else if (!lifecycle_operation(state, record.addon, "activate"))
+		{
+			failure = "activate-failed";
+			(void)lifecycle_operation(state, record.addon, nullptr);
+		}
+		else
+		{
+			luau_TValue hook_value{};
+			if (!lifecycle_hook_value(state, record.addon, hook, hook_value))
+			{
+				failure = "required-hook-missing";
+				(void)lifecycle_operation(state, record.addon, "cleanup");
+				(void)lifecycle_operation(state, record.addon, nullptr);
+			}
+		}
+		if (failure != nullptr)
+		{
+			const std::string message = "RENOVICE internal bridge FAIL file=" + chunk.name
+				+ " reason=" + failure + " scope=capability-local generation=continues";
+			conout << message << std::endl;
+			config::log(message);
+			continue;
+		}
+		config::log("RENOVICE internal bridge PASS file=" + chunk.name
+			+ " hook=" + hook + " scope=capability-local");
+		next.push_back(std::move(record));
+	}
+	active_optional_bridges = std::move(next);
+	const auto present = [&](InternalChunk kind)
+	{
+		return std::any_of(active_optional_bridges.begin(), active_optional_bridges.end(),
+			[&](const OptionalBridgeRecord& record) { return record.kind == kind; });
+	};
+	script_settings_bridge_ready.store(
+		present(InternalChunk::ScriptSettingsBridgeV1), std::memory_order_release);
+	settings_probe_bridge_ready.store(
+		present(InternalChunk::SettingsProbeP0), std::memory_order_release);
+}
+
+bool optional_bridge_hook_value(
+	luau_State* state,
+	InternalChunk kind,
+	const char* hook,
+	luau_TValue& output
+)
+{
+	AddonRecord bridge;
+	bool found = false;
+	{
+		std::lock_guard lock(generation_mutex);
+		for (const auto& record : active_optional_bridges)
+		{
+			if (record.kind != kind) continue;
+			bridge = record.addon;
+			found = true;
+			break;
+		}
+	}
+	return found && hook != nullptr && state != nullptr
+		&& bridge.global_state == state->global_state
+		&& lifecycle_hook_value(state, bridge, hook, output);
+}
+// END OPTIONAL_INTERNAL_BRIDGES
+
 bool apply_generation(
 	const std::vector<Chunk>& candidate,
 	const std::vector<std::uint64_t>& candidate_target_keys,
 	luau_State* boundary_state,
-	const char* trigger
+	const char* trigger,
+	const std::vector<Chunk>& optional_bridges
 )
 {
 	auto generation_mutation = generation_dispatch_gate.begin_mutation(
@@ -15667,6 +16199,9 @@ bool apply_generation(
 		{
 			return is_internal_scripts_ui_bridge(chunk.name);
 		}), std::memory_order_release);
+	// Optional bridges follow the committed managed generation and can never
+	// roll it back (capability-local).
+	reconcile_optional_bridges_locked(state, optional_bridges);
 	queue_target_addon_refreshes();
 	const bool target_refresh_complete = drain_pending_target_addons_for_vm(state);
 	std::size_t ordinary_failures = 0;
@@ -16286,7 +16821,8 @@ InitialiseResult initialise()
 	config::log(control_poll_state);
 	std::vector<Chunk> snapshot;
 	std::vector<std::uint64_t> target_keys;
-	if (!scan_snapshot(snapshot, target_keys))
+	std::vector<Chunk> startup_optional_bridges;
+	if (!scan_snapshot(snapshot, target_keys, startup_optional_bridges))
 	{
 		return InitialiseResult::Failed;
 	}
@@ -16416,11 +16952,37 @@ bool reload_pending() noexcept
 
 bool runtime_work_pending() noexcept
 {
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+	// Diagnostic probe build: an explicit F12 open request is a pending,
+	// user-initiated transaction exactly like F9 (never periodic work).
+	if (subsystem_enabled.load(std::memory_order_acquire)
+		&& settings_probe_open_pending.load(std::memory_order_acquire))
+	{
+		return true;
+	}
+#endif
 	return subsystem_enabled.load(std::memory_order_acquire)
 		&& safe_runtime_transaction_should_run(
 			f9_pending.load(std::memory_order_acquire),
 			startup_pending.load(std::memory_order_acquire));
 }
+
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+void poll_settings_probe_hotkey(bool allow_open) noexcept
+{
+	if (!subsystem_enabled.load(std::memory_order_acquire)) return;
+	const auto key_state = GetAsyncKeyState(VK_F12);
+	const bool down = (key_state & 0x8000) != 0;
+	const bool pressed_since_poll = (key_state & 0x0001) != 0;
+	if (consume_f9_signal(down, pressed_since_poll, allow_open, settings_probe_key_was_down))
+	{
+		if (!settings_probe_open_pending.exchange(true, std::memory_order_acq_rel))
+		{
+			config::log("RENOVICE SETTINGS PROBE H-1 hotkey QUEUED key=F12 source=GetAsyncKeyState");
+		}
+	}
+}
+#endif
 
 void drain(luau_State* state)
 {
@@ -16505,6 +17067,14 @@ void drain(luau_State* state)
 		}
 	} execution_reset;
 
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+	// Phase 0 probe: one queued F12 open runs here, on the exact captured VM,
+	// owner thread and mutation-safe outer return that F9 uses.
+	if (settings_probe_open_pending.exchange(false, std::memory_order_acq_rel))
+	{
+		run_settings_probe_hotkey_open(state);
+	}
+#endif
 	const bool reload = f9_pending.exchange(false, std::memory_order_acq_rel);
 	const bool startup = startup_pending.exchange(false, std::memory_order_acq_rel);
 	if (!idle_vm_generation_work_allowed(reload, startup))
@@ -16620,6 +17190,7 @@ void drain(luau_State* state)
 	bool transaction_valid = true;
 	std::vector<Chunk> candidate;
 	std::vector<std::uint64_t> candidate_target_keys;
+	std::vector<Chunk> candidate_optional_bridges;
 	if (reload)
 	{
 		if (!config::prepare_reload())
@@ -16657,7 +17228,7 @@ void drain(luau_State* state)
 			transaction_valid = false;
 		}
 		if (transaction_valid
-			&& !scan_snapshot(candidate, candidate_target_keys))
+			&& !scan_snapshot(candidate, candidate_target_keys, candidate_optional_bridges))
 		{
 			transaction_valid = false;
 		}
@@ -16666,14 +17237,14 @@ void drain(luau_State* state)
 
 	if (transaction_valid)
 	{
-		if (!reload && !scan_snapshot(candidate, candidate_target_keys))
+		if (!reload && !scan_snapshot(candidate, candidate_target_keys, candidate_optional_bridges))
 		{
 			transaction_valid = false;
 		}
 		if (transaction_valid
 			&& apply_generation(
 				candidate, candidate_target_keys,
-				state, reload ? "F9" : "startup"))
+				state, reload ? "F9" : "startup", candidate_optional_bridges))
 		{
 			if (reload)
 			{

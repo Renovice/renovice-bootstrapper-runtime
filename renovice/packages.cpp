@@ -105,7 +105,7 @@ std::vector<SourceClaims> gather_loose_claims()
 		if (!it->is_regular_file(ec)) { if (ec) break; continue; }
 		std::string name;
 		if (!safe_filename(it->path(), name) || !has_lua_bytecode_extension(name)) continue;
-		if (injection::is_internal_scripts_ui_bridge(name)) continue;
+		if (injection::is_internal_infrastructure(name)) continue;
 		if (injection::runtime_script_kind(name) != injection::ScriptKind::TargetManagedAddon) continue;
 		if (!script_control::candidate_enabled(
 			script_control::stable_id(script_control::Kind::TargetAddon, name)))

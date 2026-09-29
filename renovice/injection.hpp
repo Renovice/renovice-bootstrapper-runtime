@@ -47,6 +47,11 @@ InitialiseResult initialise();
 // Target observers must bind here, before the first natural target module load.
 void notify_swig_types_ready();
 void poll_f9(bool allow_reload) noexcept;
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+// Phase 0 diagnostic build only: latches an F12 edge (Lua-free) and queues one
+// probe open for the next pending-only safe DE tick.
+void poll_settings_probe_hotkey(bool allow_open) noexcept;
+#endif
 void request_reload(const char* source) noexcept;
 // Cheap native check used to prioritize an explicit request at the next safe
 // outer VM return. It performs no Lua or filesystem work.

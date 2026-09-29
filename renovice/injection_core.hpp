@@ -405,6 +405,82 @@ inline bool is_internal_scripts_ui_bridge(std::string_view filename) noexcept
 	return filename == scripts_ui_bridge_filename;
 }
 
+// In-game settings editor (2026-09-30). The `_RENOVICE_INTERNAL_` filename
+// prefix is reserved for bootstrapper infrastructure:
+// - the V10 SCRIPTS bridge keeps its exact managed-generation path;
+// - OPTIONAL internal bridges (SCRIPT SETTINGS V1, the Phase 0 diagnostic
+//   probe) are staged after, and outside, the managed-addon transaction, so
+//   their absence or failure removes only their own menu row;
+// - any other reserved name is infrastructure this build does not load. It is
+//   never executed as a one-shot, never listed as a player script and never a
+//   package member.
+inline constexpr std::string_view internal_infrastructure_prefix = "_RENOVICE_INTERNAL_";
+inline constexpr std::string_view script_settings_bridge_filename =
+	"_RENOVICE_INTERNAL_ScriptSettingsBridgeV1.lua_B";
+inline constexpr std::string_view settings_probe_bridge_filename =
+	"_RENOVICE_INTERNAL_ScriptSettingsProbeP0.lua_B";
+
+enum class InternalChunk
+{
+	None,
+	ScriptsBridgeV10,
+	ScriptSettingsBridgeV1,
+	SettingsProbeP0,
+	Reserved,
+};
+
+inline bool has_internal_infrastructure_prefix(std::string_view filename) noexcept
+{
+	if (filename.size() < internal_infrastructure_prefix.size()) return false;
+	for (std::size_t i = 0; i != internal_infrastructure_prefix.size(); ++i)
+	{
+		if (std::tolower(static_cast<unsigned char>(filename[i]))
+			!= std::tolower(static_cast<unsigned char>(internal_infrastructure_prefix[i])))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+inline InternalChunk classify_internal_chunk(std::string_view filename) noexcept
+{
+	if (is_internal_scripts_ui_bridge(filename)) return InternalChunk::ScriptsBridgeV10;
+	if (filename == script_settings_bridge_filename) return InternalChunk::ScriptSettingsBridgeV1;
+	if (filename == settings_probe_bridge_filename) return InternalChunk::SettingsProbeP0;
+	if (has_internal_infrastructure_prefix(filename)) return InternalChunk::Reserved;
+	return InternalChunk::None;
+}
+
+inline bool is_internal_infrastructure(std::string_view filename) noexcept
+{
+	return classify_internal_chunk(filename) != InternalChunk::None;
+}
+
+// Only the named optional bridges are loaded, and the diagnostic probe only by
+// a build that was compiled for it. Everything else in the reserved namespace
+// is inventoried and ignored.
+inline bool optional_internal_bridge_admitted(
+	InternalChunk kind, bool settings_probe_build) noexcept
+{
+	return kind == InternalChunk::ScriptSettingsBridgeV1
+		|| (kind == InternalChunk::SettingsProbeP0 && settings_probe_build);
+}
+
+inline const char* optional_internal_bridge_hook(InternalChunk kind) noexcept
+{
+	switch (kind)
+	{
+	case InternalChunk::ScriptSettingsBridgeV1: return "openScriptSettings";
+	case InternalChunk::SettingsProbeP0: return "openProbe";
+	case InternalChunk::None:
+	case InternalChunk::ScriptsBridgeV10:
+	case InternalChunk::Reserved:
+		break;
+	}
+	return nullptr;
+}
+
 inline ScriptKind runtime_script_kind(std::string_view filename) noexcept
 {
 	// The UI bridge is infrastructure with a managed lifecycle even though its

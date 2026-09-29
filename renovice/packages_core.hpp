@@ -146,7 +146,7 @@ inline const char* classify_member(
 	key = 0;
 	kind = MemberKind::Replacement;
 	if (!has_lua_bytecode_extension(filename)) return "member-not-lua_B";
-	if (injection::is_internal_scripts_ui_bridge(filename)
+	if (injection::is_internal_infrastructure(filename)
 		|| script_control::is_internal_hook_shim(filename))
 	{
 		return "member-is-bootstrapper-infrastructure";

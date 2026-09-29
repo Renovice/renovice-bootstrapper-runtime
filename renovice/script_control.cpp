@@ -174,7 +174,7 @@ void discover_directory(
 		if (!injection::is_lua_bytecode_extension(path.extension().string())) continue;
 		ScriptInfo info;
 		info.filename = path.filename().string();
-		if (!replacements && injection::is_internal_scripts_ui_bridge(info.filename))
+		if (!replacements && injection::is_internal_infrastructure(info.filename))
 		{
 			continue;
 		}

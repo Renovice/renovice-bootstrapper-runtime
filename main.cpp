@@ -2039,6 +2039,9 @@ static void poll_openwf_script_controls()
 	// This callback is intentionally Lua-free and performs no filesystem work.
 	// It only latches F9; the transaction still waits for the exact safe VM.
 	renovice::injection::poll_f9(game_has_focus && !prohibit_scripts);
+#if defined(RENOVICE_SETTINGS_PROBE_P0)
+	renovice::injection::poll_settings_probe_hotkey(game_has_focus && !prohibit_scripts);
+#endif
 }
 
 static void drain_renovice_transactions_at_de_vm_return(luau_State* L)
