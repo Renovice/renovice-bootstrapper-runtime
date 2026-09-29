@@ -90,6 +90,10 @@ struct Chunk
 	std::vector<unsigned char> bytes;
 	ScriptKind kind = ScriptKind::Ordinary;
 	std::uint64_t target_key = 0;
+	// One `.targets.addon` file expands to one TargetManagedAddon chunk per
+	// declared key. Each binding selects `returned.targets["<key>"]` as its
+	// lifecycle root; the file name, bytes and Scripts policy stay shared.
+	bool multi_target = false;
 };
 
 struct AddonRecord
@@ -120,6 +124,8 @@ struct TargetAddonRecord
 	std::uint64_t target_key = 0;
 	std::uint64_t content_key = 0;
 	std::uintptr_t shared_table_identity = 0;
+	// Exact module environment this binding's chunk executed in.
+	void* bound_environment = nullptr;
 	void* global_state = nullptr;
 	std::uint32_t owner_thread = 0;
 	bool requires_native_damage_adapters = false;
@@ -258,6 +264,9 @@ struct TargetModuleIdentity
 	std::uint32_t owner_thread = 0;
 	bool pause_attached = false;
 	std::vector<TargetProtoRecord> prototypes;
+	// False for the loader-recorded identity; true for the identity recorded
+	// when that load's root prototype returned in a different environment.
+	bool runtime_root = false;
 };
 
 struct TargetExecutionIdentity
@@ -311,10 +320,31 @@ struct TargetLuaCall
 	luau_Closure* closure = nullptr;
 };
 
+struct TargetRootWatch
+{
+	std::uint64_t target_key = 0;
+	const void* global_state = nullptr;
+	const void* root_proto = nullptr;
+};
+
+// POD carried across the naked stock VM execute call; no ownership.
+struct TargetRootEntry
+{
+	std::uint64_t target_key = 0;
+	void* global_state = nullptr;
+	void* root_proto = nullptr;
+	void* environment = nullptr;
+	bool valid = false;
+};
+static_assert(std::is_trivially_copyable_v<TargetRootEntry>);
+
 struct TargetExecutionSnapshot
 {
 	std::uint64_t generation = 0;
 	std::vector<TargetExecutionIdentity> identities;
+	// Loader-recorded roots of modules with enabled target addons. Observed at
+	// VM execute entry to learn the runtime environment each root ran in.
+	std::vector<TargetRootWatch> roots;
 	struct Providers
 	{
 		std::uint64_t key;
@@ -385,6 +415,9 @@ struct RunResult
 	int fault_stage = 0;
 	unsigned long fault_code = 0;
 	void* fault_address = nullptr;
+	int multi_target_failure = 0;
+	int error_tag = -1;
+	char error_text[lua_error_text_capacity]{};
 };
 
 static_assert(std::is_trivially_copyable_v<RunResult>);
@@ -460,6 +493,12 @@ std::vector<TargetModuleIdentity> pause_menu_identities;
 std::vector<TargetScriptBinding> target_script_bindings;
 std::vector<PendingTargetAddonRefresh> pending_target_addon_refreshes;
 std::atomic_bool target_addon_refresh_pending = false;
+// Root returns observed after the stock VM execute call. Guarded by its own
+// mutex, never held while Lua runs; applied at the next exact idle return.
+std::mutex target_root_return_mutex;
+std::vector<std::pair<TargetRootEntry, std::uint32_t>> pending_target_root_returns;
+std::atomic_bool target_root_return_pending = false;
+std::atomic_bool target_root_watch_enabled = false;
 // Native hooks are process-owned. Their Lua providers are immutable,
 // generation-owned snapshots. Readers retain the exact snapshot while a host
 // callback runs; publication retires old snapshots after the last reader.
@@ -1882,6 +1921,47 @@ bool scan_snapshot(
 		const auto script_id = script_control::stable_id(control_kind, name);
 		const bool policy_enabled = internal_bridge
 			|| script_control::candidate_enabled(script_id);
+		if (!internal_bridge && is_multi_target_addon(name))
+		{
+			// Inventory, not execution: declared keys are read from the string
+			// pool even while the file is disabled so a later enable can bind
+			// modules that already loaded. A malformed multi-target file fails
+			// locally; the rest of the generation remains admissible.
+			std::vector<unsigned char> bytes;
+			std::vector<std::uint64_t> declared;
+			const char* reason = multi_target_filename_error(name);
+			if (reason == nullptr && !read_file(path, bytes))
+				reason = "unreadable-empty-or-oversized";
+			if (reason == nullptr)
+				reason = discover_multi_target_keys(bytes.data(), bytes.size(), declared);
+			if (reason != nullptr)
+			{
+				const std::string rejected = "RENOVICE MULTI-TARGET ADDON REJECT file="
+					+ name + " reason=" + reason
+					+ " scope=file-local generation=continues";
+				conout << rejected << std::endl;
+				config::log(rejected);
+				continue;
+			}
+			target_keys.insert(target_keys.end(), declared.begin(), declared.end());
+			std::ostringstream inventory;
+			inventory << "RENOVICE MULTI-TARGET ADDON INVENTORY file=" << name
+				<< " targets=" << declared.size()
+				<< " enabled=" << (policy_enabled ? 1 : 0);
+			config::log(inventory.str());
+			if (!policy_enabled) continue;
+			for (const auto key : declared)
+			{
+				Chunk chunk;
+				chunk.name = name;
+				chunk.kind = ScriptKind::TargetManagedAddon;
+				chunk.target_key = key;
+				chunk.multi_target = true;
+				chunk.bytes = bytes;
+				snapshot.emplace_back(std::move(chunk));
+			}
+			continue;
+		}
 		std::uint64_t target_key = 0;
 		if (target_addon_target_discovery_required(kind, policy_enabled))
 		{
@@ -1920,7 +2000,9 @@ bool scan_snapshot(
 	}
 	std::sort(snapshot.begin(), snapshot.end(), [](const Chunk& lhs, const Chunk& rhs)
 	{
-		return lhs.name < rhs.name;
+		// Multi-target bindings share a filename; the key keeps order total.
+		return lhs.name != rhs.name ? lhs.name < rhs.name
+			: lhs.target_key < rhs.target_key;
 	});
 	std::sort(target_keys.begin(), target_keys.end());
 	target_keys.erase(
@@ -2776,6 +2858,30 @@ void publish_target_execution_snapshot_locked()
 			[](const auto& lhs, const auto& rhs) { return lhs.address < rhs.address; });
 		snapshot->identities.push_back(std::move(published_identity));
 	}
+	for (const auto& identity : target_module_identities)
+	{
+		if (identity.runtime_root || identity.root_proto == nullptr) continue;
+		const bool desired = std::any_of(
+			active_chunks.begin(), active_chunks.end(), [&](const Chunk& chunk)
+			{
+				return chunk.kind == ScriptKind::TargetManagedAddon
+					&& chunk.target_key == identity.target_key;
+			});
+		const bool duplicate = std::any_of(
+			snapshot->roots.begin(), snapshot->roots.end(),
+			[&](const TargetRootWatch& root)
+			{
+				return root.global_state == identity.global_state
+					&& root.root_proto == identity.root_proto;
+			});
+		if (desired && !duplicate)
+		{
+			snapshot->roots.push_back({identity.target_key,
+				identity.global_state, identity.root_proto});
+		}
+	}
+	target_root_watch_enabled.store(
+		!snapshot->roots.empty(), std::memory_order_release);
 	const bool has_admitted_lua_before_provider = std::any_of(
 		snapshot->providers.begin(), snapshot->providers.end(),
 		[&](const TargetExecutionSnapshot::Providers& provider)
@@ -2995,26 +3101,31 @@ TargetLuaCall target_lua_call_for_published_closure(
 	TargetLuaCall selected;
 	luau_Closure* closure = nullptr;
 	if (state == nullptr || state->global_state == nullptr
-		|| !readable_lua_closure(function, closure) || closure->isC)
+		|| !readable_lua_closure(function, closure) || closure->isC
+		|| closure->l.p == nullptr
+		|| diagnostics::bad_read_ptr(closure, offsetof(luau_Closure, l.uprefs)))
 	{
 		return {};
 	}
-	for (auto it = snapshot.identities.rbegin();
-		it != snapshot.identities.rend(); ++it)
-	{
-		const TargetProtoRecord* prototype = nullptr;
-		if (!published_target_closure_is_live(
-				state, closure, *it, prototype)) continue;
-		if (selected.callsite.target_key != 0
-			&& selected.callsite.target_key != it->target_key)
+	// Exact prototype identity is the authority: a module root can run in a
+	// runtime environment different from the one recorded at load, and every
+	// closure it creates inherits that runtime environment. The strict
+	// load-environment comparison therefore rejected every live call (no
+	// luaCalls dispatch since V107). The same VM, a registry-pinned recorded
+	// prototype, live code/instruction/bytecode-id identity and a unique owning
+	// key remain mandatory; ambiguity fails closed.
+	const auto owner = select_target_prototype_owner(
+		snapshot.identities, state->global_state, closure->env,
+		reinterpret_cast<std::uintptr_t>(closure->l.p),
+		[](const TargetProtoRecord& record)
 		{
-			return {};
-		}
-		selected.callsite.target_key = it->target_key;
-		selected.callsite.prototype = prototype->bytecode_id;
-		selected.callsite.exact = true;
-		selected.closure = closure;
-	}
+			return published_target_proto_is_live(record);
+		});
+	if (!owner.exact || owner.ambiguous) return {};
+	selected.callsite.target_key = owner.target_key;
+	selected.callsite.prototype = owner.bytecode_id;
+	selected.callsite.exact = true;
+	selected.closure = closure;
 	return selected;
 }
 
@@ -3157,6 +3268,34 @@ bool target_snapshot_requests_native_callsite(
 		{
 			return entry.vm == global_state && entry.native_callsite;
 		});
+}
+
+// Destructor-free bounded copy of a Lua error string. Callable inside raw
+// protected leaves: it owns only a fixed stack buffer and scalar state.
+void capture_lua_error_text(
+	const luau_TValue& value,
+	char* output,
+	std::size_t capacity) noexcept
+{
+	if (output == nullptr || capacity == 0) return;
+	output[0] = '\0';
+	if ((value.type != LUAU_STRING && value.type != deployed_string_tag)
+		|| value.value.as_uintptr == 0
+		|| value.value.as_uintptr > (std::numeric_limits<std::uintptr_t>::max)() - 0x18)
+	{
+		return;
+	}
+	const char* const text = reinterpret_cast<const char*>(value.value.as_uintptr + 0x18);
+	char raw[lua_error_text_capacity]{};
+	const std::size_t limit = capacity < sizeof(raw) ? capacity : sizeof(raw);
+	std::size_t length = 0;
+	while (length != limit && !diagnostics::bad_read_ptr(text + length, 1)
+		&& text[length] != '\0')
+	{
+		raw[length] = text[length];
+		++length;
+	}
+	sanitize_error_text(raw, length, output, capacity);
 }
 
 void append_error_value(
@@ -7838,6 +7977,8 @@ struct LuaCallBeforeLeafContext
 	LuaCallBeforeLeafStage stage = LuaCallBeforeLeafStage::none;
 	std::size_t failure_index = 0;
 	int callback_status = 0;
+	int error_tag = -1;
+	char error_text[lua_error_text_capacity]{};
 };
 static_assert(std::is_trivially_copyable_v<LuaCallBeforeLeafContext>);
 
@@ -8092,6 +8233,13 @@ void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
 		}
 		state->interrupt_count = 0;
 		context->callback_status = protected_call(state, 4, 0, 0);
+		if (context->callback_status != 0
+			&& state->outtop > luau_restorestack(state, callback_base_offset))
+		{
+			context->error_tag = static_cast<int>((state->outtop - 1)->type);
+			capture_lua_error_text(*(state->outtop - 1),
+				context->error_text, sizeof(context->error_text));
+		}
 		state->outtop = luau_restorestack(state, callback_base_offset);
 		if (context->callback_status != 0) return;
 	}
@@ -8345,6 +8493,11 @@ bool dispatch_lua_call_phase(
 				<< " stock_exact=" << live_stock_exact
 				<< " occurrence=" << sequence
 				<< " stock-restored=1";
+			if (context.error_tag >= 0)
+			{
+				failure << " error_tag=" << context.error_tag
+					<< " error=\"" << context.error_text << '"';
+			}
 			config::log(failure.str());
 		}
 		return false;
@@ -10976,6 +11129,11 @@ struct GuardedRunLeafContext
 	void* descriptor = nullptr;
 	const std::uint32_t* name_handle = nullptr;
 	const char* lifecycle_key = nullptr;
+	// Lowercase 16-hex key text of a multi-target binding, or nullptr.
+	const char* multi_target_key = nullptr;
+	// Exact target-module environment (runtime root instance), or nullptr to
+	// use the borrowed registry closure's load environment.
+	void* exact_environment = nullptr;
 	bool pass_global_argument = false;
 	bool use_borrowed_closure_environment = false;
 	bool guard_prepared = false;
@@ -11090,8 +11248,16 @@ void run_guarded_protected_leaf(luau_State* state, void* raw_context) noexcept
 				guard.borrowed_original.value.as_uintptr), offsetof(luau_Closure, c.func));
 		auto* closure = closure_readable ? reinterpret_cast<luau_Closure*>(
 			guard.borrowed_original.value.as_uintptr) : nullptr;
+		// The borrowed registry closure proves the target module is loaded in
+		// this VM. Its environment is the LOAD environment; when the module root
+		// has since run in a different RUNTIME environment, the caller passes
+		// that exact environment and the addon executes there instead.
+		void* const selected_environment = context->exact_environment != nullptr
+			? context->exact_environment
+			: (closure != nullptr ? closure->env : nullptr);
 		const bool environment_readable = closure != nullptr
-			&& closure->env != nullptr && !diagnostics::bad_read_ptr(closure->env, 0x10);
+			&& selected_environment != nullptr
+			&& !diagnostics::bad_read_ptr(selected_environment, 0x10);
 		if (!valid_target_closure_environment(
 			borrowed_is_function, closure_readable, environment_readable))
 		{
@@ -11113,10 +11279,10 @@ void run_guarded_protected_leaf(luau_State* state, void* raw_context) noexcept
 			context->returned = true;
 			return;
 		}
-		result.borrowed_environment = closure->env;
+		result.borrowed_environment = selected_environment;
 		result.exact_environment_used = true;
 		*reinterpret_cast<void**>(reinterpret_cast<unsigned char*>(context->descriptor) + 0x58)
-			= closure->env;
+			= selected_environment;
 	}
 	else if (context->pass_global_argument)
 	{
@@ -11201,6 +11367,105 @@ void run_guarded_protected_leaf(luau_State* state, void* raw_context) noexcept
 	{
 		result.protected_call_result = protected_call(state, 0, 0, 0);
 		result.result_tag = -1;
+	}
+	if (result.protected_call_result != 0 && state->outtop > guard_base())
+	{
+		// Bounded operational copy of the chunk's Lua error before any restore.
+		result.error_tag = static_cast<int>((state->outtop - 1)->type);
+		capture_lua_error_text(*(state->outtop - 1),
+			result.error_text, sizeof(result.error_text));
+	}
+	// MULTI_TARGET_SELECTION: a `.targets.addon` binding replaces the returned
+	// container at slot +1 with `container.targets["<key>"]` before the
+	// unchanged lifecycle storage and hook-contract validation below. Absent
+	// entry activate/cleanup fields inherit the container's functions; hooks
+	// never inherit because prototype/callsite identities are module-specific.
+	// Destructor-free: slots +1..+4 lie inside the check_stack(state, 8) reserve.
+	if (result.protected_call_result == 0 && context->lifecycle_key != nullptr
+		&& context->multi_target_key != nullptr)
+	{
+		guard.stage = 8;
+		const bool container_is_table = is_table(result.result_tag);
+		bool container_hooks_absent = true;
+		bool container_activate_function = false;
+		bool container_cleanup_function = false;
+		bool targets_is_table = false;
+		bool entry_absent = true;
+		bool entry_is_table = false;
+		bool entry_activate_absent = true;
+		bool entry_activate_function = false;
+		bool entry_cleanup_absent = true;
+		bool entry_cleanup_function = false;
+		if (container_is_table)
+		{
+			state->outtop = guard_base() + 2;
+			getfield(state, -1, "hooks");
+			container_hooks_absent = (guard_base() + 2)->type == LUAU_NIL;
+			state->outtop = guard_base() + 2;
+			getfield(state, -1, "activate");
+			container_activate_function = is_function((guard_base() + 2)->type);
+			state->outtop = guard_base() + 2;
+			getfield(state, -1, "cleanup");
+			container_cleanup_function = is_function((guard_base() + 2)->type);
+			state->outtop = guard_base() + 2;
+			getfield(state, -1, "targets");
+			targets_is_table = is_table((guard_base() + 2)->type);
+			if (targets_is_table)
+			{
+				getfield(state, -1, context->multi_target_key);
+				entry_absent = (guard_base() + 3)->type == LUAU_NIL;
+				entry_is_table = is_table((guard_base() + 3)->type);
+				if (entry_is_table)
+				{
+					getfield(state, -1, "activate");
+					entry_activate_absent = (guard_base() + 4)->type == LUAU_NIL;
+					entry_activate_function = is_function((guard_base() + 4)->type);
+					state->outtop = guard_base() + 4;
+					getfield(state, -1, "cleanup");
+					entry_cleanup_absent = (guard_base() + 4)->type == LUAU_NIL;
+					entry_cleanup_function = is_function((guard_base() + 4)->type);
+					state->outtop = guard_base() + 4;
+				}
+			}
+		}
+		const auto selection = classify_multi_target_selection(
+			container_is_table, container_hooks_absent, targets_is_table,
+			entry_absent, entry_is_table,
+			entry_activate_absent, entry_activate_function,
+			container_activate_function,
+			entry_cleanup_absent, entry_cleanup_function,
+			container_cleanup_function);
+		if (selection != MultiTargetSelectFailure::none)
+		{
+			result.multi_target_failure = static_cast<int>(selection);
+			result.protected_call_result = -5;
+		}
+		else
+		{
+			// Stack: +1 container, +2 targets, +3 entry; top is +4.
+			if (entry_activate_absent)
+			{
+				state->outtop = guard_base() + 4;
+				getfield(state, -3, "activate");
+				setfield(state, -2, "activate");
+			}
+			if (entry_cleanup_absent)
+			{
+				state->outtop = guard_base() + 4;
+				getfield(state, -3, "cleanup");
+				setfield(state, -2, "cleanup");
+			}
+			if ((state->marked & native_gc_black_mask_u43) != 0)
+			{
+				gc_barrierback(state,
+					reinterpret_cast<luau_GCObject*>(state),
+					&state->gclist);
+			}
+			*(guard_base() + 1) = *(guard_base() + 3);
+			result.result_tag = (guard_base() + 1)->type;
+			state->outtop = guard_base() + 2;
+		}
+		guard.stage = 5;
 	}
 	if (result.protected_call_result == 0 && context->lifecycle_key != nullptr)
 	{
@@ -11430,7 +11695,9 @@ RunResult run_guarded(
 	const std::uint32_t* name_handle,
 	const char* lifecycle_key,
 	bool pass_global_argument,
-	bool use_borrowed_closure_environment)
+	bool use_borrowed_closure_environment,
+	const char* multi_target_key = nullptr,
+	void* exact_environment = nullptr)
 {
 	RunResult result{};
 	if (state == nullptr || manager == nullptr || descriptor == nullptr
@@ -11451,6 +11718,9 @@ RunResult run_guarded(
 	context.descriptor = descriptor;
 	context.name_handle = name_handle;
 	context.lifecycle_key = lifecycle_key;
+	context.multi_target_key = lifecycle_key != nullptr ? multi_target_key : nullptr;
+	context.exact_environment = use_borrowed_closure_environment
+		? exact_environment : nullptr;
 	context.pass_global_argument = pass_global_argument;
 	context.use_borrowed_closure_environment =
 		use_borrowed_closure_environment;
@@ -11503,6 +11773,8 @@ struct LifecycleLeafContext
 	LifecycleLeafFailure failure = LifecycleLeafFailure::none;
 	unsigned long fault_code = 0;
 	void* fault_address = nullptr;
+	int error_tag = -1;
+	char error_text[lua_error_text_capacity]{};
 };
 static_assert(std::is_trivially_copyable_v<LifecycleLeafContext>);
 
@@ -11587,6 +11859,12 @@ void lifecycle_operation_protected_leaf(
 		state->outtop = guard_base() + 2;
 		if (protected_call(state, 0, 0, 0) != 0)
 		{
+			if (state->outtop > guard_base())
+			{
+				context->error_tag = static_cast<int>((state->outtop - 1)->type);
+				capture_lua_error_text(*(state->outtop - 1),
+					context->error_text, sizeof(context->error_text));
+			}
 			restore_lua_top();
 			finish_guard();
 			context->failure = LifecycleLeafFailure::protected_call_rejected;
@@ -11606,11 +11884,18 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 	std::lock_guard execution_lock(lua_execution_mutex);
 	ScopedExecutionDepth execution_depth;
 	const char* operation = field == nullptr ? "release" : field;
+	LifecycleLeafContext context{};
 	auto log_failure = [&](const char* reason)
 	{
 		std::ostringstream failure;
 		failure << "RENOVICE addon lifecycle FAIL " << addon.name
 			<< " field=" << operation << " reason=" << reason;
+		if (context.error_tag >= 0)
+		{
+			// Operational error reporting (bounded, sanitized), not diagnostics.
+			failure << " error_tag=" << context.error_tag
+				<< " error=\"" << context.error_text << '"';
+		}
 		conout << failure.str() << std::endl;
 		config::log(failure.str());
 	};
@@ -11627,7 +11912,6 @@ bool lifecycle_operation(luau_State* state, const AddonRecord& addon, const char
 		return false;
 	}
 
-	LifecycleLeafContext context{};
 	context.registry_key = addon.registry_key.c_str();
 	context.field = field;
 	const auto protected_result = de_vm_authority::run_current_vm_protected(
@@ -13180,9 +13464,156 @@ std::uint32_t de_luau_interrupt_increment_detour(luau_State* state)
 	});
 }
 
+// Generic target-root instance binding (2026-09-29). Observes the natural
+// VM execute entry of a loader-recorded target root prototype so the exact
+// environment that root runs in is learned without any module-specific branch.
+TargetRootEntry inspect_target_root_entry(luau_State* state) noexcept
+{
+	TargetRootEntry entry;
+	if (!target_root_watch_enabled.load(std::memory_order_acquire)
+		|| state == nullptr || state->ci == nullptr || state->ci->func == nullptr
+		|| state->global_state == nullptr
+		|| diagnostics::bad_read_ptr(state->ci, sizeof(luau_CallInfo))
+		|| diagnostics::bad_read_ptr(state->ci->func, sizeof(luau_TValue)))
+	{
+		return entry;
+	}
+	luau_Closure* closure = nullptr;
+	if (!readable_lua_closure(*state->ci->func, closure) || closure->isC
+		|| closure->l.p == nullptr || closure->env == nullptr)
+	{
+		return entry;
+	}
+	auto execution = acquire_target_execution_snapshot();
+	if (!execution) return entry;
+	for (const auto& root : execution.snapshot->roots)
+	{
+		if (root.global_state == state->global_state
+			&& root.root_proto == closure->l.p)
+		{
+			entry.target_key = root.target_key;
+			entry.global_state = state->global_state;
+			entry.root_proto = closure->l.p;
+			entry.environment = closure->env;
+			entry.valid = true;
+			break;
+		}
+	}
+	return entry;
+}
+
+void queue_target_root_return(const TargetRootEntry& entry) noexcept
+{
+	constexpr std::size_t maximum_pending_root_returns = 64;
+	try
+	{
+		const auto thread = static_cast<std::uint32_t>(GetCurrentThreadId());
+		std::lock_guard lock(target_root_return_mutex);
+		auto existing = std::find_if(
+			pending_target_root_returns.begin(), pending_target_root_returns.end(),
+			[&](const auto& pending)
+			{
+				return pending.first.global_state == entry.global_state
+					&& pending.first.root_proto == entry.root_proto;
+			});
+		if (existing != pending_target_root_returns.end())
+		{
+			*existing = {entry, thread};
+		}
+		else if (pending_target_root_returns.size() < maximum_pending_root_returns)
+		{
+			pending_target_root_returns.push_back({entry, thread});
+		}
+		target_root_return_pending.store(true, std::memory_order_release);
+	}
+	catch (...)
+	{
+	}
+}
+
+void apply_target_root_returns(luau_State* state)
+{
+	if (state == nullptr || state->global_state == nullptr) return;
+	const auto thread = static_cast<std::uint32_t>(GetCurrentThreadId());
+	std::vector<TargetRootEntry> ready;
+	{
+		std::lock_guard lock(target_root_return_mutex);
+		for (auto it = pending_target_root_returns.begin();
+			it != pending_target_root_returns.end();)
+		{
+			if (it->first.global_state == state->global_state && it->second == thread)
+			{
+				ready.push_back(it->first);
+				it = pending_target_root_returns.erase(it);
+			}
+			else ++it;
+		}
+		target_root_return_pending.store(
+			!pending_target_root_returns.empty(), std::memory_order_release);
+	}
+	for (const auto& entry : ready)
+	{
+		TargetModuleIdentity created;
+		void* load_environment = nullptr;
+		TargetRootReturnAction action = TargetRootReturnAction::not_a_target_root;
+		{
+			std::lock_guard generation_lock(generation_mutex);
+			for (const auto& identity : target_module_identities)
+			{
+				if (identity.target_key == entry.target_key
+					&& identity.global_state == entry.global_state
+					&& identity.root_proto == entry.root_proto
+					&& !identity.runtime_root)
+				{
+					load_environment = identity.environment;
+				}
+			}
+			action = record_target_root_return(
+				target_module_identities, entry.target_key, entry.global_state,
+				entry.root_proto, entry.environment, &created);
+			if (action == TargetRootReturnAction::rebind)
+			{
+				PendingTargetAddonRefresh job{
+					created.target_key,
+					created.global_state,
+					created.manager,
+					{created.name_handle[0], created.name_handle[1]},
+					created.owner_thread,
+				};
+				auto existing = std::find_if(
+					pending_target_addon_refreshes.begin(),
+					pending_target_addon_refreshes.end(),
+					[&](const PendingTargetAddonRefresh& candidate)
+					{
+						return same_target_addon_context(
+							job.target_key, job.global_state, job.owner_thread,
+							candidate.target_key, candidate.global_state,
+							candidate.owner_thread);
+					});
+				if (existing == pending_target_addon_refreshes.end())
+					pending_target_addon_refreshes.push_back(job);
+				else *existing = job;
+				publish_target_execution_snapshot_locked();
+				target_addon_refresh_pending.store(true, std::memory_order_release);
+			}
+		}
+		if (action != TargetRootReturnAction::rebind) continue;
+		std::ostringstream observed;
+		observed << "RENOVICE TARGET ROOT RETURN key=" << std::hex << entry.target_key
+			<< std::dec << " vm=" << entry.global_state
+			<< " proto=" << entry.root_proto
+			<< " load_env=" << load_environment
+			<< " runtime_env=" << entry.environment
+			<< " action=rebind-queued";
+		conout << observed.str() << std::endl;
+		config::log(observed.str());
+	}
+}
+
 void vm_execute_detour(luau_State* state)
 {
 	const auto pause_root = inspect_pause_vm_root_execution(state);
+	const auto target_root = inspect_target_root_entry(state);
 	const bool target_observation_enabled = observe_target_addons.load(
 		std::memory_order_acquire);
 	std::uint64_t target_execution_key = 0;
@@ -13223,6 +13654,9 @@ void vm_execute_detour(luau_State* state)
 	// This call is intentionally naked. A stock Lua error may longjmp out of it;
 	// all RENOVICE-owned objects and stateful markers have already been released.
 	reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);
+
+	// Reached only on a normal root return: a DE error longjmps past this line.
+	if (target_root.valid) queue_target_root_return(target_root);
 
 	if (pause_root.valid)
 	{
@@ -13268,6 +13702,13 @@ void vm_execute_detour(luau_State* state)
 	clear_native_call_boundary_at_exact_idle(state);
 	clear_callback_runtime_result_root_at_exact_idle(state);
 
+	if (target_root_return_pending.load(std::memory_order_acquire)
+		&& lua_execution_depth == 0)
+	{
+		// Root returns only record data under their own mutex; identity update
+		// and the queued rebind happen here, outside every native Lua caller.
+		apply_target_root_returns(state);
+	}
 	if (target_addon_refresh_pending.load(std::memory_order_acquire)
 		&& lua_execution_depth == 0)
 	{
@@ -13459,7 +13900,8 @@ void maybe_run_safe_runtime_tick(luau_State* state) noexcept
 bool run_chunk(const Chunk& chunk, luau_State* boundary_state,
 	const std::string* lifecycle_key, void* execution_environment,
 	bool pass_global_argument, void* execution_manager,
-	const std::uint32_t* execution_name_handle, bool use_borrowed_closure_environment);
+	const std::uint32_t* execution_name_handle, bool use_borrowed_closure_environment,
+	const char* multi_target_key = nullptr);
 
 bool ensure_callback_runtime(luau_State* state, void* manager,
 	const std::uint32_t* name_handle)
@@ -13788,7 +14230,8 @@ bool run_chunk(
 	bool pass_global_argument = true,
 	void* execution_manager = nullptr,
 	const std::uint32_t* execution_name_handle = nullptr,
-	bool use_borrowed_closure_environment = false
+	bool use_borrowed_closure_environment = false,
+	const char* multi_target_key // default: forward declaration above
 )
 {
 	std::lock_guard execution_lock(lua_execution_mutex);
@@ -13866,11 +14309,15 @@ bool run_chunk(
 		name_handle,
 		lifecycle_key == nullptr ? nullptr : lifecycle_key->c_str(),
 		pass_global_argument,
-		use_borrowed_closure_environment);
+		use_borrowed_closure_environment,
+		multi_target_key,
+		use_borrowed_closure_environment ? execution_environment : nullptr);
 	if (result.completed && result.registry_restored)
 	{
 		std::ostringstream success;
-		success << "RENOVICE Inject PASS " << chunk.name
+		success << "RENOVICE Inject PASS " << chunk.name;
+		if (multi_target_key != nullptr) success << " target=" << multi_target_key;
+		success
 			<< " closure_tag=" << result.closure_tag
 			<< " pcall=" << result.protected_call_result
 			<< " result_tag=" << result.result_tag
@@ -13896,13 +14343,24 @@ bool run_chunk(
 			<< " result_tag=" << result.result_tag
 			<< " registry_restored=" << result.registry_restored << std::endl;
 		std::ostringstream failure;
-		failure << "RENOVICE Inject FAIL " << chunk.name
+		failure << "RENOVICE Inject FAIL " << chunk.name;
+		if (multi_target_key != nullptr)
+		{
+			failure << " target=" << multi_target_key << " multi_target_reason="
+				<< multi_target_select_failure_label(result.multi_target_failure);
+		}
+		failure
 			<< " fault_stage=" << result.fault_stage
 			<< " fault_code=" << result.fault_code
 			<< " closure_tag=" << result.closure_tag
 			<< " pcall=" << result.protected_call_result
 			<< " result_tag=" << result.result_tag
 			<< " registry_restored=" << result.registry_restored;
+		if (result.error_tag >= 0)
+		{
+			failure << " error_tag=" << result.error_tag
+				<< " error=\"" << result.error_text << '"';
+		}
 		config::log(failure.str());
 	}
 	if (failed_chunk_has_lifecycle_root_to_release(
@@ -13982,10 +14440,12 @@ bool activate_target_addons_locked(
 	// Diagnostics mode; normal gameplay keeps the same addon identity without
 	// a per-callback native logging bridge.
 	std::uintptr_t current_shared_table_identity = 0;
+	// Latest identity of this module in this VM: the runtime root instance when
+	// its root returned in a new environment, otherwise the loader identity.
+	void* target_environment = nullptr;
 	if (!desired.empty())
 	{
 		if (!ensure_callback_runtime(state, manager, name_handle)) return false;
-		void* target_environment = nullptr;
 		for (auto identity = target_module_identities.rbegin();
 			identity != target_module_identities.rend(); ++identity)
 		{
@@ -14024,7 +14484,8 @@ bool activate_target_addons_locked(
 				reinterpret_cast<const char*>(desired[i]->bytes.data()),
 				desired[i]->bytes.size()));
 			exact_name_and_content_match = current[i].addon.name == desired[i]->name
-				&& current[i].content_key == content_key;
+				&& current[i].content_key == content_key
+				&& current[i].bound_environment == target_environment;
 			exact_shared_table_match = exact_shared_table_match
 				&& same_target_addon_generation(
 					current[i].content_key, current[i].shared_table_identity,
@@ -14119,6 +14580,8 @@ bool activate_target_addons_locked(
 	}
 
 	std::vector<TargetAddonRecord> staged;
+	char multi_target_key_text[17]{};
+	format_target_key_text(target_key, multi_target_key_text);
 	for (const auto* chunk : desired)
 	{
 		TargetAddonRecord candidate;
@@ -14134,11 +14597,13 @@ bool activate_target_addons_locked(
 		// The successful bridge install above proved the exact `_T` identity
 		// against which this chunk is about to execute.
 		candidate.shared_table_identity = current_shared_table_identity;
+		candidate.bound_environment = target_environment;
 		candidate.global_state = global_state;
 		candidate.owner_thread = owner_thread;
 		if (!run_chunk(
 			*chunk, state, &candidate.addon.registry_key,
-			nullptr, true, manager, name_handle, true))
+			target_environment, true, manager, name_handle, true,
+			chunk->multi_target ? multi_target_key_text : nullptr))
 		{
 			bool released = true;
 			for (const auto& previous : staged)
@@ -14151,8 +14616,13 @@ bool activate_target_addons_locked(
 					<< std::endl;
 				subsystem_enabled.store(false, std::memory_order_release);
 			}
-			conout << "RENOVICE TARGET ADDON ROLLBACK stage failed: "
-				<< chunk->name << " previous target generation retained" << std::endl;
+			std::ostringstream failure;
+			failure << "RENOVICE TARGET ADDON ROLLBACK stage failed: "
+				<< chunk->name << " key=" << multi_target_key_text
+				<< " multi_target=" << (chunk->multi_target ? 1 : 0)
+				<< " previous target generation retained";
+			conout << failure.str() << std::endl;
+			config::log(failure.str());
 			return false;
 		}
 		luau_TValue matches_damage_source{};
@@ -14850,6 +15320,8 @@ bool apply_generation(
 	active_generation = generation;
 	active_chunks = candidate;
 	configured_target_keys = candidate_target_keys;
+	// Root-instance watch set follows the committed enabled target addons.
+	publish_target_execution_snapshot_locked();
 	scripts_ui_enabled.store(std::any_of(
 		active_chunks.begin(), active_chunks.end(), [](const Chunk& chunk)
 		{

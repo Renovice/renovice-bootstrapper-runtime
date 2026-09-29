@@ -166,7 +166,8 @@ inline std::string display_name(std::string_view filename)
 	}
 	while (!output.empty() && output.back() == ' ') output.pop_back();
 	for (const std::string_view suffix : {
-		std::string_view{" Target Addon"}, std::string_view{" Addon"}})
+		std::string_view{" Targets Addon"}, std::string_view{" Target Addon"},
+		std::string_view{" Addon"}})
 	{
 		if (output.size() >= suffix.size()
 			&& output.compare(output.size() - suffix.size(), suffix.size(), suffix) == 0)

@@ -204,7 +204,43 @@ void discover_directory(
 			{
 				info.valid = false;
 			}
-			if (classified == injection::ScriptKind::TargetManagedAddon)
+			if (injection::is_multi_target_addon(info.filename))
+			{
+				// One file, one row, one policy: summarize the declared targets
+				// from the same string-pool inventory the loader uses.
+				const char* reason = injection::multi_target_filename_error(info.filename);
+				std::vector<std::uint64_t> keys;
+				if (reason == nullptr)
+				{
+					std::error_code size_error;
+					const auto size = std::filesystem::file_size(path, size_error);
+					std::vector<unsigned char> bytes;
+					if (size_error || !injection::valid_chunk_size(size))
+					{
+						reason = "unreadable-empty-or-oversized";
+					}
+					else
+					{
+						bytes.resize(static_cast<std::size_t>(size));
+						std::ifstream input(path, std::ios::binary);
+						if (!input || !input.read(reinterpret_cast<char*>(bytes.data()),
+							static_cast<std::streamsize>(bytes.size())))
+						{
+							reason = "unreadable-empty-or-oversized";
+						}
+						else
+						{
+							reason = injection::discover_multi_target_keys(
+								bytes.data(), bytes.size(), keys);
+						}
+					}
+				}
+				info.valid = reason == nullptr;
+				info.target = info.valid
+					? std::to_string(keys.size()) + " modules"
+					: std::string("invalid: ") + reason;
+			}
+			else if (classified == injection::ScriptKind::TargetManagedAddon)
 			{
 				std::uint64_t key = 0;
 				info.valid = injection::target_addon_key(info.filename, key);

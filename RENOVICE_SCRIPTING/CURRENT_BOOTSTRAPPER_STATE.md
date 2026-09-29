@@ -1,5 +1,40 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-29 Multi-target addons, target-root instance binding and luaCalls attribution staged (not deployed)
+
+Branch `feat/multi-target-addon` (from `bcad39e`). Three generic runtime changes; none is specific to a module, mission or ability.
+
+- **Multi-target addons.** `Inject\<Name>.targets.addon.lua_B` returns `{activate?, cleanup?, targets = {["<16-hex key>"] = {hooks, activate?, cleanup?}}}`.
+  - Declared keys are the lowercase 16-hex constants in the bytecode string pool. They are inventoried even while the file is disabled.
+  - The file expands to one ordinary target binding per key. Each binding selects `targets[key]` in the protected load leaf.
+  - The file gets one Scripts row and one policy. A bad file or entry fails locally.
+  - Single-key `<key>.<Name>.target.addon.lua_B` files are unchanged.
+- **Target-root instance binding.** The runtime watches the root prototypes of target modules and records the runtime environment each root actually ran in. At the next exact idle return it rebinds the addons there (`TARGET ROOT RETURN ... action=rebind-queued`).
+  - This fixes Circuit's `activate`, which never saw root-published globals.
+  - Lifecycle binding follows the most recent root instance, with one binding per VM x module x generation.
+- **luaCalls attribution.** Calls are now attributed by exact live prototype identity instead of the load environment. The strict environment check had silently rejected every luaCalls dispatch since V107; this was the Survival root cause.
+- **Error text.** Lifecycle, chunk and `luaCalls.before` failures now log a bounded, sanitized copy of the Lua error.
+
+Build and gates:
+
+- New gates `verify_multi_target_addon.ps1` and `verify_target_root_binding.ps1` are added to the build. All existing gates pass.
+- Private `-O3` build: PASS, 0 warnings, 0 errors.
+- DLL `83e74faf399bccb33306fa19d225b5cfb59a935496e7bced9bdd30723efd51a9` (4,921,344 B), staged at `work/staging/bootstrapper-multitarget-addon/`, with an opt-in hook-free probe `opt-in-live-probe/Inject/MultiTargetProbe.targets.addon.lua_B` (`76857273...056a`).
+
+**Deployment and every live check are pending.** Run these by hand with the game closed for the DLL swap. Keep `15daf981...` as the rollback.
+
+1. Log: `DE_VM_AUTHORITY PASS` and `RELOAD PASS`.
+2. Scripts menu: row count unchanged with the current files. With the probe added, exactly one extra row, `[ADDON] Multi Target Probe`, tooltip `target 3 modules`.
+3. Survival: `native hook PASS key=f10a043e7f825db2 event=luaCalls.<P>.before`, with no `luaCalls.before protected leaf FAIL`. In EE.log, `Host - first reward` about 150 s after `ENDLESS`.
+4. Circuit: `TARGET ROOT RETURN key=95ef5b82a8400944`, then `TARGET ADDON PASS`. The stage preview shows 500/550/625/725/850.
+5. Mallet and Ice Wave: effects work. Also watch for repeated `TARGET ROOT RETURN` lines per cast.
+6. Elite Sanctuary: still works.
+7. F9 with no changes, then F9 after disabling and re-enabling the probe row.
+8. F10/Pluto hotkeys and the Arsenal/Simulacrum search (`Limbo`, `00`, `codha`).
+9. Riven replacement: reroll locks still work.
+
+[Record and mission-generator contract](../RESEARCH/MULTI_TARGET_ADDON_AND_ROOT_BINDING_2026-09-29/README.md). Script format: `OpenWF/CustomScripts/HOW_TO_ADD_SCRIPTS.md` (repository copy).
+
 ## 2026-09-29 44.0.2 DE_VM_AUTHORITY lock-identity fix staged (not deployed)
 
 Live 44.0.2 log with installed DLL `a5508dae…`: `DE_VM_AUTHORITY resolve FAIL primitive=lock-enter/lock-leave matches=0`, so no VM capture, Scripts menu, Inject or addons (Replacement unaffected). Cause: the `_u44` lock signatures appended the prologue of the unrelated function the linker placed after each `mov rcx,[rcx]; mov rcx,[rcx]; jmp [IAT]` thunk; 44.0.2 relocated the thunks. Lock thunks now resolve by exact identity (thunk body + named `KERNEL32!Enter/LeaveCriticalSection` IAT slot from the import-name table), cross-checked against the locked dispatcher's +40 enter call and epilogue leave tail-jump; build allowlist and fail-closed uniqueness unchanged. Verified offline on U43, U44.0.0, U44.0.2; full 147-pattern census shows no other 44.0.0->44.0.2 change. `verify_client_44` now covers the lock chain. Private build PASS 0/0, DLL `15daf981af6ad7a358500f36084c9c23a94f4e9ac0881184bd29a118a7b73cea` (4,890,112 B) staged at `work/staging/bootstrapper-44.0.2-vmauthority/`; `Hotfix.owf` unchanged in content. **Deployment and live acceptance pending.** [Record](../RESEARCH/DE_VM_AUTHORITY_LOCK_IDENTITY_44_0_2_2026-09-29/README.md).

@@ -66,6 +66,21 @@ int main(int argc, char** argv)
 		"fe3e36bc752a06cc (Octavia Metrone allscript).lua_B")
 		== "Octavia Metronome: All Rhythm Buffs",
 		"Metronome label corrects the typo and states the changed behavior");
+	check(script_control::display_name("Missions.targets.addon.lua_B")
+		== "Missions"
+		&& script_control::menu_display_name(
+			script_control::Kind::TargetAddon, "Missions.targets.addon.lua_B")
+			== "[ADDON] Missions",
+		"multi-target addon is one player-facing ADDON row without suffix noise");
+	check(script_control::stable_id(
+		script_control::Kind::TargetAddon, "Missions.TARGETS.addon.lua_B")
+		== "target-addon:missions.targets.addon.lua_b"
+		&& injection::classify_script("Missions.targets.addon.lua_B")
+			== injection::ScriptKind::TargetManagedAddon,
+		"multi-target addon owns one case-normalized target-addon policy id");
+	check(script_control::display_name(
+		"f10a043e7f825db2.missions.target.addon.lua_B") == "Missions",
+		"single-key target addon display name is unchanged");
 	check(script_control::display_name("MyFutureFeature.addon.lua_B")
 		== "My Future Feature",
 		"unknown future scripts retain generic filename normalization");

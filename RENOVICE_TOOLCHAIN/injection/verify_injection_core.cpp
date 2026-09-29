@@ -512,6 +512,263 @@ int main(int argc, char** argv)
 			&& !target_addon_key("08faf07b504d058f.mallet.addon.lua_B", target),
 			"target-managed addon rejects invalid keys and generic addon names");
 	}
+	{
+		// Multi-target addon (2026-09-29): one file, several exact module keys.
+		std::uint64_t target = 0;
+		check(classify_script("Missions.targets.addon.lua_B")
+				== ScriptKind::TargetManagedAddon
+			&& classify_script("Missions.TARGETS.ADDON.lua_B")
+				== ScriptKind::TargetManagedAddon
+			&& is_multi_target_addon("Missions.targets.addon.lua_B")
+			&& !is_multi_target_addon("f10a043e7f825db2.missions.target.addon.lua_B")
+			&& !is_multi_target_addon("Missions.addon.lua_B"),
+			"multi-target addon uses the target-managed lane and is distinguished by .targets.addon");
+		check(!target_addon_key("Missions.targets.addon.lua_B", target)
+			&& !target_addon_key("f10a043e7f825db2.Missions.targets.addon.lua_B", target),
+			"multi-target addon never binds through a filename key prefix");
+		check(multi_target_filename_error("Missions.targets.addon.lua_B") == nullptr
+			&& std::string_view(multi_target_filename_error(
+				"f10a043e7f825db2.Missions.targets.addon.lua_B"))
+				== "multi-target-filename-has-key-prefix"
+			&& std::string_view(multi_target_filename_error(
+				"f10a043e7f825db2.missions.target.addon.lua_B"))
+				== "not-multi-target-filename",
+			"multi-target filename contract rejects an ambiguous key prefix");
+		bool legacy = true;
+		for (const auto& [name, key] : std::vector<std::pair<const char*, std::uint64_t>>{
+			{"64d11e6973afa4b1.EliteSanctuaryNoRank.target.addon.lua_B", 0x64d11e6973afa4b1ull},
+			{"8fba3a28f8fef624.IceWaveColdStackDamage.target.addon.lua_B", 0x8fba3a28f8fef624ull},
+			{"95ef5b82a8400944.CircuitProgressPreviewX5.target.addon.lua_B", 0x95ef5b82a8400944ull},
+			{"ec368d4901690a15.MalletOverguardAndCard.target.addon.lua_B", 0xec368d4901690a15ull},
+			{"f10a043e7f825db2.missions.target.addon.lua_B", 0xf10a043e7f825db2ull}})
+		{
+			std::uint64_t parsed = 0;
+			legacy = legacy && classify_script(name) == ScriptKind::TargetManagedAddon
+				&& !is_multi_target_addon(name)
+				&& target_addon_key(name, parsed) && parsed == key;
+		}
+		check(legacy, "existing single-key target addons keep their exact filename binding");
+
+		const auto pool = [](const std::vector<std::string>& strings)
+		{
+			std::vector<unsigned char> bytes{0x09, 0x03};
+			const auto varint = [&](std::uint64_t value)
+			{
+				do
+				{
+					unsigned char byte = static_cast<unsigned char>(value & 0x7fu);
+					value >>= 7;
+					if (value != 0) byte |= 0x80u;
+					bytes.push_back(byte);
+				} while (value != 0);
+			};
+			varint(strings.size());
+			for (const auto& text : strings)
+			{
+				varint(text.size());
+				bytes.insert(bytes.end(), text.begin(), text.end());
+			}
+			bytes.push_back(0x00);
+			return bytes;
+		};
+		std::vector<std::uint64_t> keys;
+		auto bytes = pool({"activate", "f10a043e7f825db2", std::string(200, 'x'),
+			"F10A043E7F825DB3", "6fa60841c9e0f207", "0123456789abcdeg",
+			"f10a043e7f825db2", "f10a043e7f825db", "targets"});
+		check(discover_multi_target_keys(bytes.data(), bytes.size(), keys) == nullptr
+			&& keys == std::vector<std::uint64_t>{0x6fa60841c9e0f207ull, 0xf10a043e7f825db2ull},
+			"declared keys are exact lowercase 16-hex pool strings, sorted and unique");
+		bytes = pool({"activate", "cleanup"});
+		check(std::string_view(discover_multi_target_keys(bytes.data(), bytes.size(), keys))
+				== "no-declared-target-keys" && keys.empty(),
+			"multi-target file without declared keys is rejected");
+		bytes = pool({"0000000000000000", "f10a043e7f825db2"});
+		check(std::string_view(discover_multi_target_keys(bytes.data(), bytes.size(), keys))
+				== "declared-target-key-zero",
+			"zero declared key is rejected");
+		bytes = pool({"f10a043e7f825db2"});
+		bytes[1] = 0x02;
+		check(std::string_view(discover_multi_target_keys(bytes.data(), bytes.size(), keys))
+				== "not-de-bytecode-container",
+			"non-DE container is rejected before pool parsing");
+		bytes = pool({"f10a043e7f825db2"});
+		bytes.resize(10);
+		check(std::string_view(discover_multi_target_keys(bytes.data(), bytes.size(), keys))
+				== "string-pool-entry-truncated",
+			"truncated pool entry is rejected");
+		const unsigned char unterminated[] = {0x09, 0x03, 0x80, 0x80};
+		check(std::string_view(discover_multi_target_keys(unterminated, sizeof(unterminated), keys))
+				== "string-pool-count-truncated",
+			"unterminated pool count varint is rejected");
+		std::vector<std::string> many;
+		for (std::size_t i = 1; i <= maximum_multi_target_keys + 1; ++i)
+		{
+			char text[17]{};
+			format_target_key_text(i, text);
+			many.emplace_back(text);
+		}
+		bytes = pool(many);
+		check(std::string_view(discover_multi_target_keys(bytes.data(), bytes.size(), keys))
+				== "too-many-declared-target-keys",
+			"declared target count is bounded");
+		char text[17]{};
+		format_target_key_text(0xf10a043e7f825db2ull, text);
+		check(std::string_view(text) == "f10a043e7f825db2",
+			"binding selects targets[key] with the exact declared lowercase text");
+
+		using F = MultiTargetSelectFailure;
+		check(classify_multi_target_selection(true, true, true, false, true,
+				true, false, true, true, false, true) == F::none
+			&& classify_multi_target_selection(true, true, true, false, true,
+				false, true, false, false, true, false) == F::none,
+			"entry lifecycle wins, absent entry lifecycle inherits the top-level function");
+		check(classify_multi_target_selection(true, true, true, false, true,
+				false, false, true, true, false, true) == F::activate_missing
+			&& classify_multi_target_selection(true, true, true, false, true,
+				false, true, false, true, false, false) == F::cleanup_missing
+			&& classify_multi_target_selection(true, true, true, false, true,
+				false, true, false, false, false, true) == F::cleanup_missing,
+			"present non-function entry lifecycle never falls back; missing everywhere fails");
+		check(classify_multi_target_selection(false, true, true, false, true,
+				true, true, true, true, true, true) == F::container_not_table
+			&& classify_multi_target_selection(true, false, true, false, true,
+				true, true, true, true, true, true) == F::container_has_hooks
+			&& classify_multi_target_selection(true, true, false, false, true,
+				true, true, true, true, true, true) == F::targets_not_table
+			&& classify_multi_target_selection(true, true, true, true, false,
+				true, true, true, true, true, true) == F::entry_missing
+			&& classify_multi_target_selection(true, true, true, false, false,
+				true, true, true, true, true, true) == F::entry_not_table,
+			"container, top-level hooks, targets table and entry shape reject exactly");
+		bool labels = true;
+		for (int code = 1; code <= 7; ++code)
+			labels = labels && std::string_view(multi_target_select_failure_label(code)) != "unknown"
+				&& std::string_view(multi_target_select_failure_label(code)) != "none";
+		check(labels && std::string_view(multi_target_select_failure_label(99)) == "unknown",
+			"every multi-target selection failure has an exact label");
+	}
+	{
+		// Target root instances and exact-prototype attribution (2026-09-29).
+		struct RootIdentity
+		{
+			std::uint64_t target_key = 0;
+			void* global_state = nullptr;
+			void* environment = nullptr;
+			void* root_proto = nullptr;
+			bool runtime_root = false;
+			int tag = 0;
+		};
+		auto* const vm = reinterpret_cast<void*>(0x1000);
+		auto* const other_vm = reinterpret_cast<void*>(0x2000);
+		auto* const root = reinterpret_cast<void*>(0x3000);
+		auto* const load_env = reinterpret_cast<void*>(0x4000);
+		auto* const runtime_env = reinterpret_cast<void*>(0x5000);
+		auto* const next_env = reinterpret_cast<void*>(0x6000);
+		std::vector<RootIdentity> ids{{0xf10a043e7f825db2ull, vm, load_env, root, false, 1}};
+		RootIdentity created{};
+		check(record_target_root_return(ids, 0xf10a043e7f825db2ull, vm, root, load_env)
+				== TargetRootReturnAction::same_environment && ids.size() == 1,
+			"root return in the load environment keeps the loader binding");
+		check(record_target_root_return(ids, 0xf10a043e7f825db2ull, vm, root, runtime_env, &created)
+				== TargetRootReturnAction::rebind && ids.size() == 2
+				&& ids.back().environment == runtime_env && ids.back().runtime_root
+				&& created.tag == 1 && ids.front().environment == load_env,
+			"root return in a new environment records a runtime identity and requests one rebind");
+		check(record_target_root_return(ids, 0xf10a043e7f825db2ull, vm, root, runtime_env)
+				== TargetRootReturnAction::same_environment && ids.size() == 2,
+			"repeated return of the bound root instance is idempotent");
+		check(record_target_root_return(ids, 0xf10a043e7f825db2ull, vm, root, next_env)
+				== TargetRootReturnAction::rebind && ids.size() == 2
+				&& ids.back().environment == next_env,
+			"a later root instance replaces the previous runtime identity (bounded, latest instance binds)");
+		check(record_target_root_return(ids, 0xf10a043e7f825db2ull, other_vm, root, runtime_env)
+				== TargetRootReturnAction::not_a_target_root
+			&& record_target_root_return(ids, 0x95ef5b82a8400944ull, vm, root, runtime_env)
+				== TargetRootReturnAction::not_a_target_root
+			&& record_target_root_return(ids, 0xf10a043e7f825db2ull, vm,
+				reinterpret_cast<void*>(0x3100), runtime_env)
+				== TargetRootReturnAction::not_a_target_root
+			&& ids.size() == 2,
+			"root return never crosses VM, module key or loaded root prototype");
+
+		struct ProtoIdentity
+		{
+			std::uint64_t target_key = 0;
+			void* global_state = nullptr;
+			void* environment = nullptr;
+			void* root_proto = nullptr;
+			std::vector<TargetProtoRecord> prototypes;
+		};
+		const auto graph = [](std::uintptr_t base, std::int32_t count, std::int32_t root_id)
+		{
+			std::vector<TargetProtoRecord> records;
+			for (std::int32_t id = 0; id != count; ++id)
+			{
+				records.push_back({base + static_cast<std::uintptr_t>(id) * 0x100,
+					id == root_id ? 0 : base + static_cast<std::uintptr_t>(root_id) * 0x100,
+					0x900000 + static_cast<std::uintptr_t>(id) * 0x40, 16, id});
+			}
+			return records;
+		};
+		constexpr std::uintptr_t survival_base = 0x7000000;
+		constexpr std::uintptr_t unrelated_base = 0x9000000;
+		std::vector<ProtoIdentity> modules{
+			{0xf10a043e7f825db2ull, vm, load_env,
+				reinterpret_cast<void*>(survival_base + 90 * 0x100), graph(survival_base, 91, 90)},
+			{0x0123456789abcdefull, vm, load_env,
+				reinterpret_cast<void*>(unrelated_base + 3 * 0x100), graph(unrelated_base, 4, 3)}};
+		const auto always_live = [](const TargetProtoRecord&) { return true; };
+		bool survival = true;
+		for (const std::int32_t id : {31, 33, 55, 58, 60, 61, 62, 67, 68, 69})
+		{
+			const auto owner = select_target_prototype_owner(modules, vm, runtime_env,
+				survival_base + static_cast<std::uintptr_t>(id) * 0x100, always_live);
+			survival = survival && owner.exact && !owner.ambiguous
+				&& !owner.strict_environment
+				&& owner.target_key == 0xf10a043e7f825db2ull && owner.bytecode_id == id;
+		}
+		check(survival,
+			"SurvivalMission luaCalls prototypes 31/33/55/58/60/61/62/67/68/69 dispatch from a runtime-environment closure");
+		const auto unrelated = select_target_prototype_owner(modules, vm, next_env,
+			unrelated_base + 2 * 0x100, always_live);
+		check(unrelated.exact && unrelated.target_key == 0x0123456789abcdefull
+			&& unrelated.bytecode_id == 2,
+			"unrelated module attributes by the same generic prototype rule");
+		const auto strict = select_target_prototype_owner(modules, vm, load_env,
+			survival_base + 61 * 0x100, always_live);
+		check(strict.exact && strict.strict_environment && strict.bytecode_id == 61,
+			"a load-environment closure still reports the strict environment match");
+		check(!select_target_prototype_owner(modules, other_vm, runtime_env,
+				survival_base + 61 * 0x100, always_live).exact
+			&& !select_target_prototype_owner(modules, vm, runtime_env,
+				0x5000000, always_live).exact
+			&& !select_target_prototype_owner(modules, vm, runtime_env,
+				survival_base + 61 * 0x100,
+				[](const TargetProtoRecord& record) { return record.bytecode_id != 61; }).exact
+			&& !select_target_prototype_owner(modules, vm, runtime_env,
+				survival_base + 61 * 0x100,
+				[](const TargetProtoRecord& record) { return record.bytecode_id != 90; }).exact,
+			"wrong VM, unknown prototype, dead prototype and dead root all fail closed");
+		auto conflicting = modules;
+		conflicting.push_back({0x1111111111111111ull, vm, load_env,
+			reinterpret_cast<void*>(survival_base + 90 * 0x100), graph(survival_base, 91, 90)});
+		const auto ambiguous = select_target_prototype_owner(conflicting, vm, runtime_env,
+			survival_base + 61 * 0x100, always_live);
+		check(!ambiguous.exact && ambiguous.ambiguous,
+			"one prototype claimed by two module keys is rejected as ambiguous");
+
+		char text[lua_error_text_capacity]{};
+		const std::string_view error = "Lotus/Scripts/Circuit:12: \"RENOVICE_CIRCUIT_STAGE_XP_GETTER_NOT_FUNCTION\"\n\x01\\";
+		sanitize_error_text(error.data(), error.size(), text, sizeof(text));
+		check(std::string_view(text)
+				== "Lotus/Scripts/Circuit:12: 'RENOVICE_CIRCUIT_STAGE_XP_GETTER_NOT_FUNCTION' ?/",
+			"error text keeps printable ASCII and neutralizes quotes, controls and backslashes");
+		const std::string long_error(1000, 'x');
+		const auto written = sanitize_error_text(long_error.data(), long_error.size(), text, sizeof(text));
+		check(written == sizeof(text) - 1 && std::string_view(text).substr(written - 3) == "..."
+			&& sanitize_error_text(nullptr, 5, text, sizeof(text)) == 0 && text[0] == '\0',
+			"error text is bounded, truncation is marked and null input is empty");
+	}
 	check(classify_script("state.persist.lua_B") == ScriptKind::ExperimentalPersistent,
 		"persistent experiment classification");
 	check(classify_script("state.PERSIST.lua_B") == ScriptKind::ExperimentalPersistent,

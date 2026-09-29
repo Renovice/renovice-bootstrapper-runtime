@@ -114,7 +114,8 @@ inline ScriptKind classify_script(std::string_view filename) noexcept
 	{
 		return ScriptKind::ExperimentalPersistent;
 	}
-	if (ascii_icontains(filename, ".target.addon"))
+	if (ascii_icontains(filename, ".target.addon")
+		|| ascii_icontains(filename, ".targets.addon"))
 	{
 		return ScriptKind::TargetManagedAddon;
 	}
@@ -125,10 +126,195 @@ inline ScriptKind classify_script(std::string_view filename) noexcept
 	return ScriptKind::Ordinary;
 }
 
+// A multi-target addon is one target-managed file that declares several exact
+// module content keys. Its runtime lane is the ordinary TargetManagedAddon lane:
+// the scanner expands it into one binding per declared key, and every binding
+// then uses the unchanged single-key identity, generation, and F9 machinery.
+inline bool is_multi_target_addon(std::string_view filename) noexcept
+{
+	return classify_script(filename) == ScriptKind::TargetManagedAddon
+		&& ascii_icontains(filename, ".targets.addon");
+}
+
 inline bool target_addon_key(std::string_view filename, std::uint64_t& key) noexcept
 {
 	return classify_script(filename) == ScriptKind::TargetManagedAddon
+		&& !is_multi_target_addon(filename)
 		&& replacements::parse_filename_key(filename, key);
+}
+
+inline constexpr std::size_t maximum_multi_target_keys = 1024;
+
+// Declared targets are the exact lowercase 16-hex strings in the DE bytecode
+// string pool (`09 03 | varint count | {varint length, bytes}...`). The
+// `targets` table's constant keys are therefore the single source of truth: no
+// sidecar manifest can disagree with the returned table. Uppercase or mixed-case
+// 16-hex strings are not declarations. Returns nullptr on success, otherwise an
+// exact, stable rejection reason.
+inline const char* multi_target_filename_error(std::string_view filename) noexcept
+{
+	if (!is_multi_target_addon(filename)) return "not-multi-target-filename";
+	std::uint64_t prefix = 0;
+	if (replacements::parse_filename_key(filename, prefix))
+		return "multi-target-filename-has-key-prefix";
+	return nullptr;
+}
+
+inline bool read_bytecode_varint(
+	const unsigned char* body,
+	std::size_t size,
+	std::size_t& offset,
+	std::uint64_t& value
+) noexcept
+{
+	value = 0;
+	for (unsigned shift = 0; shift < 35; shift += 7)
+	{
+		if (offset >= size) return false;
+		const unsigned char byte = body[offset++];
+		value |= static_cast<std::uint64_t>(byte & 0x7fu) << shift;
+		if ((byte & 0x80u) == 0) return true;
+	}
+	return false;
+}
+
+inline bool lowercase_target_key_text(
+	const unsigned char* text,
+	std::size_t length,
+	std::uint64_t& key
+) noexcept
+{
+	if (text == nullptr || length != 16) return false;
+	std::uint64_t value = 0;
+	for (std::size_t i = 0; i != 16; ++i)
+	{
+		const unsigned char c = text[i];
+		std::uint64_t digit = 0;
+		if (c >= '0' && c <= '9') digit = static_cast<std::uint64_t>(c - '0');
+		else if (c >= 'a' && c <= 'f') digit = static_cast<std::uint64_t>(c - 'a' + 10);
+		else return false;
+		value = (value << 4) | digit;
+	}
+	key = value;
+	return true;
+}
+
+inline const char* discover_multi_target_keys(
+	const unsigned char* body,
+	std::size_t size,
+	std::vector<std::uint64_t>& keys
+)
+{
+	keys.clear();
+	if (body == nullptr || size < 3 || body[0] != 0x09 || body[1] != 0x03)
+		return "not-de-bytecode-container";
+	std::size_t offset = 2;
+	std::uint64_t count = 0;
+	if (!read_bytecode_varint(body, size, offset, count))
+		return "string-pool-count-truncated";
+	if (count > size) return "string-pool-count-implausible";
+	for (std::uint64_t i = 0; i != count; ++i)
+	{
+		std::uint64_t length = 0;
+		if (!read_bytecode_varint(body, size, offset, length))
+			return "string-pool-length-truncated";
+		if (length > size - offset) return "string-pool-entry-truncated";
+		std::uint64_t key = 0;
+		if (lowercase_target_key_text(body + offset, static_cast<std::size_t>(length), key))
+		{
+			if (key == 0) return "declared-target-key-zero";
+			keys.push_back(key);
+		}
+		offset += static_cast<std::size_t>(length);
+	}
+	std::sort(keys.begin(), keys.end());
+	keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+	if (keys.empty()) return "no-declared-target-keys";
+	if (keys.size() > maximum_multi_target_keys) return "too-many-declared-target-keys";
+	return nullptr;
+}
+
+inline void format_target_key_text(std::uint64_t key, char (&text)[17]) noexcept
+{
+	constexpr char digits[] = "0123456789abcdef";
+	for (int i = 15; i >= 0; --i)
+	{
+		text[i] = digits[key & 0xfu];
+		key >>= 4;
+	}
+	text[16] = '\0';
+}
+
+// Per-binding selection of `returned.targets["<key>"]` inside the protected
+// module-load leaf. Codes are stable diagnostics; zero is success.
+enum class MultiTargetSelectFailure : int
+{
+	none = 0,
+	container_not_table = 1,
+	container_has_hooks = 2,
+	targets_not_table = 3,
+	entry_missing = 4,
+	entry_not_table = 5,
+	activate_missing = 6,
+	cleanup_missing = 7,
+};
+
+inline const char* multi_target_select_failure_label(int code) noexcept
+{
+	switch (static_cast<MultiTargetSelectFailure>(code))
+	{
+	case MultiTargetSelectFailure::none: return "none";
+	case MultiTargetSelectFailure::container_not_table: return "returned-value-not-table";
+	case MultiTargetSelectFailure::container_has_hooks: return "top-level-hooks-not-allowed-use-targets[key].hooks";
+	case MultiTargetSelectFailure::targets_not_table: return "targets-not-table";
+	case MultiTargetSelectFailure::entry_missing: return "targets[key]-missing";
+	case MultiTargetSelectFailure::entry_not_table: return "targets[key]-not-table";
+	case MultiTargetSelectFailure::activate_missing: return "activate-not-a-function-in-entry-or-top-level";
+	case MultiTargetSelectFailure::cleanup_missing: return "cleanup-not-a-function-in-entry-or-top-level";
+	}
+	return "unknown";
+}
+
+// An entry lifecycle field wins when it is a function. Only an ABSENT entry
+// field inherits the top-level function; a present non-function never does.
+inline bool multi_target_lifecycle_resolved(
+	bool entry_absent,
+	bool entry_is_function,
+	bool container_is_function
+) noexcept
+{
+	return entry_is_function || (entry_absent && container_is_function);
+}
+
+// Pure model of the selection rules executed on live TValues by the leaf.
+// Entry lifecycle functions override top-level defaults; hooks never inherit
+// because Lua prototype and callsite identities are module-specific.
+inline MultiTargetSelectFailure classify_multi_target_selection(
+	bool container_is_table,
+	bool container_hooks_absent,
+	bool targets_is_table,
+	bool entry_absent,
+	bool entry_is_table,
+	bool entry_activate_absent,
+	bool entry_activate_is_function,
+	bool container_activate_is_function,
+	bool entry_cleanup_absent,
+	bool entry_cleanup_is_function,
+	bool container_cleanup_is_function
+) noexcept
+{
+	if (!container_is_table) return MultiTargetSelectFailure::container_not_table;
+	if (!container_hooks_absent) return MultiTargetSelectFailure::container_has_hooks;
+	if (!targets_is_table) return MultiTargetSelectFailure::targets_not_table;
+	if (entry_absent) return MultiTargetSelectFailure::entry_missing;
+	if (!entry_is_table) return MultiTargetSelectFailure::entry_not_table;
+	if (!multi_target_lifecycle_resolved(entry_activate_absent,
+			entry_activate_is_function, container_activate_is_function))
+		return MultiTargetSelectFailure::activate_missing;
+	if (!multi_target_lifecycle_resolved(entry_cleanup_absent,
+			entry_cleanup_is_function, container_cleanup_is_function))
+		return MultiTargetSelectFailure::cleanup_missing;
+	return MultiTargetSelectFailure::none;
 }
 
 inline bool target_addon_target_discovery_required(
@@ -812,6 +998,192 @@ inline bool target_addon_generation_rebind_required(
 		|| (desired_count != 0
 			&& !every_active_generation_uses_current_shared_table);
 }
+
+// ---------------------------------------------------------------------------
+// Target module root instances (2026-09-29).
+//
+// DE loads a module (Loader returns a registry closure whose environment is the
+// LOAD environment) and later runs its root prototype in a RUNTIME environment
+// that can differ (TopMenu 44.0.2: load ...D8C0, runtime ...2660). Everything the
+// root publishes (module globals such as EndlessGetXpForStage) lives in the
+// runtime environment, and every closure the root creates inherits it.
+//
+// Ownership model:
+// - Prototype identity is the dispatch authority. A recorded prototype belongs
+//   to exactly one loaded module body in one VM and is registry-pinned, so a
+//   live closure over it is attributed to that module regardless of which root
+//   instance created it. Hooks keyed by prototype therefore dispatch for every
+//   instance of the module.
+// - Lifecycle binding follows the most recent root instance: one active binding
+//   per VM x module key x generation. A root return in a new environment records
+//   a runtime identity (replacing the previous runtime identity of that same
+//   load) and queues a rebind; the rebind runs at the next exact idle return of
+//   that VM/thread, cleans the previous binding and activates in the runtime
+//   environment. A root return in the already-bound environment is a no-op.
+// ---------------------------------------------------------------------------
+enum class TargetRootReturnAction : std::uint8_t
+{
+	not_a_target_root,
+	same_environment,
+	rebind,
+};
+
+// Pure model of the identity update performed at an observed root return.
+// Identity must expose: target_key, global_state, environment, root_proto,
+// runtime_root. `latest` is the reverse-search result used by activation.
+template <typename Identity>
+inline TargetRootReturnAction record_target_root_return(
+	std::vector<Identity>& identities,
+	std::uint64_t target_key,
+	const void* global_state,
+	const void* root_proto,
+	void* runtime_environment,
+	Identity* created = nullptr)
+{
+	if (target_key == 0 || global_state == nullptr || root_proto == nullptr
+		|| runtime_environment == nullptr)
+	{
+		return TargetRootReturnAction::not_a_target_root;
+	}
+	const Identity* latest = nullptr;
+	const Identity* load = nullptr;
+	for (auto it = identities.rbegin(); it != identities.rend(); ++it)
+	{
+		if (it->target_key != target_key || it->global_state != global_state)
+			continue;
+		if (latest == nullptr) latest = &*it;
+		if (load == nullptr && !it->runtime_root && it->root_proto == root_proto)
+			load = &*it;
+	}
+	if (load == nullptr) return TargetRootReturnAction::not_a_target_root;
+	if (latest != nullptr && latest->root_proto == root_proto
+		&& latest->environment == runtime_environment)
+	{
+		return TargetRootReturnAction::same_environment;
+	}
+	Identity runtime = *load;
+	runtime.environment = runtime_environment;
+	runtime.runtime_root = true;
+	identities.erase(std::remove_if(identities.begin(), identities.end(),
+		[&](const Identity& candidate)
+		{
+			return candidate.runtime_root && candidate.target_key == target_key
+				&& candidate.global_state == global_state
+				&& candidate.root_proto == root_proto;
+		}), identities.end());
+	identities.push_back(runtime);
+	if (created != nullptr) *created = runtime;
+	return TargetRootReturnAction::rebind;
+}
+
+struct TargetPrototypeOwner
+{
+	std::uint64_t target_key = 0;
+	std::int32_t bytecode_id = -1;
+	bool exact = false;
+	bool strict_environment = false;
+	bool ambiguous = false;
+};
+
+// Attribute a live Lua closure to a target module by exact prototype identity.
+// A strict environment match is preferred (and reported); otherwise the exact
+// prototype of the same VM is accepted. Different keys claiming the closure
+// reject as ambiguous. `live(record)` must prove the recorded prototype is still
+// the same live prototype (code pointer, instruction count and bytecode id).
+template <typename Identity, typename Live>
+inline TargetPrototypeOwner select_target_prototype_owner(
+	const std::vector<Identity>& identities,
+	const void* global_state,
+	const void* closure_environment,
+	std::uintptr_t closure_proto,
+	Live&& live)
+{
+	TargetPrototypeOwner strict;
+	TargetPrototypeOwner exact;
+	if (global_state == nullptr || closure_proto == 0) return {};
+	const auto find = [](const auto& records, std::uintptr_t address)
+		-> decltype(&*records.begin())
+	{
+		const auto found = std::lower_bound(records.begin(), records.end(), address,
+			[](const auto& candidate, std::uintptr_t value)
+			{
+				return candidate.address < value;
+			});
+		return found != records.end() && found->address == address ? &*found : nullptr;
+	};
+	for (auto it = identities.rbegin(); it != identities.rend(); ++it)
+	{
+		if (it->target_key == 0 || it->global_state != global_state
+			|| it->root_proto == nullptr)
+		{
+			continue;
+		}
+		const auto* const root = find(it->prototypes,
+			reinterpret_cast<std::uintptr_t>(it->root_proto));
+		const auto* const prototype = find(it->prototypes, closure_proto);
+		if (root == nullptr || root->parent != 0 || prototype == nullptr
+			|| !live(*root) || (prototype != root && !live(*prototype)))
+		{
+			continue;
+		}
+		auto& slot = (closure_environment != nullptr
+			&& it->environment == closure_environment) ? strict : exact;
+		if (slot.exact && slot.target_key != it->target_key)
+		{
+			slot.ambiguous = true;
+			continue;
+		}
+		slot.target_key = it->target_key;
+		slot.bytecode_id = prototype->bytecode_id;
+		slot.exact = true;
+	}
+	if (strict.exact && !strict.ambiguous)
+	{
+		if (exact.exact && exact.target_key != strict.target_key) return {0, -1, false, false, true};
+		strict.strict_environment = true;
+		return strict;
+	}
+	if (strict.ambiguous || exact.ambiguous) return {0, -1, false, false, true};
+	return exact;
+}
+
+// Bounded operational copy of a Lua error string for logs. Printable ASCII is
+// kept; quotes/backslashes become apostrophes/slashes; control and non-ASCII
+// bytes become '?'. Always NUL-terminates and marks truncation with "...".
+inline std::size_t sanitize_error_text(
+	const char* text,
+	std::size_t length,
+	char* output,
+	std::size_t capacity) noexcept
+{
+	if (output == nullptr || capacity == 0) return 0;
+	output[0] = '\0';
+	if (text == nullptr || capacity < 4) return 0;
+	const std::size_t room = capacity - 1;
+	const bool truncated = length > room;
+	const std::size_t kept = truncated ? room - 3 : length;
+	for (std::size_t i = 0; i != kept; ++i)
+	{
+		const auto c = static_cast<unsigned char>(text[i]);
+		char mapped = '?';
+		if (c == '"') mapped = '\'';
+		else if (c == '\\') mapped = '/';
+		else if (c == '\n' || c == '\r' || c == '\t') mapped = ' ';
+		else if (c >= 0x20 && c < 0x7f) mapped = static_cast<char>(c);
+		output[i] = mapped;
+	}
+	std::size_t written = kept;
+	if (truncated)
+	{
+		output[written++] = '.';
+		output[written++] = '.';
+		output[written++] = '.';
+	}
+	output[written] = '\0';
+	return written;
+}
+
+inline constexpr std::size_t lua_error_text_capacity = 192;
 
 inline bool valid_target_closure_environment(
 	bool borrowed_value_is_function,
