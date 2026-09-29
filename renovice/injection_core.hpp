@@ -1014,12 +1014,18 @@ inline bool target_addon_generation_rebind_required(
 //   live closure over it is attributed to that module regardless of which root
 //   instance created it. Hooks keyed by prototype therefore dispatch for every
 //   instance of the module.
-// - Lifecycle binding follows the most recent root instance: one active binding
-//   per VM x module key x generation. A root return in a new environment records
-//   a runtime identity (replacing the previous runtime identity of that same
-//   load) and queues a rebind; the rebind runs at the next exact idle return of
-//   that VM/thread, cleans the previous binding and activates in the runtime
-//   environment. A root return in the already-bound environment is a no-op.
+// - Lifecycle binding is made once per VM x module key x generation, like a
+//   native modder's hook: normally at the module load. Live run 2026-09-29
+//   falsified "follow the most recent root instance": per-instance modules
+//   (Frost IceSpike.lua, 3,470 root instances in one session; SurvivalMission,
+//   8) paid a clean/load/activate cycle and three log lines per instance, and
+//   the cleanup reverted instance state the addon had already applied.
+// - A root return is therefore observed only for a module whose desired
+//   addons hold NO binding in that VM (for example an activate that needs
+//   globals the root publishes, such as Circuit/DuviriUtil). Such a load gets
+//   exactly one root-return rebind per generation, in the environment the root
+//   closure holds when it returns (module(...) re-points it to the module
+//   table). A bound module is not watched at all: zero per-instance work.
 // ---------------------------------------------------------------------------
 enum class TargetRootReturnAction : std::uint8_t
 {
@@ -1027,6 +1033,13 @@ enum class TargetRootReturnAction : std::uint8_t
 	same_environment,
 	rebind,
 };
+
+// Watch-set and apply-time predicate for the root-return lifecycle retry.
+inline constexpr bool target_root_return_watch_required(
+	bool desired, bool bound, bool retry_spent_this_generation) noexcept
+{
+	return desired && !bound && !retry_spent_this_generation;
+}
 
 // Pure model of the identity update performed at an observed root return.
 // Identity must expose: target_key, global_state, environment, root_proto,

@@ -1,5 +1,32 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-29 Fix 2 after the first live run of `83e74faf…` staged (not deployed)
+
+Branch `fix/multi-target-live-run-2026-09-29` (from `67cd256`). Live run: 44.0.2, pid 32336, Diagnostics on.
+
+- **Survival worked.** Reward tier 1 came at 150.33 s and tier 2 at 300.02 s. The apparent "missing" second reward was a 730 s pause menu.
+- **Survival hook errors had a runtime cause.** The luaCalls.before read-back reused the upvalue view table's stack slot as scratch space while it read the arguments. Every hook called with one or more arguments failed at copy-back:
+  - protos 67/68/69: `stage=read-upvalue index=0 raw_status=2`;
+  - proto 61: `mutation rejected upvalue=1 candidate_tag=0`.
+  - The callbacks themselves ran, so the table writes survived.
+  - Fix: the read-back leaves both view tables untouched.
+- **Bind once.** `IceSpike.lua` ran 3,470 root instances in the session (SurvivalMission ran 8), and each one did a clean/load/activate cycle and wrote 3 log lines. Now:
+  - Only a module whose addons hold **no** binding is watched.
+  - Such a module gets **one** root-return retry per generation.
+  - Bound modules do zero per-instance work. Prototype-matched hooks still reach every instance.
+- **Circuit.** DuviriUtil's root calls `module(...)`, which re-points the root closure's environment to the module table. `67cd256` captured the environment at root entry, so it rebound in the wrong one. The retry now reads the environment at the root's return.
+- **`lua.call.before.reject`.** Now gated by the diagnostics check before any work, sampled, and carries prototype and occurrence. It previously wrote 28,576 identical lines and used up the trace budget.
+- **F9 errors.** F9 member rejections and Inject-scan rejections now reach the file log.
+- **`WRONG NUM REWARDS`.** Stock EndOfMatch prints this. It is pre-existing (it appears in the 2026-09-06 logs, before any mission addon existed) and is not ours.
+
+Gates and build:
+
+- All gates PASS, including new checks in `verify_injection_core`, `verify_target_root_binding`, `verify_lua_call_raw_protection` and `verify_unified_diagnostics_master`.
+- Private build PASS, 0 warnings, 0 errors.
+- DLL `420e10a400d9b7f6fc934639732a5365b0925fa969e91ef0b73612bf1e98f4da` (4,927,488 B), staged at `work/staging/bootstrapper-multitarget-fix2/`.
+
+**Deployment and live checks are pending.** Rollbacks: `83e74faf…`, then `15daf981…`. [Record and checklist](../RESEARCH/MULTI_TARGET_LIVE_RUN_FIX2_2026-09-29/README.md).
+
 ## 2026-09-29 Multi-target addons, target-root instance binding and luaCalls attribution staged (not deployed)
 
 Branch `feat/multi-target-addon` (from `bcad39e`). Three generic runtime changes; none is specific to a module, mission or ability.

@@ -47,4 +47,21 @@ foreach ($marker in $injectionMarkers) {
     if (-not $injection.Contains($marker)) { throw "Unified diagnostics fault-gate marker missing: $marker" }
 }
 
+# luaCalls.before reject trace (live run 2026-09-29): Diagnostics=false performs
+# no formatting or allocation; Diagnostics=true is sampled per process.
+$rejectCallAt = $injection.IndexOf('trace_lua_call_before_reject(state, call);', [StringComparison]::Ordinal)
+$rejectGateAt = $injection.LastIndexOf('&& config::diagnostics_mode() != config::DiagnosticsMode::off)', $rejectCallAt, [StringComparison]::Ordinal)
+if ($rejectCallAt -lt 0 -or $rejectGateAt -lt 0 -or ($rejectCallAt - $rejectGateAt) -gt 200) {
+    throw 'Unified diagnostics FAIL: luaCalls.before reject trace is not gated by the diagnostics master before any work'
+}
+$rejectStart = $injection.IndexOf('void trace_lua_call_before_reject(luau_State* state, const TargetLuaCall& call) noexcept', [StringComparison]::Ordinal)
+$rejectEnd = $injection.IndexOf('std::uint32_t de_luau_interrupt_increment_detour(', $rejectStart, [StringComparison]::Ordinal)
+if ($rejectStart -lt 0 -or $rejectEnd -le $rejectStart) { throw 'Unified diagnostics FAIL: reject trace helper missing' }
+$reject = $injection.Substring($rejectStart, $rejectEnd - $rejectStart)
+$sampleAt = $reject.IndexOf('if (!sample_vm_host_error(occurrence)) return;', [StringComparison]::Ordinal)
+$formatAt = $reject.IndexOf('std::ostringstream', [StringComparison]::Ordinal)
+if ($sampleAt -lt 0 -or $formatAt -le $sampleAt -or -not $reject.Contains('prototype=') -or -not $reject.Contains('occurrence=')) {
+    throw 'Unified diagnostics FAIL: reject trace is not sampled before formatting or lacks prototype/occurrence correlation'
+}
+
 Write-Host 'UNIFIED DIAGNOSTICS MASTER PASS all-on=trace+engine+caster+buffs+memory+fault all-off=observers-unregistered+lua-roots-released+prototype-roots-released legacy-advanced=preserved'

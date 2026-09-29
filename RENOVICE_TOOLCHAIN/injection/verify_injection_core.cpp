@@ -690,6 +690,16 @@ int main(int argc, char** argv)
 				== TargetRootReturnAction::not_a_target_root
 			&& ids.size() == 2,
 			"root return never crosses VM, module key or loaded root prototype");
+		// Bound once (live run 2026-09-29): IceSpike.lua 3,470 and SurvivalMission 8
+		// per-instance rebinds; only an unbound module gets one retry per generation.
+		check(!target_root_return_watch_required(true, true, false)
+				&& !target_root_return_watch_required(true, true, true),
+			"a module whose addons are bound is never watched or rebound at root return");
+		check(target_root_return_watch_required(true, false, false)
+				&& !target_root_return_watch_required(true, false, true),
+			"an unbound module gets exactly one root-return retry per generation");
+		check(!target_root_return_watch_required(false, false, false),
+			"a module without a desired target addon is never watched");
 
 		struct ProtoIdentity
 		{

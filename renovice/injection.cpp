@@ -267,6 +267,10 @@ struct TargetModuleIdentity
 	// False for the loader-recorded identity; true for the identity recorded
 	// when that load's root prototype returned in a different environment.
 	bool runtime_root = false;
+	// Root-return lifecycle retry (live run 2026-09-29): a load whose target
+	// addons are not bound gets exactly one root-return rebind per generation.
+	bool root_return_retry_spent = false;
+	std::uint64_t root_return_retry_generation = 0;
 };
 
 struct TargetExecutionIdentity
@@ -333,6 +337,12 @@ struct TargetRootEntry
 	std::uint64_t target_key = 0;
 	void* global_state = nullptr;
 	void* root_proto = nullptr;
+	// The executing root closure. Read again at its normal return: a root that
+	// calls module(...) re-points its own closure environment to the module
+	// table, and that table (not the entry environment) owns the globals the
+	// root publishes.
+	void* closure = nullptr;
+	void* entry_environment = nullptr;
 	void* environment = nullptr;
 	bool valid = false;
 };
@@ -1886,6 +1896,15 @@ bool read_file(const std::filesystem::path& path, std::vector<unsigned char>& by
 		));
 }
 
+// Operational reporting for a rejected script snapshot: the reason reaches the
+// source log as well as the console (live run 2026-09-29: an F9 rolled back
+// "before addon staging" with no logged reason).
+void report_scan_rejection(const std::string& message)
+{
+	conout << message << std::endl;
+	config::log(message);
+}
+
 bool scan_snapshot(
 	std::vector<Chunk>& snapshot,
 	std::vector<std::uint64_t>& target_keys
@@ -1896,7 +1915,7 @@ bool scan_snapshot(
 	std::filesystem::create_directories(directory, ec);
 	if (ec)
 	{
-		conout << "RENOVICE Inject directory error: " << ec.message() << std::endl;
+		report_scan_rejection("RENOVICE Inject directory error: " + ec.message());
 		return false;
 	}
 
@@ -1967,8 +1986,8 @@ bool scan_snapshot(
 		{
 			if (!target_addon_key(name, target_key))
 			{
-				conout << "RENOVICE Inject transaction rejected: target addon requires "
-					"a nonzero 16-hex original-body key prefix: " << name << std::endl;
+				report_scan_rejection("RENOVICE Inject transaction rejected: target addon requires "
+					"a nonzero 16-hex original-body key prefix: " + name);
 				return false;
 			}
 			target_keys.push_back(target_key);
@@ -1976,9 +1995,9 @@ bool scan_snapshot(
 		if (!policy_enabled) continue;
 		if (kind == ScriptKind::ExperimentalPersistent || kind == ScriptKind::ExperimentalSpawn)
 		{
-			conout << "RENOVICE Inject transaction rejected: experimental "
-				<< (kind == ScriptKind::ExperimentalSpawn ? "spawn" : "persistent")
-				<< " module is not enabled in the source port: " << name << std::endl;
+			report_scan_rejection(std::string("RENOVICE Inject transaction rejected: experimental ")
+				+ (kind == ScriptKind::ExperimentalSpawn ? "spawn" : "persistent")
+				+ " module is not enabled in the source port: " + name);
 			return false;
 		}
 		Chunk chunk;
@@ -1987,15 +2006,15 @@ bool scan_snapshot(
 		chunk.target_key = target_key;
 		if (!read_file(path, chunk.bytes))
 		{
-			conout << "RENOVICE Inject transaction rejected: unreadable, empty, or oversized "
-				<< name << std::endl;
+			report_scan_rejection("RENOVICE Inject transaction rejected: unreadable, empty, or oversized "
+				+ name);
 			return false;
 		}
 		snapshot.emplace_back(std::move(chunk));
 	}
 	if (ec)
 	{
-		conout << "RENOVICE Inject scan error: " << ec.message() << std::endl;
+		report_scan_rejection("RENOVICE Inject scan error: " + ec.message());
 		return false;
 	}
 	std::sort(snapshot.begin(), snapshot.end(), [](const Chunk& lhs, const Chunk& rhs)
@@ -2785,6 +2804,24 @@ std::vector<std::string> native_call_hook_names_requested_locked()
 	return names;
 }
 
+// True when this VM holds at least one committed target-addon binding for key.
+bool target_key_bound_locked(std::uint64_t target_key, const void* global_state) noexcept
+{
+	return std::any_of(
+		active_target_addons.begin(), active_target_addons.end(),
+		[&](const TargetAddonRecord& addon)
+		{
+			return addon.target_key == target_key && addon.global_state == global_state;
+		});
+}
+
+bool target_root_return_retry_spent(
+	const TargetModuleIdentity& identity, std::uint64_t generation) noexcept
+{
+	return identity.root_return_retry_spent
+		&& identity.root_return_retry_generation == generation;
+}
+
 void publish_target_execution_snapshot_locked()
 {
 	auto snapshot = std::make_shared<TargetExecutionSnapshot>();
@@ -2867,6 +2904,16 @@ void publish_target_execution_snapshot_locked()
 				return chunk.kind == ScriptKind::TargetManagedAddon
 					&& chunk.target_key == identity.target_key;
 			});
+		// Bound once: a module whose addons already hold a binding in this VM is
+		// not watched. Every later root instance is served by exact-prototype
+		// luaCalls/nativeCalls dispatch without a rebind, log line or allocation.
+		if (!target_root_return_watch_required(
+				desired,
+				target_key_bound_locked(identity.target_key, identity.global_state),
+				target_root_return_retry_spent(identity, active_generation)))
+		{
+			continue;
+		}
 		const bool duplicate = std::any_of(
 			snapshot->roots.begin(), snapshot->roots.end(),
 			[&](const TargetRootWatch& root)
@@ -2874,7 +2921,7 @@ void publish_target_execution_snapshot_locked()
 				return root.global_state == identity.global_state
 					&& root.root_proto == identity.root_proto;
 			});
-		if (desired && !duplicate)
+		if (!duplicate)
 		{
 			snapshot->roots.push_back({identity.target_key,
 				identity.global_state, identity.root_proto});
@@ -8042,24 +8089,47 @@ bool lua_call_before_leaf_set_array(
 	return true;
 }
 
-bool lua_call_before_leaf_get_array(
+bool lua_call_stack_span_is_live(
+	const luau_State* state,
+	std::ptrdiff_t offset,
+	std::size_t count) noexcept;
+
+// Reads view[index] from the view table stored at an exact stack offset. The
+// caller keeps the working top above BOTH view tables; this helper pushes a
+// copy of the table and then the key above that top, so no read-back can
+// overwrite a view-table slot. (Live run 2026-09-29: the former top-relative
+// read of the arguments table used the upvalue table's slot as scratch, so the
+// upvalue read-back indexed the last argument: tag-7 table -> nil candidates
+// "mutation rejected upvalue=1", number -> DE error "stage=read-upvalue".)
+bool lua_call_before_leaf_get_array_at(
 	luau_State* state,
-	int table_index,
+	std::ptrdiff_t table_offset,
 	std::size_t index,
 	luau_TValue* output)
 {
 	if (state == nullptr || state->outtop == nullptr || output == nullptr
-		|| luau_gettable == nullptr || index > (1u << 24))
+		|| luau_gettable == nullptr || index > (1u << 24)
+		|| !lua_call_stack_span_is_live(state, table_offset, 1))
 	{
 		return false;
 	}
+	const luau_TValue table = *luau_restorestack(state, table_offset);
+	if (!is_table(table.type)) return false;
 	const auto saved_top = luau_savestack(state, state->outtop);
-	if (!lua_call_before_leaf_push_number(state, static_cast<float>(index)))
+	if (!lua_call_before_leaf_push_value(state, table)
+		|| !lua_call_before_leaf_push_number(state, static_cast<float>(index)))
+	{
+		state->outtop = luau_restorestack(state, saved_top);
 		return false;
-	luau_gettable(state, table_index < 0 ? table_index - 1 : table_index);
+	}
+	luau_gettable(state, -2);
 	auto* const base = luau_restorestack(state, saved_top);
-	if (state->outtop != base + 1) return false;
-	*output = *base;
+	if (state->outtop != base + 2)
+	{
+		state->outtop = base;
+		return false;
+	}
+	*output = *(base + 1);
 	state->outtop = base;
 	return true;
 }
@@ -8250,22 +8320,26 @@ void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
 		context->completed = true;
 		return;
 	}
+	// Read-back keeps the working top directly above the upvalue view table,
+	// which was created after (above) the argument view table. Both tables
+	// therefore stay intact for every read.
 	for (std::size_t index = 0; index != context->argument_count; ++index)
 	{
 		context->stage = LuaCallBeforeLeafStage::read_argument;
 		context->failure_index = index;
-		state->outtop = luau_restorestack(state, arguments_table_offset) + 1;
-		if (!lua_call_before_leaf_get_array(
-				state, -1, index + 1, &context->candidate_arguments[index])) return;
+		state->outtop = luau_restorestack(state, upvalues_table_offset) + 1;
+		if (!lua_call_before_leaf_get_array_at(state, arguments_table_offset,
+				index + 1, &context->candidate_arguments[index])) return;
 	}
 	for (std::size_t index = 0; index != context->upvalue_count; ++index)
 	{
 		context->stage = LuaCallBeforeLeafStage::read_upvalue;
 		context->failure_index = index;
 		state->outtop = luau_restorestack(state, upvalues_table_offset) + 1;
-		if (!lua_call_before_leaf_get_array(
-				state, -1, index + 1, &context->candidate_upvalues[index])) return;
+		if (!lua_call_before_leaf_get_array_at(state, upvalues_table_offset,
+				index + 1, &context->candidate_upvalues[index])) return;
 	}
+	state->outtop = luau_restorestack(state, upvalues_table_offset) + 1;
 	context->stage = LuaCallBeforeLeafStage::none;
 	context->completed = true;
 }
@@ -13365,6 +13439,31 @@ bool exact_current_lua_instruction(
 	return true;
 }
 
+// Diagnostics-only, reached only when Diagnostics is on (the caller checks the
+// mode before any work). Sampled per process: occurrences 1..8 and then powers
+// of two, each carrying key, prototype and occurrence, so a repeating reject
+// cannot exhaust the shared DiagnosticsMaxEvents budget (live run 2026-09-29:
+// 28,576 identical lines consumed it). The reject's exact cause is the separate
+// operational luaCalls line (protected leaf FAIL / mutation rejected).
+void trace_lua_call_before_reject(luau_State* state, const TargetLuaCall& call) noexcept
+{
+	static std::atomic<std::uint64_t> rejects = 0;
+	const auto occurrence = rejects.fetch_add(1, std::memory_order_relaxed) + 1;
+	if (!sample_vm_host_error(occurrence)) return;
+	try
+	{
+		std::ostringstream detail;
+		detail << "exact interrupt counter leaf retained stock call=1 prototype="
+			<< call.callsite.prototype << " occurrence=" << occurrence
+			<< " sampling=first8-then-powers-of-two";
+		trace_addon(state, call.callsite.target_key,
+			"lua.call.before.reject", detail.str());
+	}
+	catch (...)
+	{
+	}
+}
+
 std::uint32_t de_luau_interrupt_increment_detour(luau_State* state)
 {
 	auto* const original = reinterpret_cast<DeLuauInterruptIncrement>(
@@ -13455,11 +13554,10 @@ std::uint32_t de_luau_interrupt_increment_detour(luau_State* state)
 		std::vector<luau_TValue> arguments;
 		arguments.assign(argument_base, argument_base + window.argument_count);
 		if (!dispatch_lua_call_phase(
-				state, call, "before", arguments, argument_base))
+				state, call, "before", arguments, argument_base)
+			&& config::diagnostics_mode() != config::DiagnosticsMode::off)
 		{
-			trace_addon(state, call.callsite.target_key,
-				"lua.call.before.reject",
-				"exact interrupt counter leaf retained stock call=1");
+			trace_lua_call_before_reject(state, call);
 		}
 	});
 }
@@ -13494,11 +13592,32 @@ TargetRootEntry inspect_target_root_entry(luau_State* state) noexcept
 			entry.target_key = root.target_key;
 			entry.global_state = state->global_state;
 			entry.root_proto = closure->l.p;
+			entry.closure = closure;
+			entry.entry_environment = closure->env;
 			entry.environment = closure->env;
 			entry.valid = true;
 			break;
 		}
 	}
+	return entry;
+}
+
+// Called immediately after a normal stock return, before any allocation can
+// run a GC step: the executing root closure is still unswept memory. Its
+// environment at return is the one the root published into; module(...)
+// replaces the entry environment with the module table (Circuit/DuviriUtil,
+// live run 2026-09-29: the entry environment lacked EndlessGetXpForStage).
+TargetRootEntry settle_target_root_return(TargetRootEntry entry) noexcept
+{
+	if (!entry.valid || entry.closure == nullptr) return entry;
+	auto* const closure = static_cast<luau_Closure*>(entry.closure);
+	if (diagnostics::bad_read_ptr(closure, offsetof(luau_Closure, l.uprefs))
+		|| closure->isC || closure->l.p != entry.root_proto
+		|| closure->env == nullptr)
+	{
+		return entry;
+	}
+	entry.environment = closure->env;
 	return entry;
 }
 
@@ -13558,19 +13677,48 @@ void apply_target_root_returns(luau_State* state)
 		TargetRootReturnAction action = TargetRootReturnAction::not_a_target_root;
 		{
 			std::lock_guard generation_lock(generation_mutex);
-			for (const auto& identity : target_module_identities)
+			const auto find_load = [&]()
 			{
-				if (identity.target_key == entry.target_key
-					&& identity.global_state == entry.global_state
-					&& identity.root_proto == entry.root_proto
-					&& !identity.runtime_root)
+				return std::find_if(
+					target_module_identities.begin(), target_module_identities.end(),
+					[&](const TargetModuleIdentity& identity)
+					{
+						return identity.target_key == entry.target_key
+							&& identity.global_state == entry.global_state
+							&& identity.root_proto == entry.root_proto
+							&& !identity.runtime_root;
+					});
+			};
+			auto load = find_load();
+			if (load == target_module_identities.end()) continue;
+			load_environment = load->environment;
+			const bool desired = std::any_of(
+				active_chunks.begin(), active_chunks.end(), [&](const Chunk& chunk)
 				{
-					load_environment = identity.environment;
-				}
+					return chunk.kind == ScriptKind::TargetManagedAddon
+						&& chunk.target_key == entry.target_key;
+				});
+			// Re-checked here because the watch snapshot that admitted this
+			// return may predate a successful binding. A bound module stays
+			// bound: no rebind, no log line.
+			if (!target_root_return_watch_required(
+					desired,
+					target_key_bound_locked(entry.target_key, entry.global_state),
+					target_root_return_retry_spent(*load, active_generation)))
+			{
+				continue;
 			}
+			load->root_return_retry_spent = true;
+			load->root_return_retry_generation = active_generation;
 			action = record_target_root_return(
 				target_module_identities, entry.target_key, entry.global_state,
 				entry.root_proto, entry.environment, &created);
+			if (action != TargetRootReturnAction::rebind)
+			{
+				// Same environment as the failed binding: retrying cannot help.
+				// Unwatch this load until the next generation or natural load.
+				publish_target_execution_snapshot_locked();
+			}
 			if (action == TargetRootReturnAction::rebind)
 			{
 				PendingTargetAddonRefresh job{
@@ -13603,7 +13751,9 @@ void apply_target_root_returns(luau_State* state)
 			<< std::dec << " vm=" << entry.global_state
 			<< " proto=" << entry.root_proto
 			<< " load_env=" << load_environment
+			<< " entry_env=" << entry.entry_environment
 			<< " runtime_env=" << entry.environment
+			<< " reason=unbound retry=once-per-generation"
 			<< " action=rebind-queued";
 		conout << observed.str() << std::endl;
 		config::log(observed.str());
@@ -13656,7 +13806,8 @@ void vm_execute_detour(luau_State* state)
 	reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);
 
 	// Reached only on a normal root return: a DE error longjmps past this line.
-	if (target_root.valid) queue_target_root_return(target_root);
+	if (target_root.valid)
+		queue_target_root_return(settle_target_root_return(target_root));
 
 	if (pause_root.valid)
 	{
@@ -16263,6 +16414,14 @@ void drain(luau_State* state)
 		riven::commit_prepared_gate();
 	};
 
+	// Operational (not diagnostic) reporting: the exact member that rejected an
+	// F9 transaction goes to the source log as well as the console. Live run
+	// 2026-09-29 logged only "F9 ROLLBACK before addon staging".
+	const auto reject_prepared_member = [](const char* message)
+	{
+		conout << message << std::endl;
+		config::log(message);
+	};
 	bool transaction_valid = true;
 	std::vector<Chunk> candidate;
 	std::vector<std::uint64_t> candidate_target_keys;
@@ -16270,27 +16429,27 @@ void drain(luau_State* state)
 	{
 		if (!config::prepare_reload())
 		{
-			conout << "RENOVICE F9 configuration reload rejected: previous flags retained" << std::endl;
+			reject_prepared_member("RENOVICE F9 configuration reload rejected: previous flags retained");
 			transaction_valid = false;
 		}
 		if (transaction_valid && !script_control::prepare_reload())
 		{
-			conout << "RENOVICE F9 script-state reload rejected: previous policy retained" << std::endl;
+			reject_prepared_member("RENOVICE F9 script-state reload rejected: previous policy retained");
 			transaction_valid = false;
 		}
 		if (transaction_valid && !swf::prepare_reload())
 		{
-			conout << "RENOVICE F9 SWF reload rejected: previous snapshot retained" << std::endl;
+			reject_prepared_member("RENOVICE F9 SWF reload rejected: previous snapshot retained");
 			transaction_valid = false;
 		}
 		if (transaction_valid && !replacements::prepare_reload())
 		{
-			conout << "RENOVICE F9 Lua replacement reload rejected: previous snapshot retained" << std::endl;
+			reject_prepared_member("RENOVICE F9 Lua replacement reload rejected: previous snapshot retained");
 			transaction_valid = false;
 		}
 		if (transaction_valid && !riven::prepare_gate_reload())
 		{
-			conout << "RENOVICE F9 Riven gate reload rejected: previous gate retained" << std::endl;
+			reject_prepared_member("RENOVICE F9 Riven gate reload rejected: previous gate retained");
 			transaction_valid = false;
 		}
 		if (transaction_valid

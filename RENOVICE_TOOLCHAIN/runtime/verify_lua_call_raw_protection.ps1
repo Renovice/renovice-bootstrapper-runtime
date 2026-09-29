@@ -93,6 +93,37 @@ foreach ($forbidden in @(
     }
 }
 
+# Read-back must never overwrite a view table (live run 2026-09-29: reading the
+# argument table from a top one slot above it reused the upvalue table's slot, so
+# upvalue read-back indexed the last argument -> "stage=read-upvalue index=0"
+# DE errors and nil "mutation rejected upvalue=1").
+foreach ($marker in @(
+    'bool lua_call_before_leaf_get_array_at(',
+    'lua_call_before_leaf_push_value(state, table)',
+    'luau_gettable(state, -2);',
+    'if (!is_table(table.type)) return false;',
+    'lua_call_before_leaf_get_array_at(state, arguments_table_offset,',
+    'lua_call_before_leaf_get_array_at(state, upvalues_table_offset,'
+)) {
+    if (-not $leaf.Contains($marker)) {
+        throw "LUA CALL RAW PROTECTION FAIL: non-clobbering view read-back marker missing: $marker"
+    }
+}
+foreach ($removed in @(
+    'state->outtop = luau_restorestack(state, arguments_table_offset) + 1;',
+    'bool lua_call_before_leaf_get_array('
+)) {
+    if ($leaf.Contains($removed)) {
+        throw "LUA CALL RAW PROTECTION FAIL: view read-back can overwrite the upvalue table: $removed"
+    }
+}
+$readArgumentsAt = $leaf.IndexOf('LuaCallBeforeLeafStage::read_argument;', [StringComparison]::Ordinal)
+$readArgumentsTop = $leaf.IndexOf('state->outtop = luau_restorestack(state, upvalues_table_offset) + 1;', $readArgumentsAt, [StringComparison]::Ordinal)
+$readArgumentsCall = $leaf.IndexOf('lua_call_before_leaf_get_array_at(state, arguments_table_offset,', $readArgumentsAt, [StringComparison]::Ordinal)
+if ($readArgumentsAt -lt 0 -or $readArgumentsTop -lt 0 -or $readArgumentsCall -le $readArgumentsTop) {
+    throw 'LUA CALL RAW PROTECTION FAIL: argument read-back does not keep the top above both view tables'
+}
+
 if (-not $injection.Contains(
     'static_assert(std::is_trivially_copyable_v<LuaCallBeforeLeafContext>);')) {
     throw 'LUA CALL RAW PROTECTION FAIL: leaf context is not statically constrained to POD storage'

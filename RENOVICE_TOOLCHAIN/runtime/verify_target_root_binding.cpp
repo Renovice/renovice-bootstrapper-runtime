@@ -121,8 +121,14 @@ int main(int argc, char** argv)
 		make_identity(survival_key, vm, load_env, 0x1000000, static_cast<std::int32_t>(survival_count)),
 		make_identity(unrelated_key, vm, load_env, 0x8000000, static_cast<std::int32_t>(unrelated_count))};
 
-	// Root instance: the loader env differs from the env the root ran in.
-	check(record_target_root_return(identities, survival_key, vm,
+	// Live run 2026-09-29: SurvivalMission's addon bound at load, then 8 root
+	// instances each forced clean/load/activate. A bound module is not watched.
+	check(!target_root_return_watch_required(true, true, false),
+		"bound SurvivalMission addon: later root instances are not rebound");
+	// Root instance of an UNBOUND module: the loader env differs from the env
+	// the root ran in, so its one root-return retry rebinds there.
+	check(target_root_return_watch_required(true, false, false)
+		&& record_target_root_return(identities, survival_key, vm,
 			identities[0].root_proto, runtime_env) == TargetRootReturnAction::rebind
 		&& identities.back().runtime_root && identities.back().environment == runtime_env,
 		"SurvivalMission root return in its runtime environment requests one rebind");

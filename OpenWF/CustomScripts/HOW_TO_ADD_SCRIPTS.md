@@ -171,14 +171,23 @@ this generically for single-key and multi-target addons alike:
   an addon must not assume there is only one instance. If it keeps
   per-instance state, it should key that state by the upvalue or table
   identity it receives.
-- **Lifecycle binding** follows the most recent root instance. There is one
-  active binding per VM, module key and generation. When a target root returns
-  in a new environment, the log shows `TARGET ROOT RETURN ... action=rebind-queued`.
-  At the next exact idle return the previous binding is cleaned up and the addon
-  runs and activates again in the runtime environment. That is where
-  root-published module globals exist. As a result, an addon that reads module
-  globals in `activate` can log one failed activation at load time, followed by
-  a PASS after the root returns.
+- **Lifecycle binding is made once**, like a native hook: one binding per VM,
+  module key and generation, normally at the module load. Later root instances
+  of a bound module do nothing: no rebind, no `activate`/`cleanup` cycle, no log
+  line. (The first live run showed why: Ice Wave's `IceSpike.lua` root ran 3,470
+  times in one session, and each instance paid a full clean-load-activate.)
+- **One root-return retry for an unbound module.** If a module's addons hold no
+  binding (for example `activate` failed because it reads globals that the root
+  publishes), the runtime watches that module's root once per generation. The
+  root's environment is read **at its return**, because a root that calls
+  `module(...)` switches its own environment to the module table, and that is
+  where its globals live. The log shows
+  `TARGET ROOT RETURN ... reason=unbound retry=once-per-generation action=rebind-queued`,
+  then the addon runs and activates there at the next exact idle return. Such an
+  addon logs one failed activation at load time, followed by a PASS.
+- An addon that needs a fresh lifecycle for every instance is not supported
+  as a lifecycle feature. Derive the instance from each hook call's arguments or
+  upvalues instead (see above).
 
 ## Errors
 
