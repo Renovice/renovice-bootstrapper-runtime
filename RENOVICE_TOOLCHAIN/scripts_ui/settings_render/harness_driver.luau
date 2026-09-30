@@ -379,12 +379,19 @@ if list ~= nil then
             report.pages = report.pages + 1
             tick(child, 3)
             local childList = listOf(child)
-            harnessCheck(childList ~= nil and childList:GetHowManyElements() == 1,
-                "page from '" .. tostring(element.mLabel) .. "' holds exactly one row", "value-page")
+            -- A value page holds its editor and (R7) at most its "Reset to
+            -- default" BUTTON; an R4 row page holds the one row it stands for.
+            local count = childList ~= nil and childList:GetHowManyElements() or 0
+            harnessCheck(childList ~= nil and (count == 1 or count == 2),
+                "page from '" .. tostring(element.mLabel) .. "' holds its editor (and at most its reset BUTTON)", "value-page")
             if childList ~= nil then
+                local index = 0
                 childList:RunForAllElements(function(row)
-                    harnessCheck(row.mType == LOTUS_UTILITIES.INPUTCOUNT or row.mType == LOTUS_UTILITIES.INPUTBOX,
-                        "page from '" .. tostring(element.mLabel) .. "' holds a stock INPUTCOUNT or INPUTBOX", "value-page")
+                    index = index + 1
+                    local editor = row.mType == LOTUS_UTILITIES.INPUTCOUNT or row.mType == LOTUS_UTILITIES.INPUTBOX
+                        or row.mType == LOTUS_UTILITIES.TOGGLE or row.mType == LOTUS_UTILITIES.CHECKBOX
+                    harnessCheck((index == 1 and editor) or (index == 2 and row.mType == LOTUS_UTILITIES.BUTTON),
+                        "page from '" .. tostring(element.mLabel) .. "' holds a stock editor first, then its reset BUTTON", "value-page")
                 end)
             end
             verifyVisible("page " .. tostring(element.mLabel), child, false)
@@ -880,6 +887,312 @@ if HARNESS_R5 == true then
         end
     end
 end
+
+-- ---------------------------------------------------------------------------
+-- 5. R7 (HARNESS_R7 + HARNESS_TAPE, current bridge only): the real host pages.
+-- HARNESS_TAPE is the host tape of verify_addon_settings -Tape: the pages the
+-- exact C++ page model serves after every planned host call (stage or act).
+-- The bridge under test walks SCRIPT SETTINGS -> Missions -> Mirror Defense ->
+-- Enemies -> Max enemies at once -> Squad (INPUTCOUNT) and back through every
+-- level, the Quick settings on/off with its kept value, a value page "Reset
+-- to default", an in-place "Reset all to defaults", Frost and Octavia (no
+-- page path, older layout) with the Back-route message, closing pages with
+-- Confirm, Back (Exit) and Close. Every host call must be the planned one.
+-- ---------------------------------------------------------------------------
+local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0 }
+if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
+    local messages = {}
+    rawset(UTIL, "ShowMessage", function(message) messages[#messages + 1] = tostring(message) end)
+    local calls = 0
+    local r7Done = {}
+    local function copyTable(value)
+        if type(value) ~= "table" then return value end
+        local out = {}
+        for key, item in pairs(value) do out[key] = copyTable(item) end
+        return out
+    end
+    local function tapePage(pageId)
+        for stepIndex = calls, 0, -1 do
+            local pages = HARNESS_TAPE.steps[stepIndex]
+            if pages ~= nil and pages[pageId] ~= nil then return pages[pageId] end
+        end
+        return nil
+    end
+    local function r7GetPage(pageId)
+        local page = tapePage(pageId)
+        if page == nil then return nil end
+        return copyTable(page)
+    end
+    local function textOf(value)
+        if type(value) == "number" then
+            if value == math.floor(value) and math.abs(value) < 1e15 then return string.format("%d", value) end
+            return tostring(value)
+        end
+        return tostring(value)
+    end
+    local function record(line)
+        calls = calls + 1
+        r7Report.calls = calls
+        print("TAPECALL\t" .. line)
+        local want = HARNESS_TAPE.plan[calls]
+        harnessCheck(want == line, "host call " .. calls .. " is the planned '" .. tostring(want) .. "' (the bridge made '" .. line .. "')",
+            "r7-plan")
+    end
+    local function r7Stage(value, setting, source)
+        local kind = type(value) == "boolean" and "bool" or (type(value) == "number" and "number" or "text")
+        local flag = source == "click" and "click" or "restage"
+        record("STAGE\t" .. tostring(setting) .. "\t" .. kind .. "\t" .. textOf(value) .. "\t" .. flag)
+    end
+    local function r7Act(action) record("ACT\t" .. tostring(action)) end
+    local function r7DoneFn(depth, elements, flag) r7Done[#r7Done + 1] = { depth = depth, flag = flag } end
+
+    local function elementBy(instance, predicate)
+        local found = nil
+        local target = listOf(instance)
+        if target == nil then return nil end
+        target:RunForAllElements(function(element)
+            if found == nil and predicate(element) then found = element end
+        end)
+        return found
+    end
+    local function noSwitches(instance, context)
+        local target = listOf(instance)
+        if target == nil then return end
+        target:RunForAllElements(function(element)
+            local setting = tostring(element.mSetting or "")
+            for _, prefix in ipairs({ "package:", "member:", "stock:", "group:", "custom:" }) do
+                if string.sub(setting, 1, #prefix) == prefix then
+                    r7Report.switches = r7Report.switches + 1
+                    harnessFail(context .. ": the page holds a switch row " .. setting .. " ('" .. tostring(element.mLabel) .. "')",
+                        "r7-switch")
+                end
+            end
+        end)
+    end
+    -- Presses the row whose label starts with `prefix` through the stock
+    -- selection callback; returns the page it opened.
+    local function pressLabel(instance, prefix, context, depth)
+        local element = elementBy(instance, function(row)
+            return type(row.mLabel) == "string" and string.sub(row.mLabel, 1, #prefix) == prefix
+        end)
+        harnessCheck(element ~= nil, context .. ": a row starts with '" .. prefix .. "'", "r7-nav")
+        if element == nil then return nil end
+        local before = #HARNESS.instances
+        step(context .. " press " .. prefix, function() listOf(instance).mOnSelectedCallback(element) end)
+        if #HARNESS.instances ~= before + 1 then
+            harnessFail(context .. ": '" .. prefix .. "' opened no page", "r7-nav")
+            return nil
+        end
+        local child = newestInstance()
+        tick(child, 3)
+        r7Report.maxDepth = math.max(r7Report.maxDepth, depth)
+        r7Report.pages = r7Report.pages + 1
+        harnessCheck(listOf(child) ~= nil and listOf(child):GetHowManyElements() >= 1,
+            context .. ": the page opened by '" .. prefix .. "' populates (depth " .. depth .. ")", "r7-nav")
+        verifyVisible(context .. " depth " .. depth, child, listOf(child) ~= nil and listOf(child).mScrollBar ~= nil)
+        noSwitches(child, context .. " depth " .. depth)
+        return child
+    end
+    local function closeR7(instance, route, depth, parentInstance, context)
+        local before = #r7Done
+        step(context .. " " .. route, function()
+            if route == "Confirm" then instance.env.FinishSelection()
+            elseif route == "Exit" then instance.env.ExitScreen()
+            else instance.env.Close() end
+        end)
+        tick(instance, 3)
+        harnessCheck(#r7Done == before + 1 and r7Done[#r7Done].depth == depth,
+            context .. " " .. route .. ": the bridge completion ran once for depth " .. depth, "r7-close")
+        harnessCheck(rawget(instance.movie, "_closed") == true, context .. " " .. route .. ": the page closed its movie", "r7-close")
+        if parentInstance ~= nil then
+            harnessCheck(rawget(parentInstance.movie, "_closed") ~= true and listOf(parentInstance) ~= nil,
+                context .. " " .. route .. ": returned to the open parent page (depth " .. (depth - 1) .. ")", "r7-close")
+            tick(parentInstance, 2)
+            verifyVisible(context .. " back at depth " .. (depth - 1), parentInstance,
+                listOf(parentInstance) ~= nil and listOf(parentInstance).mScrollBar ~= nil)
+            r7Report.returns = r7Report.returns + 1
+        end
+    end
+    -- After a return (or an in-place reset) the row shows `label`, and a row
+    -- drawn right now shows it on its clip too.
+    local function expectLabel(instance, prefix, label, context)
+        local element = elementBy(instance, function(row)
+            return type(row.mLabel) == "string" and string.sub(row.mLabel, 1, #prefix) == prefix
+        end)
+        local drawnOk = element ~= nil and (element.mClipName == nil
+            or instance.movie:_clip(element.mClipName).text.Label == element.mLabel)
+        local ok = element ~= nil and element.mLabel == label and drawnOk
+        harnessCheck(ok, context .. ": row '" .. prefix .. "' shows '" .. label .. "' (it shows '" .. tostring(element and element.mLabel)
+            .. "'" .. (drawnOk and "" or ", its drawn clip is stale") .. ")", "r7-refresh")
+        if ok then r7Report.refreshed = r7Report.refreshed + 1 end
+    end
+    local function expectChecked(instance, prefix, value, context)
+        local element = elementBy(instance, function(row)
+            return type(row.mLabel) == "string" and string.sub(row.mLabel, 1, #prefix) == prefix
+        end)
+        local ok = element ~= nil and element.mValue == value
+            and (element.mClipName == nil or element.Checkbox == nil or element.Checkbox.mChecked == value)
+        harnessCheck(ok, context .. ": switch '" .. prefix .. "' is " .. tostring(value), "r7-refresh")
+        if ok then r7Report.refreshed = r7Report.refreshed + 1 end
+    end
+    local function typeInto(instance, text)
+        local element = elementBy(instance, function(row) return row.mType == LOTUS_UTILITIES.INPUTBOX end)
+        harnessCheck(element ~= nil and element.InputField ~= nil, "value page holds a stock INPUTBOX with its input field", "r7-edit")
+        if element ~= nil and element.InputField ~= nil then
+            instance.movie:SetStringVariable(element.InputField.mLabelClipName, 36, text)
+            element.mChanged = true
+        end
+    end
+    local function setCount(instance, count)
+        local element = elementBy(instance, function(row) return row.mType == LOTUS_UTILITIES.INPUTCOUNT end)
+        harnessCheck(element ~= nil, "value page holds a stock INPUTCOUNT", "r7-edit")
+        if element ~= nil then
+            element.mCount = count
+            element.mChanged = true
+        end
+    end
+    local function click(instance, prefix, value, context)
+        local element = elementBy(instance, function(row)
+            return row.mType == LOTUS_UTILITIES.CHECKBOX and type(row.mLabel) == "string" and string.sub(row.mLabel, 1, #prefix) == prefix
+        end)
+        harnessCheck(element ~= nil and element.Checkbox ~= nil, context .. ": switch '" .. prefix .. "' has its stock widget", "r7-edit")
+        if element == nil or element.Checkbox == nil then return end
+        step(context .. " focus", function() listOf(instance).mOnFocusedCallback(element) end)
+        step(context .. " click", function()
+            element.Checkbox.mChecked = value
+            element.Checkbox.ValueChanged(element.Checkbox)
+        end)
+        tick(instance, 1)
+    end
+    -- Presses a BUTTON that acts on this page (a reset); returns whether the
+    -- page closed (value page) or stayed open (list page).
+    local function pressAction(instance, prefix, context)
+        local element = elementBy(instance, function(row)
+            return type(row.mLabel) == "string" and string.sub(row.mLabel, 1, #prefix) == prefix
+        end)
+        harnessCheck(element ~= nil, context .. ": a row starts with '" .. prefix .. "'", "r7-nav")
+        if element == nil then return false end
+        step(context .. " press " .. prefix, function() listOf(instance).mOnSelectedCallback(element) end)
+        tick(instance, 3)
+        return rawget(instance.movie, "_closed") == true
+    end
+
+    local root = nil
+    step("r7 open", function()
+        bridge.hooks.openScriptSettings(parent, "resource", "nested", r7GetPage, r7Stage, r7DoneFn, r7Act)
+    end)
+    root = newestInstance()
+    tick(root, 3)
+    noSwitches(root, "r7 root")
+    harnessCheck(listOf(root) ~= nil and listOf(root):GetHowManyElements() == 3, "r7 root: SCRIPT SETTINGS lists the three scripts with options",
+        "r7-nav")
+
+    -- a) Quick settings: off keeps the typed value; the kept value is edited while off; on again.
+    local missions = pressLabel(root, "Missions", "quick", 2)
+    local quick = missions and pressLabel(missions, "Quick settings", "quick", 3)
+    if quick ~= nil then
+        click(quick, "Survival: time between rewards", false, "quick off")
+        local kept = pressLabel(quick, "Survival: 150 s", "quick", 4)
+        if kept ~= nil then
+            typeInto(kept, "45")
+            closeR7(kept, "Confirm", 4, quick, "quick kept value")
+            expectLabel(quick, "Survival: 4", "Survival: 45 s", "quick after the kept-value page")
+            expectChecked(quick, "Survival: time between rewards", false, "quick after the kept-value page")
+        end
+        click(quick, "Survival: time between rewards", true, "quick on")
+        closeR7(quick, "Exit", 3, missions, "quick")
+        expectLabel(missions, "Quick settings", "Quick settings: 2 on", "Missions after Quick settings")
+    end
+
+    -- b) The brief's walk: Mirror Defense -> Enemies -> Max enemies at once -> Squad, edit, back up every level.
+    local mirror = missions and pressLabel(missions, "Mirror Defense", "squad", 3)
+    local enemies = mirror and pressLabel(mirror, "Enemies", "squad", 4)
+    local set = enemies and pressLabel(enemies, "Max enemies at once", "squad", 5)
+    local squad = set and pressLabel(set, "Squad", "squad", 6)
+    if squad ~= nil then
+        setCount(squad, 40)
+        closeR7(squad, "Confirm", 6, set, "squad value")
+        expectLabel(set, "Squad", "Squad: 40", "set page after the edit")
+        closeR7(set, "Close", 5, enemies, "set page")
+        expectLabel(enemies, "Max enemies at once", "Max enemies at once: 1 changed", "Enemies page after the edit")
+        closeR7(enemies, "Exit", 4, mirror, "Enemies page")
+        expectLabel(mirror, "Enemies", "Enemies: 1 changed", "Mirror Defense page after the edit")
+    end
+    if mirror ~= nil then closeR7(mirror, "Confirm", 3, missions, "Mirror Defense page") end
+    if missions ~= nil then expectLabel(missions, "Mirror Defense", "Mirror Defense: 1 changed", "Missions page after the edit") end
+
+    -- c) Value page Reset to default (closes the page; the old value is not restaged over the reset).
+    local survival = missions and pressLabel(missions, "Survival", "reset", 3)
+    local timers = survival and pressLabel(survival, "Timers", "reset", 4)
+    local reward = timers and pressLabel(timers, "Time between rewards", "reset", 5)
+    if reward ~= nil then
+        typeInto(reward, "60")
+        closeR7(reward, "Exit", 5, timers, "reward value")
+        expectLabel(timers, "Time between rewards", "Time between rewards: 60 s", "Timers after the edit")
+        reward = pressLabel(timers, "Time between rewards", "reset", 5)
+        if reward ~= nil then
+            local before = #r7Done
+            local closed = pressAction(reward, "Reset to default", "reset")
+            harnessCheck(closed and #r7Done == before + 1 and r7Done[#r7Done].depth == 5,
+                "Reset to default stages the reset and closes the value page through Confirm", "r7-close")
+            tick(timers, 2)
+            r7Report.returns = r7Report.returns + 1
+            expectLabel(timers, "Time between rewards", "Time between rewards: 300 s (default)", "Timers after Reset to default")
+        end
+    end
+
+    -- d) Reset all to defaults on a list page: refreshes in place, the page stays open.
+    local life = timers and pressLabel(timers, "Life support", "reset all", 5)
+    local capsules = life and pressLabel(life, "Time between capsules", "reset all", 6)
+    if capsules ~= nil then
+        typeInto(capsules, "60")
+        closeR7(capsules, "Confirm", 6, life, "capsule value")
+        expectLabel(life, "Time between capsules", "Time between capsules: 60 s", "Life support after the edit")
+        local closed = pressAction(life, "Reset all to defaults", "reset all")
+        harnessCheck(not closed and rawget(life.movie, "_closed") ~= true,
+            "Reset all to defaults keeps its page open and re-reads it in place", "r7-close")
+        r7Report.inplace = r7Report.inplace + 1
+        expectLabel(life, "Time between capsules", "Time between capsules: 90 s (default)", "Life support after Reset all")
+        closeR7(life, "Close", 5, timers, "Life support page")
+    end
+    if timers ~= nil then closeR7(timers, "Confirm", 4, survival, "Timers page") end
+    if survival ~= nil then closeR7(survival, "Exit", 3, missions, "Survival page") end
+    if missions ~= nil then closeR7(missions, "Close", 2, root, "Missions page") end
+
+    -- e) Frost (no path): Back with an invalid value shows the stock message; an edit; Reset all.
+    local frost = pressLabel(root, "Frost", "frost", 2)
+    local bonus = frost and pressLabel(frost, "Bonus per Cold stack", "frost", 3)
+    if bonus ~= nil then
+        local before = #messages
+        typeInto(bonus, "250")
+        closeR7(bonus, "Exit", 3, frost, "frost invalid")
+        harnessCheck(#messages == before + 1, "Back with 250 shows the row's stock message once", "r7-validate")
+        r7Report.messages = r7Report.messages + (#messages - before)
+        expectLabel(frost, "Bonus per Cold stack", "Bonus per Cold stack: 50x (default)", "Frost after the rejected value")
+        bonus = pressLabel(frost, "Bonus per Cold stack", "frost", 3)
+        if bonus ~= nil then
+            typeInto(bonus, "60")
+            closeR7(bonus, "Confirm", 3, frost, "frost edit")
+            expectLabel(frost, "Bonus per Cold stack", "Bonus per Cold stack: 60x", "Frost after the edit")
+        end
+        pressAction(frost, "Reset all to defaults", "frost reset all")
+        r7Report.inplace = r7Report.inplace + 1
+        expectLabel(frost, "Bonus per Cold stack", "Bonus per Cold stack: 50x (default)", "Frost after Reset all")
+    end
+    if frost ~= nil then closeR7(frost, "Exit", 2, root, "Frost page") end
+
+    -- f) Octavia (no path): open the value page and leave without a change.
+    local octavia = pressLabel(root, "Octavia", "octavia", 2)
+    local threat = octavia and pressLabel(octavia, "Forced threat level", "octavia", 3)
+    if threat ~= nil then closeR7(threat, "Close", 3, octavia, "Octavia value") end
+    if octavia ~= nil then closeR7(octavia, "Confirm", 2, root, "Octavia page") end
+    closeR7(root, "Confirm", 1, nil, "root")
+    harnessCheck(calls == #HARNESS_TAPE.plan, "the bridge made exactly the " .. #HARNESS_TAPE.plan .. " planned host calls (made "
+        .. calls .. ")", "r7-plan")
+end
+print("R7REPORT\tcalls=" .. r7Report.calls .. " returns=" .. r7Report.returns .. " refreshed=" .. r7Report.refreshed
+    .. " inplace=" .. r7Report.inplace .. " messages=" .. r7Report.messages .. " max_depth=" .. r7Report.maxDepth
+    .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches)
 
 for index = 1, #HARNESS.errors do
     print("ERROR\t" .. HARNESS.errors[index])

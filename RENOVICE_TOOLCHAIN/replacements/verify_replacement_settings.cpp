@@ -548,7 +548,7 @@ const settings_ui::Row* find_row(const settings_ui::Page& page, std::string_view
 }
 
 // A two-member package: the example replacement (Hijack group) and an addon
-// member (another group), so the package page shows member switches.
+// member (another group): two sections on one package page (R7: no member switch).
 void nested_pages(const std::filesystem::path& work, const std::filesystem::path& fixture_bytes_path)
 {
 	using namespace settings_ui;
@@ -603,28 +603,24 @@ void nested_pages(const std::filesystem::path& work, const std::filesystem::path
 		&& root.rows[0].action == "open:pkg:" + example_folder,
 		"nested top page: one package BUTTON opens the package page");
 	const auto package_page = build_package_page(view);
-	const auto* member_row = find_row(package_page,
-		"member:hijacksettingsexample/fb346b59e2b7687a (hijack payload health from settings).lua_b");
-	check(member_row != nullptr && member_row->kind == RowKind::Checkbox && member_row->value
-		&& member_row->label == "Hijack (script replacement)"
-		&& member_row->tooltip.find("Replaces a stock script.") != std::string::npos
-		&& member_row->tooltip.find("Sections: Hijack (1).") != std::string::npos,
-		"nested package page: the replacement member switch, with the replacement tooltip and its section");
-	const auto* section = find_row(package_page, "open:grp:" + example_folder + "/hijack");
-	check(section != nullptr && section->kind == RowKind::Button && section->label.rfind("Hijack", 0) == 0,
-		"nested package page: the replacement member's section BUTTON (" + (section ? section->label : std::string("missing")) + ")");
-	const auto group_page = build_group_page(view, "hijack");
-	const auto* custom = find_row(group_page, "custom:hijacksettingsexample/hijack.payload_health");
-	const auto* value_button = find_row(group_page, "open:val:" + example_folder + "/hijack.payload_health");
-	check(custom != nullptr && custom->kind == RowKind::Checkbox && custom->value && custom->label == "Custom Payload health"
-		&& value_button != nullptr && value_button->kind == RowKind::Button
+	// R7: no member or package switch on any SCRIPT SETTINGS page (the SCRIPTS
+	// menu owns enabling); a path-less package lists its values by section.
+	check(std::none_of(package_page.rows.begin(), package_page.rows.end(), [](const Row& row)
+			{
+				return row.kind == RowKind::Checkbox || row.setting.rfind("member:", 0) == 0 || row.setting.rfind("package:", 0) == 0;
+			})
+		&& package_page.rows.back().action == "resetall:" + example_folder,
+		"R7 package page: no member, package or Custom switch; one 'Reset all to defaults' last");
+	const auto* value_button = find_row(package_page, "open:val:" + example_folder + "/hijack.payload_health");
+	check(value_button != nullptr && value_button->kind == RowKind::Button
 		&& value_button->label == "Payload health: 20000 HP" && !value_button->locked,
-		"nested section page: Custom switch on and the value BUTTON 'Payload health: 20000 HP' (unlocked, addon lane)");
+		"R7 package page: the replacement member's value is one row 'Payload health: 20000 HP' (unlocked, addon lane)");
 	const auto value_page = build_value_page(view, "hijack.payload_health");
-	check(value_page.rows.size() == 1 && value_page.rows[0].kind == RowKind::InputCount
+	check(value_page.rows.size() == 2 && value_page.rows[0].kind == RowKind::InputCount
 		&& value_page.rows[0].count == 20000.0 && value_page.rows[0].minimum == 1000.0
-		&& value_page.rows[0].maximum == 200000.0 && value_page.rows[0].integer && !value_page.rows[0].locked,
-		"nested value page: one INPUTCOUNT (20000, 1000..200000, whole numbers, editable)");
+		&& value_page.rows[0].maximum == 200000.0 && value_page.rows[0].integer && !value_page.rows[0].locked
+		&& value_page.rows[1].label == "Reset to default: 10000 HP",
+		"R7 value page: the INPUTCOUNT (20000, 1000..200000, whole numbers, editable) and 'Reset to default: 10000 HP'");
 
 	// Edit in the menu -> values file -> F9 scan -> committed snapshot -> accessor.
 	Session session;

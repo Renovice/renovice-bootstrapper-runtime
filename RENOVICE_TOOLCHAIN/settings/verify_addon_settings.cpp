@@ -10,15 +10,16 @@
 //         declarations, malformed values file (package-local stock), invalid
 //         declarations (capability-local compiled defaults), `member:` policy,
 //         and the exact operational log lines.
-// Part 6: page model of the SCRIPT SETTINGS UI (when compiled with it),
-//         including the declaration-derived tooltip (`stock_check`).
-// Part 7: optional real package folder and values file (--package/--settings).
-// Part 8: optional R5 edit-flow replay (--replay <stage file>): the host stage
-//         calls the stock render harness recorded, through stage/apply and
-//         the values file writer.
+// Part 6: R7 page model of the SCRIPT SETTINGS UI: page tree (path), one row
+//         per value, value pages with "Reset to default", "Reset all to
+//         defaults", Quick settings, the value/default staging model and the
+//         declared default's delivery; no package, member or Custom switch.
+// Part 7: optional real package folders and values files (--package
+//         <folder> [--settings <file>], repeatable): every reachable page.
+// Part 8: optional host tape for the stock render harness (--tape <plan>).
 //
 // Usage: verify_addon_settings <work dir> <phase2i fixture dir>
-//            [--package <folder> [--settings <file>] | --replay <stage file>]
+//            [--package <folder> [--settings <file>]]... [--tape <plan>]
 // Paths are used in \\?\ form, so deep work folders stay long-path safe.
 #include <algorithm>
 #include <filesystem>
@@ -26,6 +27,9 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <memory>
+#include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -221,6 +225,19 @@ void declarations_parser()
 		{top_with(""), "{ \"values\": {}, \"enabled\": true }", "member=M settings-must-be-exactly-values-object"},
 		{top_with(""), "[]", "member=M settings-not-object"},
 		{"{ \"format\": ", value_with(base_value), "settings-invalid-json"},
+		// Revision R7 layout and default fields.
+		{top_with(""), value_with(base_value + ", \"path\": []"), "member=M value=g.v path-invalid"},
+		{top_with(""), value_with(base_value + ", \"path\": [\"A\", \"B\", \"C\", \"D\", \"E\", \"F\", \"G\"]"), "member=M value=g.v path-invalid"},
+		{top_with(""), value_with(base_value + ", \"path\": [\" padded\"]"), "member=M value=g.v path-element-invalid"},
+		{top_with(""), value_with(base_value + ", \"path\": [\"" + std::string(41, 'p') + "\"]"), "member=M value=g.v path-element-invalid"},
+		{top_with(""), value_with(base_value + ", \"row\": \"" + std::string(34, 'r') + "\""), "member=M value=g.v row-invalid"},
+		{top_with(""), value_with(base_value + ", \"quick\": \"\""), "member=M value=g.v quick-invalid"},
+		{top_with(""), value_with(base_value + ", \"default_label\": \"" + std::string(21, 'd') + "\""), "member=M value=g.v default_label-invalid"},
+		{top_with(""), value_with(base_value + ", \"default\": 11"), "member=M value=g.v default-outside-min-max"},
+		{top_with(""), value_with(base_value + ", \"default\": 2.5"), "member=M value=g.v default-int-has-fraction"},
+		{top_with(""), value_with(base_value + ", \"default\": \"x\""), "member=M value=g.v default-not-number"},
+		{top_with(""), value_with("\"group\": \"g\", \"label\": \"V\", \"type\": \"int\", \"stock\": 5, \"min\": 0, \"max\": 10, \"lane\": \"literal\", \"default\": 4"), "member=M value=g.v default-only-for-addon-lane"},
+		{top_with(""), value_with("\"group\": \"g\", \"label\": \"V\", \"type\": \"enum\", \"stock\": 1, \"min\": 0, \"max\": 10, \"options\": [{\"label\": \"A\", \"value\": 1}], \"default\": 2"), "member=M value=g.v default-not-an-option"},
 	};
 	for (const auto& reject : rejects)
 	{
@@ -247,6 +264,22 @@ void declarations_parser()
 			&& std::all_of(declarations.values.begin(), declarations.values.end(),
 				[](const settings::ValueDecl& value) { return value.stock_check == settings::StockCheck::Live; }),
 			"stock_check: \"live\" | \"none\" parse; absent means live (backward compatible)");
+	}
+	{
+		// R7: path, row, quick, default_label and default are optional; absent
+		// keeps every V1 meaning (the phase2i fixture below has none of them).
+		settings::Declarations with, without;
+		const bool parsed = settings::parse_declarations(top_with(""), {{"M", value_with(base_value
+			+ ", \"path\": [\"Survival\", \"Rewards / drops\"], \"row\": \"Squad\", \"quick\": \"Survival: rewards\","
+			  " \"default_label\": \"60-80 s\", \"default\": 7")}}, with).empty()
+			&& settings::parse_declarations(top_with(""), {{"M", value_with(base_value)}}, without).empty();
+		check(parsed && with.values[0].path == std::vector<std::string>{"Survival", "Rewards / drops"}
+			&& with.values[0].row == "Squad" && with.values[0].quick == "Survival: rewards"
+			&& with.values[0].default_label == "60-80 s" && with.values[0].default_declared
+			&& settings::default_of(with.values[0]) == 7
+			&& without.values[0].path.empty() && without.values[0].row.empty() && !without.values[0].default_declared
+			&& settings::default_of(without.values[0]) == 5,
+			"R7 fields parse (path, row, quick, default_label, default); absent: no path, default = stock");
 	}
 }
 
@@ -684,721 +717,670 @@ void phase1_contract(const std::filesystem::path& fixtures, const std::filesyste
 	check(logged("RENOVICE SETTINGS PACKAGE trigger=startup package=Missions declarations=4 groups=4 file=valid use_stock=0 effective=2 rejected=0 unknown_entries=0 members_staged=2/2"),
 		"phase2i: exact operational summary line");
 
-	// The same package through the UI model: labels follow D1.
+	// R7: the same path-less (pre-R7) package through the page model: its
+	// sections render flat on the package page, one row per value.
 	using namespace renovice::settings_ui;
 	PackageView view;
 	view.folder = "Missions";
 	view.display = "Missions";
 	view.declarations = package != nullptr ? package->declarations.get() : nullptr;
 	(void)settings::parse_values_file(values_text, "package:missions", view.state);
-	const auto page = build_flat_page({view});
-	// A float's editor row is the BUTTON that opens its INPUTBOX page.
-	const auto matches = [](const Row& row, std::string_view setting)
-	{
-		if (row.setting == setting) return true;
-		if (setting.rfind("value:missions/", 0) != 0) return false;
-		return row.action == "open:val:Missions/" + std::string(setting.substr(15));
-	};
-	const auto label_of = [&](std::string_view setting) -> std::string
+	if (view.declarations == nullptr) return;
+	const auto page = build_package_page(view);
+	const auto label_of = [&](std::string_view action) -> std::string
 	{
 		for (const auto& row : page.rows)
-			if (matches(row, setting)) return row.label;
+			if (row.action == action) return row.label;
 		return "<missing>";
 	};
-	check(label_of("value:missions/survival.reward_interval") == "Reward interval: 150 s (stock 300 s)"
-		&& label_of("custom:missions/survival.reward_interval") == "Custom Reward interval"
-		&& label_of("value:missions/purgatory.difficulty1.warrior_level") == "Difficulty 1 warrior level: 15"
-		&& label_of("group:missions/survival") == "Custom Survival values",
-		"phase2i: row labels follow CONTRACT_PHASE1 D1 (R4: the int warrior level is a value BUTTON; its stock suffix does not fit 40)");
-	bool within_budget = true;
-	for (const auto& row : page.rows)
-		within_budget &= row.label.size() <= (row.kind == RowKind::Title ? maximum_title_label : maximum_row_label);
-	check(within_budget, "phase2i: every row label is within the width budget");
-	const auto tooltip_of = [&](std::string_view setting) -> std::string
-	{
-		for (const auto& row : page.rows)
-			if (matches(row, setting)) return row.tooltip;
-		return {};
-	};
-	check(tooltip_of("value:missions/survival.reward_interval").find(live_stock_sentence) != std::string::npos
-		&& tooltip_of("value:missions/void_flood.fractures_per_round.normal").find(live_stock_sentence) == std::string::npos,
-		"phase2i: without stock_check the addon rows keep the live-stock sentence (backward compatible); literal rows never carry it");
-
-	// Live defect 2026-09-30 (DLL ed2a996d, bridge 9c1450ed): the phase2i flat
-	// page ran off the screen without a scroll bar. Stock attaches the scroll
-	// bar only to uniform-height lists without INPUTBOX rows.
-	std::size_t inputboxes = 0;
-	std::size_t spacers = 0;
-	for (const auto& row : page.rows)
-	{
-		inputboxes += row.kind == RowKind::InputBox ? 1u : 0u;
-		spacers += row.kind == RowKind::Spacer ? 1u : 0u;
-	}
-	check(page.rows.size() > stock_uniform_visible_rows && inputboxes == 0 && spacers == 0
-		&& stock_uniform_heights(page) && stock_scroll_attached(page),
-		"phase2i: the flat page (" + std::to_string(page.rows.size())
-			+ " rows) keeps the stock scroll contract: uniform 44 px rows, no INPUTBOX, scroll bar attached");
-	const Row* reward_button = nullptr;
-	for (const auto& row : page.rows)
-		if (row.action == "open:val:Missions/survival.reward_interval") reward_button = &row;
+	std::size_t titles = 0;
+	for (const auto& row : page.rows) titles += row.kind == RowKind::Title ? 1u : 0u;
+	check(label_of("open:val:Missions/survival.reward_interval") == "Reward interval: 150 s"
+		&& label_of("open:val:Missions/purgatory.difficulty1.warrior_level") == "Difficulty 1 warrior level: 10 (default)"
+		&& label_of("open:val:Missions/lantern.tier_up_interval") == "Tier up interval: 90 s (default)"
+		&& label_of("open:val:Missions/void_flood.fractures_per_round.normal") == "Fractures per round normal: 4"
+		&& titles == 4 && page.rows.back().action == "resetall:Missions",
+		"phase2i (no path): one row per value under its section TITLE, the current value or '(default)'; "
+		"a disabled entry shows the default (15 is kept in the file); Reset all last");
 	const auto reward_page = build_value_page(view, "survival.reward_interval");
-	check(reward_button != nullptr && reward_button->kind == RowKind::Button
-		&& reward_button->label == "Reward interval: 150 s (stock 300 s)"
-		&& !reward_button->locked
-		&& reward_page.title == "REWARD INTERVAL" && reward_page.rows.size() == 1
+	check(reward_page.title == "REWARD INTERVAL" && reward_page.rows.size() == 2
 		&& reward_page.rows[0].kind == RowKind::InputBox && reward_page.rows[0].content == "150"
-		&& reward_page.rows[0].setting == "value:missions/survival.reward_interval" && reward_page.rows[0].validate,
-		"phase2i: the float Reward interval is a BUTTON labelled with its value (no stock sub-label) that opens its one-row INPUTBOX page");
+		&& reward_page.rows[0].setting == "value:missions/survival.reward_interval" && reward_page.rows[0].validate
+		&& reward_page.rows[1].kind == RowKind::Button && reward_page.rows[1].label == "Reset to default: 300 s"
+		&& reward_page.rows[1].action == "reset:Missions/value:survival.reward_interval",
+		"phase2i value page: the validated INPUTBOX and 'Reset to default: 300 s'");
+	const auto literal_page = build_value_page(view, "void_flood.fractures_per_round.normal");
+	check(literal_page.rows.size() == 2 && literal_page.rows[0].kind == RowKind::Checkbox
+		&& literal_page.rows[0].setting == "active:missions/void_flood.fractures_per_round.normal" && literal_page.rows[0].value,
+		"phase2i literal value (no choices declared): the value page shows the built-value switch (the member applies when on)");
+	check(reward_page.rows[0].tooltip.find(live_stock_sentence) != std::string::npos
+		&& literal_page.rows[0].tooltip.find(live_stock_sentence) == std::string::npos,
+		"phase2i: without stock_check the addon editor keeps the live-default sentence; literal rows never carry it");
 }
 
+using namespace renovice::settings_ui;
+
 // -----------------------------------------------------------------------------
+// R7 page model on a synthetic two-package set: Missions with paths (mission
+// type -> category -> set -> value), Quick settings and a literal choice, and
+// a Frost-like path-less package with an author's default.
+namespace r7
+{
+const char* missions_top =
+	"{ \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"2026.09.28.13.06\", \"groups\": ["
+	" { \"id\": \"defense\", \"label\": \"Defense\", \"order\": 10, \"aliases\": [\"MT_DEFENSE\", \"SolNode1\"] },"
+	" { \"id\": \"survival\", \"label\": \"Survival\", \"order\": 20, \"aliases\": [] },"
+	" { \"id\": \"survival_advanced\", \"label\": \"Survival: advanced\", \"order\": 25, \"aliases\": [] },"
+	" { \"id\": \"void_flood\", \"label\": \"Void Flood\", \"order\": 30, \"aliases\": [] } ] }";
+std::string value(std::string_view id, std::string_view group, std::string_view path, std::string_view row,
+	std::string_view type, double stock, double minimum, double maximum, std::string_view unit, std::string_view extra = "")
+{
+	return "\"" + std::string(id) + "\": { \"group\": \"" + std::string(group) + "\", \"label\": \"" + std::string(row) + " label\","
+		" \"unit\": \"" + std::string(unit) + "\", \"type\": \"" + std::string(type) + "\", \"stock\": " + settings::json::number_text(stock)
+		+ ", \"min\": " + settings::json::number_text(minimum) + ", \"max\": " + settings::json::number_text(maximum)
+		+ ", \"scope\": \"What " + std::string(row) + " changes\", \"lane\": \"addon\", \"applies\": \"live_next_read\","
+		" \"path\": " + std::string(path) + ", \"row\": \"" + std::string(row) + "\"" + std::string(extra) + " }";
+}
+std::string missions_addon()
+{
+	const std::string timers = "[\"Survival\", \"Timers\"]";
+	const std::string set = "[\"Survival\", \"Enemies\", \"Max enemies at once\"]";
+	return "{ \"values\": { "
+		+ value("defense.mode", "defense", "[\"Defense\"]", "Wave mode", "enum", 1, 1, 3, "",
+			", \"options\": [ { \"label\": \"Normal\", \"value\": 1 }, { \"label\": \"Fast\", \"value\": 2 } ]") + ", "
+		+ value("defense.offset", "defense", "[\"Defense\"]", "Wave offset", "int", 0, -5, 5, "") + ", "
+		+ value("survival.reward_interval", "survival", timers, "Time between rewards", "float", 300, 1, 32767, "s",
+			", \"quick\": \"Survival: time between rewards\"") + ", "
+		+ value("survival.alert_interval", "survival", timers, "Alert mission length", "float", 600, 1, 32767, "s") + ", "
+		+ value("survival.max.p1", "survival", set, "Solo", "int", 10, 0, 100, "", ", \"default_label\": \"7-10\"") + ", "
+		+ value("survival.max.p4", "survival", set, "Squad", "int", 28, 0, 100, "") + ", "
+		+ value("survival.max.hard.p4", "survival", "[\"Survival\", \"Enemies\", \"Max enemies at once\", \"Hard nodes\"]",
+			"Squad", "int", 28, 0, 100, "") + ", "
+		+ value("survival.level", "survival_advanced", "[\"Survival\", \"Advanced\"]", "Level boost", "int", 5, 0, 50, "")
+		+ " } }";
+}
+const char* missions_literal =
+	"{ \"values\": { \"void_flood.fractures\": { \"group\": \"void_flood\", \"label\": \"Fractures per round\", \"unit\": \"\","
+	" \"type\": \"enum\", \"stock\": 3, \"min\": 1, \"max\": 20, \"scope\": \"Fractures opened per round\", \"lane\": \"literal\","
+	" \"applies\": \"next_mission\", \"options\": [ { \"label\": \"3\", \"value\": 3 }, { \"label\": \"4\", \"value\": 4 } ],"
+	" \"path\": [\"Void Flood\"], \"row\": \"Fractures per round\", \"quick\": \"Void Flood: fractures per round\" } } }";
+const char* frost_top =
+	"{ \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"2026.09.28.13.06\", \"groups\": ["
+	" { \"id\": \"ice_wave\", \"label\": \"Ice Wave\", \"order\": 10, \"aliases\": [\"Frost\"] } ] }";
+const char* frost_values =
+	"{ \"values\": { \"ice_wave.bonus_per_cold_stack\": { \"group\": \"ice_wave\", \"label\": \"Bonus per Cold stack\","
+	" \"unit\": \"x\", \"type\": \"float\", \"stock\": 0, \"min\": 0, \"max\": 100, \"default\": 50,"
+	" \"scope\": \"Ice Wave damage grows with Cold stacks. 0 turns the bonus off\","
+	" \"lane\": \"addon\", \"applies\": \"live_next_read\", \"stock_check\": \"none\" } } }";
+const std::string missions_addon_file = "Missions.targets.addon.lua_B";
+const std::string missions_literal_file = "0123456789abcdef (missions_exact-replacement).lua_B";
+const std::string frost_file = "8fba3a28f8fef624.IceWaveColdStackDamage.target.addon.lua_B";
+}
+
+const Row* row_by(const Page& page, std::string_view key)
+{
+	for (const auto& row : page.rows)
+		if (row.action == key || row.setting == key) return &row;
+	return nullptr;
+}
+
+std::string labels(const Page& page)
+{
+	std::string text;
+	for (const auto& row : page.rows) text += (text.empty() ? "" : " | ") + row.label;
+	return text;
+}
+
+// The rules every page obeys (R2-R5 stock row rules plus R7): list pages are
+// uniform BUTTON/TITLE/SPACER rows (CHECKBOX only on Quick settings), no
+// INPUTCOUNT/INPUTBOX/locked row, no search box; value pages hold at most the
+// editor and one BUTTON (never scrolled); no package, member, "Use stock
+// values", section or "Custom" switch anywhere; labels and tooltips in budget.
+std::string page_rule_problem(std::string_view id, const Page& page)
+{
+	const bool value_page = id.rfind("val:", 0) == 0 || id.rfind("qval:", 0) == 0;
+	const bool quick_page = id.rfind("quick:", 0) == 0;
+	if (page.search) return "search box shown";
+	if (page.title.size() > maximum_title_label) return "title over 48";
+	std::set<std::string> seen;
+	for (const auto& row : page.rows)
+	{
+		const std::string_view setting = row.setting;
+		for (const char* banned : {"package:", "member:", "stock:", "group:", "custom:", "note:"})
+			if (setting.rfind(banned, 0) == 0) return "switch row " + row.setting;
+		if (row.label.rfind("Custom ", 0) == 0 || row.label.find("::") != std::string::npos) return "label '" + row.label + "'";
+		if (row.label.size() > (row.kind == RowKind::Title ? maximum_title_label : maximum_row_label)) return "label over budget '" + row.label + "'";
+		if (row.tooltip.size() > maximum_tooltip) return "tooltip over budget";
+		if (row.kind == RowKind::Button && row.locked) return "locked BUTTON";
+		if (row.kind != RowKind::Spacer && row.kind != RowKind::Title && !seen.insert(row.label).second)
+			return "two rows read '" + row.label + "'";
+		if (!value_page)
+		{
+			if (row.kind == RowKind::InputCount || row.kind == RowKind::InputBox || row.kind == RowKind::Toggle)
+				return "editor row on a list page";
+			if (row.kind == RowKind::Checkbox && !quick_page) return "CHECKBOX outside Quick settings";
+		}
+	}
+	if (!value_page && !stock_uniform_heights(page)) return "list page not uniform";
+	if (value_page && (page.rows.size() != 2 || page.rows[1].kind != RowKind::Button
+		|| page.rows[1].action.rfind("reset:", 0) != 0))
+		return "value page is not editor + 'Reset to default'";
+	return {};
+}
+
+// Every page reachable from the root through "open:" actions, in visit order.
+std::vector<std::pair<std::string, Page>> reachable_pages(const std::vector<PackageView>& views, std::string_view root)
+{
+	std::vector<std::pair<std::string, Page>> pages;
+	std::set<std::string> queued{std::string(root)};
+	std::vector<std::string> pending{std::string(root)};
+	while (!pending.empty())
+	{
+		const auto id = pending.front();
+		pending.erase(pending.begin());
+		bool found = false;
+		auto page = select_page(views, id, found);
+		if (!found) continue;
+		for (const auto& row : page.rows)
+		{
+			if (row.action.rfind("open:", 0) != 0) continue;
+			const auto child = row.action.substr(5);
+			if (queued.insert(child).second) pending.push_back(child);
+		}
+		pages.emplace_back(id, std::move(page));
+	}
+	return pages;
+}
+
 void ui_page_model()
 {
-	using namespace renovice::settings_ui;
-	const auto declarations = parsed_declarations();
-	PackageView view;
-	view.folder = "Missions";
-	view.display = "Missions";
-	view.package_enabled = true;
-	view.declarations = &declarations;
-	view.members.push_back(MemberView{addon_file, "Mission values", "member:missions/missions.targets.addon.lua_b", true, false});
-	view.members.push_back(MemberView{literal_file, "Void Flood fractures", "member:missions/" + script_control::ascii_lower(literal_file), true, true});
-	view.state.package = "package:missions";
-	view.state.values["survival.reward_interval"] = settings::UserValue{true, {}, true, true, 150, false, 0};
-	view.state.values["survival.pickup_multiplier"] = settings::UserValue{true, {}, false, true, 2.5, false, 0};
-	view.state.groups["defense"] = false;
+	settings::Declarations missions;
+	settings::Declarations frost;
+	const auto missions_error = settings::parse_declarations(r7::missions_top,
+		{{r7::missions_addon_file, r7::missions_addon()}, {r7::missions_literal_file, r7::missions_literal}}, missions);
+	const auto frost_error = settings::parse_declarations(r7::frost_top, {{r7::frost_file, r7::frost_values}}, frost);
+	check(missions_error.empty() && frost_error.empty(),
+		"R7 synthetic declarations parse" + (missions_error.empty() ? std::string() : " (" + missions_error + ")")
+			+ (frost_error.empty() ? std::string() : " (" + frost_error + ")"));
+	if (!missions_error.empty() || !frost_error.empty()) return;
+	std::vector<PackageView> views(2);
+	views[0].folder = "Missions";
+	views[0].display = "Missions";
+	views[0].declarations = &missions;
+	views[0].members.push_back(MemberView{r7::missions_addon_file, "Mission values: 21 sections", "member:missions/x", true, false});
+	views[0].members.push_back(MemberView{r7::missions_literal_file, "Void Flood", "member:missions/y", true, true});
+	views[0].state.package = "package:missions";
+	views[0].state.values["survival.reward_interval"] = settings::UserValue{true, {}, true, true, 150, false, 0};
+	views[0].state.values["void_flood.fractures"] = settings::UserValue{true, {}, true, true, 4, false, 0};
+	views[1].folder = "Frost";
+	views[1].display = "Frost";
+	views[1].declarations = &frost;
 
-	const auto flat = build_flat_page({view});
-	const auto count_kind = [](const Page& page, RowKind kind)
-	{
-		return static_cast<std::size_t>(std::count_if(page.rows.begin(), page.rows.end(),
-			[&](const Row& row) { return row.kind == kind; }));
-	};
-	check(flat.title == "SCRIPT SETTINGS" && !flat.search && !flat.rows.empty(),
-		"flat page: native title; the stock search box stays off (R4: the stock filter re-adds populate-time copies)");
-	bool only_stock_types = true;
-	bool labels_fit = true;
-	bool no_glyphs = true;
-	for (const auto& row : flat.rows)
-	{
-		only_stock_types &= row.kind == RowKind::Title || row.kind == RowKind::Spacer
-			|| row.kind == RowKind::Checkbox || row.kind == RowKind::InputCount
-			|| row.kind == RowKind::InputBox || row.kind == RowKind::Toggle || row.kind == RowKind::Button;
-		const std::size_t budget = row.kind == RowKind::Title ? maximum_title_label : maximum_row_label;
-		labels_fit &= row.label.size() <= budget;
-		no_glyphs &= row.label.empty() || (row.label.front() != ' ' && row.label.find("--") == std::string::npos
-			&& row.label.find('|') == std::string::npos);
-	}
-	check(only_stock_types, "flat page uses stock row types only");
-	check(labels_fit, "every row label fits the width budget (40 value / 48 title)");
-	check(no_glyphs, "no leading spaces, box or tree glyphs in labels");
-	const auto find_row = [&](const Page& page, std::string_view setting) -> const Row*
-	{
-		for (const auto& row : page.rows)
-			if (row.setting == setting) return &row;
-		return nullptr;
-	};
-	const auto* master = find_row(flat, "stock:missions");
-	const auto* package_row = find_row(flat, "package:missions");
-	const auto* member_row = find_row(flat, "member:missions/missions.targets.addon.lua_b");
-	const auto* custom = find_row(flat, "custom:missions/survival.reward_interval");
-	const auto reward_page = build_value_page(view, "survival.reward_interval");
-	const auto* editor = reward_page.rows.size() == 1 ? &reward_page.rows[0] : nullptr;
-	const auto* enum_editor = find_row(flat, "value:missions/defense.mode");
-	const auto* section = find_row(flat, "group:missions/defense");
-	const auto literal_page = build_value_page(view, "void_flood.fractures_per_round.normal");
-	const auto* literal_value = literal_page.rows.size() == 1 ? &literal_page.rows[0] : nullptr;
-	check(master != nullptr && master->kind == RowKind::Checkbox && !master->value
-		&& package_row != nullptr && package_row->value
-		&& member_row != nullptr && member_row->kind == RowKind::Checkbox && member_row->value,
-		"package, master and member switches are CHECKBOX rows with current state");
-	const auto find_action = [&](const Page& page, std::string_view action) -> const Row*
-	{
-		for (const auto& row : page.rows)
-			if (row.action == action) return &row;
-		return nullptr;
-	};
-	const auto* int_button = find_action(flat, "open:val:Missions/survival.reward_interval");
-	check(custom != nullptr && custom->kind == RowKind::Checkbox && custom->value
-		&& custom->label == "Custom Reward interval"
-		&& int_button != nullptr && int_button->kind == RowKind::Button && !int_button->locked
-		&& int_button->label == "Reward interval: 150 s (stock 300 s)"
-		&& find_row(flat, "value:missions/survival.reward_interval") == nullptr
-		&& editor != nullptr && editor->kind == RowKind::InputCount && editor->count == 150
-		&& editor->minimum == 1 && editor->maximum == 3600
-		&& editor->label == "Reward interval (stock 300 s)" && editor->validate
-		&& reward_page.title == "REWARD INTERVAL",
-		"R4 int >= 0: Custom checkbox + a value BUTTON on the list; its one-row page holds the INPUTCOUNT with stock in the label and bounds");
-	const auto* float_button = find_action(flat, "open:val:Missions/survival.pickup_multiplier");
-	const auto* negative_button = find_action(flat, "open:val:Missions/defense.offset");
-	const auto float_page = build_value_page(view, "survival.pickup_multiplier");
-	const auto negative_page = build_value_page(view, "defense.offset");
-	const auto* float_editor = float_page.rows.empty() ? nullptr : &float_page.rows[0];
-	const auto* negative = negative_page.rows.empty() ? nullptr : &negative_page.rows[0];
-	check(float_button != nullptr && float_button->kind == RowKind::Button
-		&& float_button->label == "Pickup multiplier: 2.5x (stock 1.5x)"
-		&& float_button->setting == "action:open:val:Missions/survival.pickup_multiplier"
-		&& negative_button != nullptr && negative_button->kind == RowKind::Button
-		&& find_row(flat, "value:missions/survival.pickup_multiplier") == nullptr
-		&& find_row(flat, "value:missions/defense.offset") == nullptr,
-		"float and negative int: the list shows a BUTTON with the current value, never the INPUTBOX itself");
-	check(float_editor != nullptr && float_page.rows.size() == 1 && float_editor->kind == RowKind::InputBox
-		&& float_editor->content == "2.5" && float_editor->setting == "value:missions/survival.pickup_multiplier"
-		&& float_editor->validate && !float_editor->integer && float_page.title == "PICKUP MULTIPLIER"
-		&& negative != nullptr && negative_page.rows.size() == 1 && negative->kind == RowKind::InputBox && negative->integer
-		&& enum_editor != nullptr && enum_editor->kind == RowKind::Toggle && enum_editor->options.size() == 3
-		&& enum_editor->number == 1,
-		"value page: one validated INPUTBOX (float / negative int); enum uses TOGGLE at its stock option");
-	check(!build_value_page(view, "survival.reward_interval").rows.empty()
-		&& build_value_page(view, "defense.mode").rows.empty()
-		&& build_value_page(view, "no.such.value").rows.empty(),
-		"R4 value pages exist for every number (INPUTCOUNT or INPUTBOX); the enum TOGGLE stays inline");
-	check(section != nullptr && section->kind == RowKind::Checkbox && !section->value,
-		"section switch is the first row of its section and reflects the file");
-	const auto* literal_button = find_action(flat, "open:val:Missions/void_flood.fractures_per_round.normal");
-	check(literal_value != nullptr && literal_value->locked && literal_value->kind == RowKind::InputCount
-		&& literal_button != nullptr && !literal_button->locked,
-		"literal-lane values are read-only in v1: the value page editor is locked, the list BUTTON is not (R4: stock never restores a locked row's Label alpha on a recycled clip)");
-	{
-		// R4: no list page holds a stock INPUTCOUNT (widgets bound to the
-		// first clip), an INPUTBOX (breaks the scroll contract) or a locked
-		// value BUTTON (Label alpha leak); every number opens its value page.
-		const auto list_safe = [&](const Page& page)
-		{
-			return std::all_of(page.rows.begin(), page.rows.end(), [](const Row& row)
+	// Page tree and rows.
+	const auto root = build_root_page(views);
+	check(labels(root) == "Missions: 2 changed | Frost",
+		"root: one BUTTON per script with options ('N changed' when any value differs from its default): " + labels(root));
+	const auto package_page = build_package_page(views[0]);
+	check(labels(package_page) == "Quick settings: 2 on | Defense | Survival: 1 changed | Void Flood: 1 changed |  | Reset all to defaults"
+		&& package_page.rows.back().action == "resetall:Missions",
+		"package page: Quick settings first, then the mission types in declaration order, then one Reset all: " + labels(package_page));
+	bool found = false;
+	const auto survival = select_page(views, "node:Missions/1", found);
+	check(found && survival.title == "SURVIVAL" && labels(survival) == "Timers: 1 changed | Enemies | Advanced |  | Reset all to defaults"
+		&& survival.rows.back().action == "resetall:Missions/node:1",
+		"mission type page: its categories in order (Advanced last), Reset all for this page: " + labels(survival));
+	const auto timers = select_page(views, "node:Missions/1.0", found);
+	check(found && labels(timers) == "Time between rewards: 150 s | Alert mission length: 600 s (default) |  | Reset all to defaults",
+		"category page: one row per value, 'X: 150 s' when changed, '(default)' otherwise: " + labels(timers));
+	const auto set = select_page(views, "node:Missions/1.1.0", found);
+	check(found && set.title == "MAX ENEMIES AT ONCE"
+		&& labels(set) == "Solo: 7-10 (default) | Squad: 28 (default) | Hard nodes |  | Reset all to defaults",
+		"set page: per-player rows, the range default label, the named variant after them: " + labels(set));
+	const auto frost_page = build_package_page(views[1]);
+	check(labels(frost_page) == "Bonus per Cold stack: 50x (default) |  | Reset all to defaults",
+		"path-less package (older layout, Frost): its values directly on the package page; the author's default 50x shows: "
+			+ labels(frost_page));
+	const auto flat = build_flat_page(views);
+	check(labels(flat).find("SURVIVAL - TIMERS | Time between rewards: 150 s") != std::string::npos
+		&& labels(flat).find("FROST | Bonus per Cold stack: 50x (default)") != std::string::npos
+		&& std::all_of(flat.rows.begin(), flat.rows.end(), [](const Row& row)
 			{
-				return row.kind != RowKind::InputCount && row.kind != RowKind::InputBox
-					&& !(row.kind == RowKind::Button && row.locked);
-			});
-		};
-		bool every_number_opens = true;
-		for (const auto& declaration : declarations.values)
+				return row.kind == RowKind::Title || (row.kind == RowKind::Button && row.action.rfind("open:val:", 0) == 0);
+			}),
+		"flat layout (SettingsMenuNested=false): TITLE per script and page, one value BUTTON per value, nothing else");
+
+	// Value pages.
+	const auto reward = select_page(views, "val:Missions/survival.reward_interval", found);
+	check(found && reward.title == "TIME BETWEEN REWARDS LABEL" && reward.rows.size() == 2
+		&& reward.rows[0].kind == RowKind::InputBox && reward.rows[0].label == "Value (s)" && reward.rows[0].content == "150"
+		&& reward.rows[0].tooltip.rfind("Default 300 s. Range 1 to 32767. Applies live, at the next read.", 0) == 0
+		&& reward.rows[1].label == "Reset to default: 300 s" && reward.rows[1].action == "reset:Missions/value:survival.reward_interval",
+		"value page: the editor (INPUTBOX for a float) with 'Default ...' in its tooltip, then 'Reset to default: 300 s'");
+	const auto solo = select_page(views, "val:Missions/survival.max.p1", found);
+	const auto mode = select_page(views, "val:Missions/defense.mode", found);
+	const auto offset = select_page(views, "val:Missions/defense.offset", found);
+	const auto flood = select_page(views, "val:Missions/void_flood.fractures", found);
+	check(solo.rows.size() == 2 && solo.rows[0].kind == RowKind::InputCount && solo.rows[0].count == 10
+		&& solo.rows[1].label == "Reset to default: 7-10"
+		&& mode.rows.size() == 2 && mode.rows[0].kind == RowKind::Toggle && mode.rows[0].options.size() == 2
+		&& mode.rows[0].options[0].label == "Normal (default)"
+		&& offset.rows.size() == 2 && offset.rows[0].kind == RowKind::InputBox && offset.rows[0].integer
+		&& flood.rows.size() == 2 && flood.rows[0].kind == RowKind::Toggle && flood.rows[0].number == 4
+		&& flood.rows[0].options.size() == 2 && flood.rows[0].options[0].label == "3 (default)" && !flood.rows[0].locked,
+		"value pages: INPUTCOUNT (int >= 0), TOGGLE (enum, the default marked), INPUTBOX (negative int), "
+		"and a literal value's choice between the default and the built value");
+	for (const auto& [id, page] : reachable_pages(views, "root"))
+	{
+		const auto problem = page_rule_problem(id, page);
+		check(problem.empty(), "stock row rules on page " + id + (problem.empty() ? "" : ": " + problem));
+	}
+
+	// Quick settings: the one on/off, keeping the typed value.
+	const auto quick = select_page(views, "quick:Missions", found);
+	check(found && labels(quick) == "Survival: time between rewards | Survival: 150 s | Void Flood: fractures per round | Void Flood: 4"
+		&& quick.rows[0].kind == RowKind::Checkbox && quick.rows[0].value && quick.rows[0].setting == "active:missions/survival.reward_interval"
+		&& quick.rows[1].action == "open:qval:Missions/survival.reward_interval"
+		&& quick.rows[3].action == "open:val:Missions/void_flood.fractures",
+		"Quick settings: per headline value its on/off (CHECKBOX) and the value it keeps: " + labels(quick));
+
+	const auto file_of = [](const Applied& applied, std::string_view folder, std::string_view id, bool& enabled, double& number)
+	{
+		for (const auto& package : applied.packages)
 		{
-			if (declaration.type == settings::ValueType::Enum) continue;
-			const auto page = build_value_page(view, declaration.id);
-			every_number_opens &= find_action(flat, "open:val:Missions/" + declaration.id) != nullptr
-				&& page.rows.size() == 1
-				&& page.rows[0].kind == (declaration.type == settings::ValueType::Int && declaration.minimum >= 0
-					? RowKind::InputCount : RowKind::InputBox);
+			if (package.folder != folder) continue;
+			const auto entry = package.state.values.find(std::string(id));
+			if (entry == package.state.values.end()) return false;
+			enabled = entry->second.enabled;
+			number = entry->second.value;
+			return true;
 		}
-		check(list_safe(flat) && list_safe(build_group_page(view, "survival")) && every_number_opens,
-			"R4 list pages hold no INPUTCOUNT, no INPUTBOX and no locked value BUTTON; every number opens its one-row page");
-	}
-	check(std::all_of(flat.rows.begin(), flat.rows.end(), [](const Row& row)
-		{
-			return row.kind != RowKind::Button || row.action.rfind("open:val:", 0) == 0;
-		}),
-		"flat page: its only BUTTONs open value pages (no package/section navigation, Restore or FinishSelection)");
-
-	// Stock scroll contract (44.0.2 ThemedGenericSettings Update L4740-4880).
+		return false;
+	};
+	bool enabled = false;
+	double number = 0;
 	{
-		Page mixed;
-		mixed.rows.push_back(title("Section"));
-		mixed.rows.push_back(checkbox("Switch", "x", false, ""));
-		Page with_box = mixed;
-		Row box;
-		box.kind = RowKind::InputBox;
-		with_box.rows.push_back(box);
-		Page long_uniform;
-		for (std::size_t index = 0; index != stock_uniform_visible_rows + 1; ++index)
-			long_uniform.rows.push_back(checkbox("Row", "r", false, ""));
-		Page fits = long_uniform;
-		fits.rows.pop_back();
-		check(stock_uniform_heights(mixed) && !stock_uniform_heights(with_box)
-			&& stock_scroll_attached(long_uniform) && !stock_scroll_attached(fits) && !stock_scroll_attached(with_box),
-			"scroll model: TITLE (mHeight 44) and CHECKBOX are uniform; any INPUTBOX disables the scroll bar; more than 14 uniform rows attach it");
+		Session session;
+		check(stage(session, views, "value:missions/survival.reward_interval", StagedValue::of_text("60")).empty()
+			&& file_of(settings_ui::apply(session, views), "Missions", "survival.reward_interval", enabled, number) && enabled && number == 60,
+			"changing a value applies it: written enabled with the value (enabled = value ~= default)");
+		(void)stage(session, views, "value:missions/survival.reward_interval", StagedValue::of_number(300));
+		check(file_of(settings_ui::apply(session, views), "Missions", "survival.reward_interval", enabled, number) && !enabled && number == 300,
+			"a value set to its default is 'leave it as intended': written disabled");
 	}
-	check(count_kind(flat, RowKind::InputBox) == 0 && count_kind(flat, RowKind::Spacer) == 0
-		&& stock_uniform_heights(flat),
-		"flat page keeps the stock scroll contract (no INPUTBOX, no SPACER, uniform heights)");
-	check(custom != nullptr && custom->tooltip.find("All Survival nodes") != std::string::npos
-		&& custom->tooltip.find("Applies: live, at the next read") != std::string::npos,
-		"tooltips carry scope and apply timing");
-	check(custom != nullptr && editor != nullptr && literal_value != nullptr
-		&& custom->tooltip.find(live_stock_sentence) != std::string::npos
-		&& editor->tooltip.find(live_stock_sentence) != std::string::npos
-		&& literal_value->tooltip.find(live_stock_sentence) == std::string::npos,
-		"stock_check absent (live): addon rows say the value applies only where the live value equals stock; literal rows do not");
 	{
-		// An addon that applies its value without a live stock comparison
-		// (stock_check "none") must not claim one.
-		settings::Declarations none;
-		const auto error = settings::parse_declarations(
-			"{ \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"b\", \"groups\": ["
-			" { \"id\": \"g\", \"label\": \"Group\", \"order\": 1, \"aliases\": [] } ] }",
-			{{"Other.target.addon.lua_B",
-				"{ \"values\": { \"g.transform\": { \"group\": \"g\", \"label\": \"Forced level\", \"unit\": \"\","
-				" \"type\": \"int\", \"stock\": 5, \"min\": 0, \"max\": 5, \"scope\": \"Unticked: dynamic\","
-				" \"lane\": \"addon\", \"applies\": \"live_next_read\", \"stock_check\": \"none\" } } }"}},
-			none);
-		PackageView other;
-		other.folder = "Other";
-		other.display = "Other";
-		other.declarations = &none;
-		const auto other_page = build_flat_page({other});
-		const auto* none_custom = find_row(other_page, "custom:other/g.transform");
-		const auto none_page = build_value_page(other, "g.transform");
-		const auto* none_editor = none_page.rows.size() == 1 ? &none_page.rows[0] : nullptr;
-		check(error.empty() && none_custom != nullptr && none_editor != nullptr
-			&& none_editor->tooltip == "Stock 5. Range 0 to 5. Unticked: dynamic. Applies: live, at the next read."
-			&& none_custom->tooltip == "Off: the stock value is used. " + none_editor->tooltip,
-			"stock_check none: the tooltip is derived from the declaration and omits the live-stock sentence");
+		Session session;
+		(void)stage(session, views, "value:missions/survival.reward_interval", StagedValue::of_text("150"));
+		(void)stage(session, views, "value:missions/survival.alert_interval", StagedValue::of_text("600"));
+		(void)stage(session, views, "value:missions/survival.max.p1", StagedValue::of_number(10));
+		check(session.operations.empty() && settings_ui::apply(session, views).packages.empty(),
+			"closing value pages without a change (the completion restage) records nothing and writes nothing");
 	}
-
-	const auto root = build_root_page({view});
-	check(root.rows.size() == 1
-		&& root.rows[0].kind == RowKind::Button && root.rows[0].action == "open:pkg:Missions"
-		&& root.rows[0].label == "Missions: 5 values - 1 custom",
-		"R5 nested L1 (Risk of Options): the top page only lists the packages, one BUTTON each with a value summary");
 	{
-		// R3: BUTTON rows carry no stock sub-label; the detail is part of the
-		// 40-character label and the label, never the detail, is cut.
-		const auto cut = button_label("A very long mission section label that cannot fit", "12 values - 3 custom");
-		const auto plain = button_label("Restore all stock values", "");
-		const auto dropped = button("Section", "open:grp:X/y", std::string(36, 'd'), "Open Section.");
-		check(cut.size() <= maximum_row_label && cut.size() > 22 && cut.compare(cut.size() - 22, 22, ": 12 values - 3 custom") == 0
-			&& plain == "Restore all stock values"
-			&& dropped.label == "Section" && dropped.tooltip.rfind(std::string(36, 'd') + ". Open Section.", 0) == 0,
-			"R3 BUTTON label: '<label>: <detail>' within 40 characters, the label is cut and a detail that cannot fit opens the tooltip");
-		settings::ValueDecl long_value;
-		long_value.label = "Bonus damage per Cold status stack";
-		long_value.unit = "x";
-		long_value.stock = 0;
-		const auto long_label = value_button_label(long_value, 1.75);
-		check(long_label == "Bonus damage per Cold status: 1.75x",
-			"R3 value BUTTON: the current value always shows; the stock suffix goes first, then the label is cut at a word");
+		Session session;
+		(void)stage(session, views, "value:missions/survival.alert_interval", StagedValue::of_text("90"));
+		check(reset(session, views, "Missions/value:survival.reward_interval")
+			&& file_of(settings_ui::apply(session, views), "Missions", "survival.reward_interval", enabled, number) && !enabled && number == 300
+			&& file_of(settings_ui::apply(session, views), "Missions", "survival.alert_interval", enabled, number) && enabled && number == 90,
+			"Reset to default: only that value returns to its default (the stored number too)");
+		const auto after = overlay(session, views);
+		bool refreshed = false;
+		const auto timers_after = select_page(after, "node:Missions/1.0", refreshed);
+		check(refreshed && labels(timers_after) == "Time between rewards: 300 s (default) | Alert mission length: 90 s |  | Reset all to defaults",
+			"the page the bridge re-reads after the reset shows the default: " + labels(timers_after));
 	}
-	const auto package_page = build_package_page(view);
-	check(std::any_of(package_page.rows.begin(), package_page.rows.end(),
-			[](const Row& row) { return row.kind == RowKind::Button && row.action == "open:grp:Missions/survival"; })
-		&& std::any_of(package_page.rows.begin(), package_page.rows.end(),
-			[](const Row& row) { return row.kind == RowKind::Button && row.action == "restore:Missions"; }),
-		"nested L2: mission-type buttons and Restore all");
-	check(!package_page.rows.empty() && package_page.rows[0].setting == "package:missions"
-		&& package_page.rows.size() > 1 && package_page.rows[1].setting == "stock:missions"
-		&& std::none_of(package_page.rows.begin(), package_page.rows.end(),
-			[](const Row& row) { return row.kind == RowKind::Title && row.label == "MISSIONS"; })
-		&& std::count_if(package_page.rows.begin(), package_page.rows.end(),
-			[](const Row& row) { return row.setting.rfind("member:", 0) == 0; }) == 2,
-		"R5 nested L2: the package switch and the use-stock master first (the page title names the package), then member switches (2 members)");
 	{
-		PackageView single = view;
-		single.members.resize(1);
-		const auto single_page = build_package_page(single);
-		check(std::none_of(single_page.rows.begin(), single_page.rows.end(),
-				[](const Row& row) { return row.setting.rfind("member:", 0) == 0; }),
-			"R5 nested L2: no member switch when the package has one member");
+		Session session;
+		(void)stage(session, views, "value:missions/defense.offset", StagedValue::of_text("-2"));
+		(void)stage(session, views, "value:missions/survival.max.p4", StagedValue::of_number(40));
+		check(reset(session, views, "Missions/node:1")
+			&& file_of(settings_ui::apply(session, views), "Missions", "survival.reward_interval", enabled, number) && !enabled && number == 300
+			&& file_of(settings_ui::apply(session, views), "Missions", "survival.max.p4", enabled, number) && !enabled && number == 28
+			&& file_of(settings_ui::apply(session, views), "Missions", "defense.offset", enabled, number) && enabled && number == -2,
+			"Reset all to defaults on a mission type page resets everything below it and nothing else");
+		(void)stage(session, views, "value:missions/survival.max.p4", StagedValue::of_number(33), StageSource::Click);
+		check(file_of(settings_ui::apply(session, views), "Missions", "survival.max.p4", enabled, number) && enabled && number == 33,
+			"an edit after a reset applies (operations replay in order)");
+		Session all;
+		check(reset(all, views, "Missions") && file_of(settings_ui::apply(all, views), "Missions", "void_flood.fractures", enabled, number) && !enabled,
+			"Reset all on the package page also turns the built literal value off (its replacement member stays out)");
+		check(!reset(all, views, "Missions/node:9") && !reset(all, views, "Missions/value:no.such") && !reset(all, views, "Nothing"),
+			"a reset of an unknown scope is refused");
 	}
-	const auto group_page = build_group_page(view, "survival");
-	check(!group_page.search && group_page.rows.front().setting == "group:missions/survival"
-		&& std::any_of(group_page.rows.begin(), group_page.rows.end(),
-			[](const Row& row) { return row.action == "restore:Missions/survival"; }),
-		"nested L3: section switch first, Restore section; the stock search box stays off (R4)");
-	check(stock_uniform_heights(root) && stock_uniform_heights(package_page) && stock_uniform_heights(group_page)
-		&& find_action(group_page, "open:val:Missions/survival.pickup_multiplier") != nullptr,
-		"nested pages keep the stock scroll contract too; floats open the same value page");
-
-	// Member switches: long manifest labels are cut without dangling list
-	// punctuation; the full label, the file and the declared values are in the tooltip.
 	{
-		const MemberView tunables{addon_file, "Mission tunables: Purgatory, HalloweenLanternEndless, SurvivalMission",
-			"member:missions/missions.targets.addon.lua_b", true, false};
-		const MemberView exact{literal_file, "Exact replacement: ZarimanCorruptionMission (void_flood.fractures_per_round.normal)",
-			"member:missions/x", true, true};
-		const MemberView fits_row{addon_file, "Mission values: Survival, Defense", "member:missions/y", true, false};
-		const auto exact_tooltip = member_tooltip(view, exact);
-		const auto addon_tooltip = member_tooltip(view, fits_row);
-		check(member_row_label(tunables) == "Mission tunables: Purgatory"
-			&& member_row_label(exact) == "Exact replacement"
-			&& member_row_label(fits_row) == "Mission values: Survival, Defense",
-			"member row label: fits unchanged; over 40 cut at a word without trailing ',' or ':'");
-		check(exact_tooltip.rfind("Exact replacement: ZarimanCorruptionMission (void_flood.fractures_per_round.normal). Replaces a stock script.", 0) == 0
-			&& exact_tooltip.find("File: " + literal_file + ".") != std::string::npos
-			&& exact_tooltip.find("Sections: Void Flood (1).") != std::string::npos
-			&& addon_tooltip.find("Sections: Survival (2), Defense (2).") != std::string::npos
-			&& addon_tooltip.find("Replaces") == std::string::npos
-			&& exact_tooltip.size() <= maximum_tooltip,
-			"member tooltip: full label, replacement note, file and declared values per section");
-		const auto* literal_member_row = find_row(flat, "member:missions/" + script_control::ascii_lower(literal_file));
-		check(literal_member_row != nullptr && literal_member_row->label == "Void Flood fractures"
-			&& literal_member_row->tooltip == member_tooltip(view, view.members[1]),
-			"the flat page uses the member label and tooltip helpers");
+		// Quick on/off keeps the stored number; the detailed row shows what applies.
+		Session session;
+		check(stage(session, views, "active:missions/survival.reward_interval", StagedValue::of_bool(false), StageSource::Click).empty()
+			&& file_of(settings_ui::apply(session, views), "Missions", "survival.reward_interval", enabled, number) && !enabled && number == 150,
+			"Quick settings off: the mission returns to its default, the typed 150 is kept");
+		(void)stage(session, views, "stored:missions/survival.reward_interval", StagedValue::of_text("45"));
+		const auto off_views = overlay(session, views);
+		const auto quick_off = select_page(off_views, "quick:Missions", found);
+		const auto timers_off = select_page(off_views, "node:Missions/1.0", found);
+		check(file_of(settings_ui::apply(session, views), "Missions", "survival.reward_interval", enabled, number) && !enabled && number == 45
+			&& quick_off.rows[1].label == "Survival: 45 s" && !quick_off.rows[0].value
+			&& timers_off.rows[0].label == "Time between rewards: 300 s (default)",
+			"the quick value page edits the kept number while off; the detailed row shows the default that applies");
+		(void)stage(session, views, "active:missions/survival.reward_interval", StagedValue::of_bool(true), StageSource::Click);
+		check(file_of(settings_ui::apply(session, views), "Missions", "survival.reward_interval", enabled, number) && enabled && number == 45,
+			"Quick settings on again: the kept number applies (same storage as the detailed pages)");
+		Session literal;
+		(void)stage(literal, views, "active:missions/void_flood.fractures", StagedValue::of_bool(false), StageSource::Click);
+		check(file_of(settings_ui::apply(literal, views), "Missions", "void_flood.fractures", enabled, number) && !enabled,
+			"a literal quick value off: its replacement member stays out (default behaviour)");
+		(void)stage(literal, views, "value:missions/void_flood.fractures", StagedValue::of_number(4));
+		const auto literal_views = overlay(literal, views);
+		bool literal_found = false;
+		const auto literal_quick = select_page(literal_views, "quick:Missions", literal_found);
+		check(literal_found && literal_quick.rows[2].value && settings_ui::apply(literal, views).packages.empty(),
+			"choosing the built value on the literal value page applies the member again (back to the file state: nothing to write)");
 	}
-
-	// Staging -> applied state.
-	Session session;
-	check(stage(session, {view}, "custom:missions/survival.pickup_multiplier", StagedValue::of_bool(true)).empty()
-		&& stage(session, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("3.25")).empty()
-		&& stage(session, {view}, "value:missions/survival.reward_interval", StagedValue::of_number(200)).empty()
-		&& stage(session, {view}, "stock:missions", StagedValue::of_bool(true)).empty()
-		&& stage(session, {view}, "member:missions/missions.targets.addon.lua_b", StagedValue::of_bool(false)).empty(),
-		"staging accepts CHECKBOX, INPUTCOUNT, INPUTBOX text and member rows");
-	check(stage(session, {view}, "value:missions/survival.reward_interval", StagedValue::of_number(9999)) == "outside-min-max"
-		&& stage(session, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("abc")) == "not-a-number"
-		&& stage(session, {view}, "value:missions/void_flood.fractures_per_round.normal", StagedValue::of_number(5)) == "read-only-row"
-		&& stage(session, {view}, "value:other/x", StagedValue::of_number(1)) == "unknown-setting",
-		"host re-validates every staged value (second line of defence behind the native validator)");
-	auto applied = apply(session, {view});
-	check(applied.packages.size() == 1 && applied.packages[0].state.use_stock
-		&& applied.packages[0].state.values["survival.pickup_multiplier"].enabled
-		&& applied.packages[0].state.values["survival.pickup_multiplier"].value == 3.25
-		&& applied.packages[0].state.values["survival.reward_interval"].value == 200
-		&& applied.policy.size() == 1 && applied.policy[0].first == "member:missions/missions.targets.addon.lua_b"
-		&& !applied.policy[0].second,
-		"apply merges staged rows into one values file per package and one policy batch");
-	Session restore_session;
-	restore(restore_session, {view}, "Missions/survival");
-	auto restored = apply(restore_session, {view});
-	check(restored.packages.size() == 1
-		&& !restored.packages[0].state.values["survival.reward_interval"].enabled
-		&& restored.packages[0].state.values["survival.reward_interval"].value == 150,
-		"Restore unticks Custom in scope and remembers the value");
-	Session empty_session;
-	const auto nothing = apply(empty_session, {view});
-	check(nothing.packages.empty() && nothing.policy.empty(), "a session with no changes is a no-op");
-	Session same_session;
-	(void)stage(same_session, {view}, "value:missions/survival.reward_interval", StagedValue::of_number(150));
-	check(apply(same_session, {view}).packages.empty(), "restaging the current value is not a change");
-
-	// R5 (live 2026-09-30): a value edited on its page was written with
-	// enabled=false, because the "Custom" switch is a separate list row that
-	// the completion pass restaged unticked. An edit now turns it on.
 	{
-		const auto value_of = [](const Applied& result, std::string_view id, bool& enabled, double& value)
-		{
-			for (const auto& package : result.packages)
-			{
-				const auto entry = package.state.values.find(std::string(id));
-				if (entry == package.state.values.end()) continue;
-				enabled = entry->second.enabled;
-				value = entry->second.value;
-				return true;
-			}
-			return false;
-		};
-		bool enabled = false;
-		double number = 0;
-		Session edited;
-		const bool staged = stage(edited, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("3.25")).empty()
-			&& stage(edited, {view}, "custom:missions/survival.pickup_multiplier", StagedValue::of_bool(false)).empty();
-		check(staged && value_of(apply(edited, {view}), "survival.pickup_multiplier", enabled, number) && enabled && number == 3.25
-			&& edited.implied_custom.size() == 1,
-			"R5: an edited value is written enabled, although the list's unticked Custom row is restaged at close");
-		const auto group_view = overlay(edited, {view});
-		const auto edited_page = build_group_page(group_view[0], "survival");
-		const auto* switch_row = find_row(edited_page, "custom:missions/survival.pickup_multiplier");
-		const auto* value_button = find_action(edited_page, "open:val:Missions/survival.pickup_multiplier");
-		check(switch_row != nullptr && switch_row->value && value_button != nullptr
-			&& value_button->label == "Pickup multiplier: 3.25x (stock 1.5x)",
-			"R5: the page the bridge re-reads after the value page closes shows the ticked switch and the new value");
-
-		Session unticked;
-		(void)stage(unticked, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("3.25"));
-		(void)stage(unticked, {view}, "custom:missions/survival.pickup_multiplier", StagedValue::of_bool(false), StageSource::Click);
-		check(value_of(apply(unticked, {view}), "survival.pickup_multiplier", enabled, number) && !enabled && number == 3.25,
-			"R5: an explicit click on the switch after the edit decides (off, the value is remembered)");
-
-		Session unchanged;
-		(void)stage(unchanged, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("2.5"));
-		(void)stage(unchanged, {view}, "custom:missions/survival.pickup_multiplier", StagedValue::of_bool(false));
-		check(apply(unchanged, {view}).packages.empty() && unchanged.implied_custom.empty(),
-			"R5: closing a value page without a change turns nothing on and writes nothing");
-
-		Session back;
-		(void)stage(back, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("3.25"));
-		(void)stage(back, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("2.5"));
-		check(apply(back, {view}).packages.empty() && back.implied_custom.empty(),
-			"R5: an edit set back to the opening value restores the opening state");
-
-		Session enabled_edit;
-		(void)stage(enabled_edit, {view}, "value:missions/survival.reward_interval", StagedValue::of_number(60));
-		(void)stage(enabled_edit, {view}, "custom:missions/survival.reward_interval", StagedValue::of_bool(true));
-		check(value_of(apply(enabled_edit, {view}), "survival.reward_interval", enabled, number) && enabled && number == 60,
-			"R5: an already custom value keeps its switch and takes the new value (INPUTCOUNT page)");
-
-		Session restored_edit;
-		(void)stage(restored_edit, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("3.25"));
-		restore(restored_edit, {view}, "Missions/survival");
-		check(value_of(apply(restored_edit, {view}), "survival.pickup_multiplier", enabled, number) && !enabled && number == 3.25,
-			"R5: Restore still wins over an edit in its scope");
-
-		Session rejected;
-		check(stage(rejected, {view}, "value:missions/survival.pickup_multiplier", StagedValue::of_text("250")) == "outside-min-max"
-			&& rejected.implied_custom.empty() && apply(rejected, {view}).packages.empty(),
-			"R5: a rejected value turns nothing on (the bridge shows the stock message on Back)");
+		Session session;
+		check(stage(session, views, "custom:missions/survival.reward_interval", StagedValue::of_bool(true)) == "unknown-setting"
+			&& stage(session, views, "package:missions", StagedValue::of_bool(false)) == "unknown-setting"
+			&& stage(session, views, "member:missions/x", StagedValue::of_bool(false)) == "unknown-setting"
+			&& stage(session, views, "stock:missions", StagedValue::of_bool(true)) == "unknown-setting"
+			&& stage(session, views, "group:missions/survival", StagedValue::of_bool(false)) == "unknown-setting"
+			&& stage(session, views, "active:missions/survival.alert_interval", StagedValue::of_bool(true)) == "unknown-setting"
+			&& stage(session, views, "value:missions/survival.reward_interval", StagedValue::of_number(99999)) == "outside-min-max"
+			&& stage(session, views, "value:missions/survival.reward_interval", StagedValue::of_text("abc")) == "not-a-number"
+			&& stage(session, views, "value:missions/void_flood.fractures", StagedValue::of_number(5)) == "enum-value-not-an-option"
+			&& session.operations.empty(),
+			"no package, member, 'Use stock values', section or Custom setting is accepted any more (SCRIPTS owns enabling); "
+			"the host re-validates every value");
+	}
+	{
+		// Files written before R7: use_stock or a section switched off. Turning a
+		// value on switches them back on without letting anything else start.
+		auto legacy = views;
+		legacy[0].state.use_stock = true;
+		const auto legacy_page = select_page(legacy, "node:Missions/1.0", found);
+		Session session;
+		(void)stage(session, legacy, "value:missions/survival.alert_interval", StagedValue::of_text("90"));
+		const auto applied = settings_ui::apply(session, legacy);
+		check(legacy_page.rows[0].label == "Time between rewards: 300 s (default)"
+			&& file_of(applied, "Missions", "survival.alert_interval", enabled, number) && enabled && number == 90
+			&& file_of(applied, "Missions", "survival.reward_interval", enabled, number) && !enabled && number == 150
+			&& !applied.packages[0].state.use_stock && applied.packages[0].state.groups.size() == missions.groups.size(),
+			"a use_stock file shows defaults; an edit writes use_stock false, every section on and keeps other values off");
+	}
+	{
+		// The author's default (Frost-like, stock 0, default 50).
+		Session session;
+		(void)stage(session, views, "value:frost/ice_wave.bonus_per_cold_stack", StagedValue::of_text("50"));
+		check(session.operations.empty(), "Frost: confirming 50 (the default) is no change");
+		(void)stage(session, views, "value:frost/ice_wave.bonus_per_cold_stack", StagedValue::of_text("0"));
+		check(file_of(settings_ui::apply(session, views), "Frost", "ice_wave.bonus_per_cold_stack", enabled, number) && enabled && number == 0,
+			"Frost: 0 differs from the author's default: written enabled (0 turns the bonus off)");
+		settings::UserState state;
+		state.package = "package:frost";
+		const auto absent = settings::evaluate(frost, nullptr, {});
+		const auto delivered = settings::member_delivery(frost, nullptr, absent, r7::frost_file);
+		state.values["ice_wave.bonus_per_cold_stack"] = settings::UserValue{true, {}, false, true, 70, false, 0};
+		const auto off = settings::evaluate(frost, &state, {});
+		const auto off_delivery = settings::member_delivery(frost, &state, off, r7::frost_file);
+		state.values["ice_wave.bonus_per_cold_stack"].enabled = true;
+		const auto on = settings::evaluate(frost, &state, {});
+		const auto on_delivery = settings::member_delivery(frost, &state, on, r7::frost_file);
+		state.use_stock = true;
+		const auto stock = settings::evaluate(frost, &state, {});
+		const auto stock_delivery = settings::member_delivery(frost, &state, stock, r7::frost_file);
+		const auto malformed = settings::evaluate(frost, nullptr, "values-file-invalid-json");
+		const auto malformed_delivery = settings::member_delivery(frost, nullptr, malformed, r7::frost_file);
+		check(delivered->values.size() == 1 && delivered->values[0].value == 50.0f && delivered->values[0].stock == 0.0f
+			&& off_delivery->values.size() == 1 && off_delivery->values[0].value == 50.0f
+			&& on_delivery->values.size() == 1 && on_delivery->values[0].value == 70.0f
+			&& stock_delivery->values.empty() && malformed_delivery->values.empty(),
+			"declared default: delivered at 50 with no file or a disabled entry, the file value when enabled; "
+			"nothing on use_stock or a malformed file (fail closed = game stock)");
+		const auto missions_absent = settings::evaluate(missions, nullptr, {});
+		check(settings::member_delivery(missions, nullptr, missions_absent, r7::missions_addon_file)->values.empty(),
+			"no declared default (Missions): nothing is delivered without an enabled entry (V1 unchanged)");
 	}
 }
 
 // -----------------------------------------------------------------------------
-// Part 7 (optional, --package <folder> [--settings <file>]): a REAL package
-// folder and values file through the exact scanner, the settings evaluation,
-// the member deliveries and the SCRIPT SETTINGS page model (built the way the
-// host's build_script_settings_views builds it). Every declaration, delivery
-// and row is printed so the result can be read without the game.
-void external_package(const std::filesystem::path& package_folder, const std::filesystem::path* values_path,
-	const std::filesystem::path& work)
+// Part 7 (optional, --package <folder> [--settings <file>], repeatable): REAL
+// package folders and values files through the exact scanner, the settings
+// evaluation, the member deliveries and the SCRIPT SETTINGS page model (built
+// the way the host's build_script_settings_views builds it). Every
+// declaration, delivery, reachable page and row is printed.
+struct ExternalPackage
 {
-	using namespace renovice::settings_ui;
-	const auto source = package_folder.filename().empty() ? package_folder.parent_path() : package_folder;
-	const std::string folder = source.filename().string();
-	const std::string label = "external " + folder + ": ";
-	std::cout << "INFO\texternal package folder=" << folder << " settings="
-		<< (values_path != nullptr ? values_path->filename().string() : std::string("<none: every value stock>")) << '\n';
+	std::filesystem::path folder;
+	std::filesystem::path values;
+};
+
+void print_row(const std::string& prefix, const Row& row)
+{
+	std::cout << prefix << '\t' << row_kind_name(row.kind) << '\t' << row.setting << '\t' << row.label;
+	if (row.kind == RowKind::InputCount) std::cout << "\tcount=" << settings::json::number_text(row.count);
+	if (row.kind == RowKind::InputBox) std::cout << "\tcontent=" << row.content;
+	if (row.kind == RowKind::Checkbox) std::cout << "\tvalue=" << (row.value ? "on" : "off");
+	if (row.kind == RowKind::Button) std::cout << "\taction=" << row.action;
+	if (row.kind == RowKind::Toggle)
+	{
+		std::cout << "\tnumber=" << settings::json::number_text(row.number);
+		for (const auto& option : row.options)
+			std::cout << "\toption=" << settings::json::number_text(option.value) << ':' << option.label;
+	}
+	if (row.kind == RowKind::InputCount || row.kind == RowKind::InputBox)
+	{
+		std::cout << "\tmin=" << settings::json::number_text(row.minimum)
+			<< "\tmax=" << settings::json::number_text(row.maximum);
+		if (row.validate) std::cout << "\tvalidate";
+		if (row.integer) std::cout << "\tinteger";
+		if (!row.invalid_message.empty()) std::cout << "\tinvalid=" << row.invalid_message;
+	}
+	if (row.locked) std::cout << "\tlocked";
+	if (!row.tooltip.empty()) std::cout << "\ttooltip=" << row.tooltip;
+	std::cout << '\n';
+}
+
+// Scans the packages into one CustomScripts tree and builds the host views.
+std::vector<PackageView> scan_external(const std::vector<ExternalPackage>& inputs, const std::filesystem::path& work,
+	std::shared_ptr<const packages::Snapshot>& snapshot)
+{
+	std::vector<PackageView> views;
 	std::error_code ec;
 	std::filesystem::remove_all(work, ec);
 	gate::root = work / "CustomScripts";
 	gate::inject = gate::root / "Inject";
 	std::filesystem::create_directories(gate::inject);
 	gate::policy.clear();
-	std::filesystem::create_directories(gate::root / "Packages" / folder, ec);
-	std::filesystem::copy(source, gate::root / "Packages" / folder, std::filesystem::copy_options::recursive, ec);
-	check(!ec && std::filesystem::is_regular_file(gate::root / "Packages" / folder / "package.json"),
-		label + "package folder copied into an empty CustomScripts tree");
-	std::string values_text;
-	if (values_path != nullptr)
+	for (const auto& input : inputs)
 	{
-		values_text = read_text(*values_path);
-		check(!values_text.empty(), label + "values file read");
-		write_text(gate::root / "Settings" / settings::values_file_name(folder), values_text);
+		const auto source = input.folder.filename().empty() ? input.folder.parent_path() : input.folder;
+		const std::string folder = source.filename().string();
+		std::filesystem::create_directories(gate::root / "Packages" / folder, ec);
+		std::filesystem::copy(source, gate::root / "Packages" / folder, std::filesystem::copy_options::recursive, ec);
+		check(!ec && std::filesystem::is_regular_file(gate::root / "Packages" / folder / "package.json"),
+			"external " + folder + ": package folder copied into an empty CustomScripts tree");
+		if (!input.values.empty())
+			write_text(gate::root / "Settings" / settings::values_file_name(folder), read_text(input.values));
 	}
 	gate::log_lines.clear();
-	check(packages::initialise(), label + "startup scan PASS");
-	const auto snapshot = packages::candidate();
-	const auto* package = snapshot ? find_package(*snapshot, folder) : nullptr;
+	check(packages::initialise(), "external: startup scan PASS");
+	snapshot = packages::candidate();
 	for (const auto& line : gate::log_lines) std::cout << "LOG\t" << line << '\n';
-	check(package != nullptr && package->accepted,
-		label + "package accepted" + (package != nullptr && !package->reason.empty() ? " (reason " + package->reason + ")" : ""));
-	check(package != nullptr && package->declarations != nullptr && package->settings_reason.empty(),
-		label + "settings declarations accepted by the runtime parser"
-			+ (package != nullptr && !package->settings_reason.empty() ? " (reason " + package->settings_reason + ")" : ""));
-	if (package == nullptr || package->declarations == nullptr) return;
-	const auto& declarations = *package->declarations;
-	for (const auto& value : declarations.values)
+	if (!snapshot) return views;
+	for (const auto& input : inputs)
 	{
-		std::cout << "DECL\tid=" << value.id << " member=" << value.member << " group=" << value.group
-			<< " lane=" << settings::lane_label(value.lane) << " type=" << settings::value_type_label(value.type)
-			<< " stock=" << settings::json::number_text(value.stock) << " min=" << settings::json::number_text(value.minimum)
-			<< " max=" << settings::json::number_text(value.maximum) << " applies=" << settings::applies_label(value.applies)
-			<< " stock_check=" << (value.lane != settings::Lane::Addon ? "n/a"
-				: std::string(settings::stock_check_label(value.stock_check)) + (value.stock_check_declared ? "" : "(default)"))
-			<< '\n';
-	}
-
-	// The values file exactly as the runtime reads it.
-	settings::UserState state;
-	std::string file_error;
-	const bool present = packages::read_settings_values(*package, state, file_error);
-	check(present == (values_path != nullptr), label + (values_path != nullptr
-		? "the runtime finds Settings/" + settings::values_file_name(folder)
-		: std::string("no values file (every value stock)")));
-	check(file_error.empty(), label + "values file valid" + (file_error.empty() ? "" : " (reason " + file_error + ")"));
-	const auto evaluation = settings::evaluate(declarations, present && file_error.empty() ? &state : nullptr, file_error);
-	for (const auto& rejection : evaluation.rejections)
-		std::cout << "REJECT\tid=" << rejection.id << " reason=" << rejection.reason << '\n';
-	std::cout << "INFO\tfile=" << settings::file_status_label(evaluation.file) << " use_stock=" << (evaluation.use_stock ? 1 : 0)
-		<< " effective=" << evaluation.effective.size() << " rejected=" << evaluation.rejections.size()
-		<< " unknown_entries=" << evaluation.unknown_entries << '\n';
-	check(evaluation.rejections.empty(), label + "no value in the values file is rejected");
-
-	// Deliveries: every addon member that declares values receives one.
-	bool deliveries = true;
-	for (const auto& member : package->members)
-	{
-		std::cout << "MEMBER\t" << member.filename << " staged=" << (member.staged ? 1 : 0)
-			<< " enabled=" << (member.enabled ? 1 : 0) << " delivery=" << (member.delivery ? "yes" : "nil");
-		if (member.delivery) std::cout << " values=" << member.delivery->values.size() << " identity=" << member.delivery->identity;
-		std::cout << '\n';
-		if (member.delivery)
+		const auto source = input.folder.filename().empty() ? input.folder.parent_path() : input.folder;
+		const std::string folder = source.filename().string();
+		const std::string label = "external " + folder + ": ";
+		const auto* package = find_package(*snapshot, folder);
+		check(package != nullptr && package->accepted,
+			label + "package accepted" + (package != nullptr && !package->reason.empty() ? " (reason " + package->reason + ")" : ""));
+		check(package != nullptr && package->declarations != nullptr && package->settings_reason.empty(),
+			label + "settings declarations accepted by the runtime parser"
+				+ (package != nullptr && !package->settings_reason.empty() ? " (reason " + package->settings_reason + ")" : ""));
+		if (package == nullptr || package->declarations == nullptr) continue;
+		const auto& declarations = *package->declarations;
+		for (const auto& value : declarations.values)
 		{
-			for (const auto& value : member.delivery->values)
+			std::cout << "DECL\tid=" << value.id << " member=" << value.member << " group=" << value.group
+				<< " lane=" << settings::lane_label(value.lane) << " type=" << settings::value_type_label(value.type)
+				<< " stock=" << settings::json::number_text(value.stock)
+				<< " default=" << (value.default_declared ? settings::json::number_text(value.default_value) : std::string("stock"))
+				<< " min=" << settings::json::number_text(value.minimum) << " max=" << settings::json::number_text(value.maximum)
+				<< " applies=" << settings::applies_label(value.applies)
+				<< " path=";
+			for (std::size_t index = 0; index != value.path.size(); ++index) std::cout << (index ? " > " : "") << value.path[index];
+			std::cout << " row=" << value.row << (value.quick.empty() ? "" : " quick=" + value.quick) << '\n';
+		}
+		settings::UserState state;
+		std::string file_error;
+		const bool present = packages::read_settings_values(*package, state, file_error);
+		check(present == !input.values.empty(), label + (!input.values.empty()
+			? "the runtime finds Settings/" + settings::values_file_name(folder)
+			: std::string("no values file (every value at its default)")));
+		check(file_error.empty(), label + "values file valid" + (file_error.empty() ? "" : " (reason " + file_error + ")"));
+		const auto evaluation = settings::evaluate(declarations, present && file_error.empty() ? &state : nullptr, file_error);
+		for (const auto& rejection : evaluation.rejections)
+			std::cout << "REJECT\tid=" << rejection.id << " reason=" << rejection.reason << '\n';
+		std::cout << "INFO\t" << folder << " file=" << settings::file_status_label(evaluation.file) << " use_stock=" << (evaluation.use_stock ? 1 : 0)
+			<< " effective=" << evaluation.effective.size() << " defaults=" << evaluation.defaulted.size()
+			<< " rejected=" << evaluation.rejections.size() << " unknown_entries=" << evaluation.unknown_entries << '\n';
+		check(evaluation.rejections.empty(), label + "no value in the values file is rejected");
+		bool deliveries = true;
+		for (const auto& member : package->members)
+		{
+			std::cout << "MEMBER\t" << member.filename << " staged=" << (member.staged ? 1 : 0)
+				<< " enabled=" << (member.enabled ? 1 : 0) << " delivery=" << (member.delivery ? "yes" : "nil");
+			if (member.delivery) std::cout << " values=" << member.delivery->values.size() << " identity=" << member.delivery->identity;
+			std::cout << '\n';
+			if (member.delivery)
 			{
-				std::cout << "DELIVER\t" << member.filename << " context.settings[\"" << value.id << "\"] = { enabled = true, value = "
-					<< settings::json::number_text(value.value) << ", stock = " << settings::json::number_text(value.stock) << " }\n";
-			}
-		}
-		const bool addon = member.kind != packages::MemberKind::Replacement;
-		if (addon && settings::member_declares_values(declarations, member.filename)) deliveries &= member.delivery != nullptr;
-	}
-	check(deliveries, label + "every addon member that declares values receives a delivery (context.settings)");
-
-	// SCRIPT SETTINGS page model, as build_script_settings_views builds it.
-	PackageView view;
-	view.folder = package->folder;
-	view.display = package->display;
-	view.declarations = &declarations;
-	for (const auto& member : package->members)
-	{
-		view.members.push_back(MemberView{member.filename, member.label, member.state_id, member.enabled,
-			member.kind == packages::MemberKind::Replacement});
-	}
-	if (present && file_error.empty()) view.state = state;
-	const auto page = build_flat_page({view});
-	bool labels_fit = true;
-	bool tooltips_fit = true;
-	bool sentence_rule = true;
-	// ROW / VALROW lines carry every descriptor field the host sends, so the
-	// stock-render gate (verify_script_settings_render.ps1 -PageRows) can run
-	// exactly these rows through the stock screen.
-	const auto print_row = [](const std::string& prefix, const Row& row)
-	{
-		std::cout << prefix << '\t' << row_kind_name(row.kind) << '\t' << row.setting << '\t' << row.label;
-		if (row.kind == RowKind::InputCount) std::cout << "\tcount=" << settings::json::number_text(row.count);
-		if (row.kind == RowKind::InputBox) std::cout << "\tcontent=" << row.content;
-		if (row.kind == RowKind::Checkbox) std::cout << "\tvalue=" << (row.value ? "on" : "off");
-		if (row.kind == RowKind::Button) std::cout << "\taction=" << row.action;
-		if (row.kind == RowKind::Toggle)
-		{
-			std::cout << "\tnumber=" << settings::json::number_text(row.number);
-			for (const auto& option : row.options)
-				std::cout << "\toption=" << settings::json::number_text(option.value) << ':' << option.label;
-		}
-		if (row.kind == RowKind::InputCount || row.kind == RowKind::InputBox)
-		{
-			std::cout << "\tmin=" << settings::json::number_text(row.minimum)
-				<< "\tmax=" << settings::json::number_text(row.maximum);
-			if (row.validate) std::cout << "\tvalidate";
-			if (row.integer) std::cout << "\tinteger";
-			if (!row.invalid_message.empty()) std::cout << "\tinvalid=" << row.invalid_message;
-		}
-		if (row.locked) std::cout << "\tlocked";
-		if (!row.tooltip.empty()) std::cout << "\ttooltip=" << row.tooltip;
-		std::cout << '\n';
-	};
-	std::cout << "PAGE\ttitle=" << page.title << "\tsearch=" << (page.search ? 1 : 0) << '\n';
-	for (const auto& row : page.rows)
-	{
-		print_row("ROW", row);
-		labels_fit &= row.label.size() <= (row.kind == RowKind::Title ? maximum_title_label : maximum_row_label);
-		tooltips_fit &= row.tooltip.size() <= maximum_tooltip;
-		for (const auto& declaration : declarations.values)
-		{
-			const std::string suffix = settings_ui::folder_key(view.folder) + "/" + declaration.id;
-			if (row.setting != "value:" + suffix && row.setting != "custom:" + suffix) continue;
-			const bool claims = row.tooltip.find(live_stock_sentence) != std::string::npos;
-			sentence_rule &= claims == (declaration.lane == settings::Lane::Addon
-				&& declaration.stock_check == settings::StockCheck::Live);
-		}
-	}
-	bool value_pages = true;
-	for (const auto& row : page.rows)
-	{
-		if (row.action.rfind("open:val:", 0) != 0) continue;
-		const auto body = std::string_view(row.action).substr(9);
-		const auto slash = body.find('/');
-		const auto value_page = slash == std::string_view::npos ? Page{}
-			: build_value_page(view, body.substr(slash + 1));
-		std::cout << "VALPAGE\t" << row.action << "\ttitle=" << value_page.title << "\trows=" << value_page.rows.size();
-		if (!value_page.rows.empty())
-			std::cout << '\t' << row_kind_name(value_page.rows[0].kind) << '\t' << value_page.rows[0].setting
-				<< '\t' << value_page.rows[0].label << "\tcontent=" << value_page.rows[0].content;
-		std::cout << '\n';
-		for (const auto& value_row : value_page.rows) print_row("VALROW\t" + row.action, value_row);
-		const auto* value_declaration = slash == std::string_view::npos ? nullptr
-			: declarations.value(body.substr(slash + 1));
-		value_pages &= value_declaration != nullptr && value_page.rows.size() == 1
-			&& value_page.rows[0].kind == (value_declaration->type == settings::ValueType::Int
-				&& value_declaration->minimum >= 0 ? RowKind::InputCount : RowKind::InputBox)
-			&& value_page.rows[0].label == editor_label(*value_declaration)
-			&& row.label == value_button_label(*value_declaration, current_value(view, *value_declaration));
-	}
-	bool member_labels = true;
-	for (const auto& member : view.members)
-		member_labels &= clean(member.label.empty() ? member.filename : member.label).size() <= maximum_row_label;
-	std::cout << "SCROLL\trows=" << page.rows.size() << " uniform=" << (stock_uniform_heights(page) ? 1 : 0)
-		<< " scroll=" << (stock_scroll_attached(page) ? 1 : 0) << '\n';
-	check(!page.rows.empty(), label + "SCRIPT SETTINGS page has rows");
-	check(stock_uniform_heights(page),
-		label + "the flat page keeps the stock scroll contract (uniform 44 px rows, no INPUTBOX): it scrolls once it exceeds 14 rows");
-	check(value_pages, label + "every value-page BUTTON shows its current value and opens exactly one editor for the same value (INPUTCOUNT for int >= 0, else INPUTBOX)");
-	check(!page.search && std::all_of(page.rows.begin(), page.rows.end(), [](const Row& row)
-		{
-			return row.kind != RowKind::InputCount && row.kind != RowKind::InputBox
-				&& !(row.kind == RowKind::Button && row.locked);
-		}),
-		label + "R4: the flat page holds no INPUTCOUNT, INPUTBOX or locked BUTTON, and the stock search box stays off");
-	check(view.members.size() < 2 || member_labels,
-		label + "every member label fits the 40-character row without cutting (package.json producer rule)");
-	// R5: the nested layout (the default) for this package: the package page
-	// and every section page keep the stock row rules proven in R2-R4.
-	{
-		const auto list_safe = [](const Page& nested)
-		{
-			return stock_uniform_heights(nested) && !nested.search
-				&& std::all_of(nested.rows.begin(), nested.rows.end(), [](const Row& row)
+				for (const auto& value : member.delivery->values)
 				{
-					return row.kind != RowKind::InputCount && row.kind != RowKind::InputBox
-						&& !(row.kind == RowKind::Button && row.locked) && row.label.size() <= maximum_title_label;
-				});
-		};
-		const auto root = build_root_page({view});
-		const auto package_page = build_package_page(view);
-		bool nested_ok = root.rows.size() == 1 && root.rows[0].action == "open:pkg:" + view.folder
-			&& list_safe(root) && list_safe(package_page);
-		std::size_t sections = 0;
-		std::size_t section_rows = 0;
-		for (const auto& row : package_page.rows)
-		{
-			if (row.action.rfind("open:grp:", 0) != 0) continue;
-			const auto group = row.action.substr(row.action.find('/') + 1);
-			const auto section = build_group_page(view, group);
-			++sections;
-			section_rows += section.rows.size();
-			nested_ok &= !section.rows.empty() && list_safe(section);
-			for (const auto& section_row : section.rows)
-			{
-				if (section_row.action.rfind("open:val:", 0) == 0)
-					nested_ok &= !build_value_page(view, section_row.action.substr(section_row.action.find('/') + 1)).rows.empty();
+					std::cout << "DELIVER\t" << member.filename << " context.settings[\"" << value.id << "\"] = { enabled = true, value = "
+						<< settings::json::number_text(value.value) << ", stock = " << settings::json::number_text(value.stock) << " }\n";
+				}
 			}
+			const bool addon = member.kind != packages::MemberKind::Replacement;
+			if (addon && settings::member_declares_values(declarations, member.filename)) deliveries &= member.delivery != nullptr;
 		}
-		std::cout << "NESTED\troot_rows=" << root.rows.size() << " package_rows=" << package_page.rows.size()
-			<< " sections=" << sections << " section_rows=" << section_rows << '\n';
-		check(nested_ok && sections == static_cast<std::size_t>(std::count_if(declarations.groups.begin(), declarations.groups.end(),
-				[&](const settings::GroupDecl& group) { return value_count(view, group.id) != 0; })),
-			label + "R5 nested layout: one package BUTTON on the top page; the package and every section page keep the stock row rules; every value BUTTON opens its value page");
+		check(deliveries, label + "every addon member that declares values receives a delivery (context.settings)");
+		PackageView view;
+		view.folder = package->folder;
+		view.display = package->display;
+		view.declarations = &declarations;
+		for (const auto& member : package->members)
+		{
+			view.members.push_back(MemberView{member.filename, member.label, member.state_id, member.enabled,
+				member.kind == packages::MemberKind::Replacement});
+		}
+		if (present && file_error.empty()) view.state = state;
+		else if (present) { view.file_malformed = true; view.file_reason = file_error; }
+		views.push_back(std::move(view));
 	}
-	check(labels_fit, label + "every row label fits the width budget (40 value / 48 title)");
-	check(tooltips_fit, label + "every tooltip fits the tooltip budget");
-	check(sentence_rule, label + "the live-stock tooltip sentence appears exactly on addon rows with stock_check live");
+	return views;
+}
+
+// The navigation as the player walks it: every page right under the row that opens it.
+void print_tree_page(const std::vector<PackageView>& views, const std::string& id, std::size_t depth, std::set<std::string>& seen)
+{
+	if (!seen.insert(id).second || depth > 8) return;
+	bool found = false;
+	const auto page = select_page(views, id, found);
+	if (!found) return;
+	for (const auto& row : page.rows)
+	{
+		if (row.kind == RowKind::Spacer) continue;
+		std::cout << "TREE\t" << std::string(depth * 2, ' ') << row.label << '\n';
+		if (row.action.rfind("open:node:", 0) == 0 || row.action.rfind("open:quick:", 0) == 0)
+			print_tree_page(views, row.action.substr(5), depth + 1, seen);
+	}
+}
+
+void print_tree(const PackageView& view)
+{
+	std::set<std::string> seen;
+	std::cout << "TREE\t" << view.display << '\n';
+	print_tree_page({view}, "pkg:" + view.folder, 1, seen);
+}
+
+void external_packages(const std::vector<ExternalPackage>& inputs, const std::filesystem::path& work)
+{
+	std::shared_ptr<const packages::Snapshot> snapshot;
+	const auto views = scan_external(inputs, work, snapshot);
+	check(views.size() == inputs.size(), "external: every package has a settings view");
+	if (views.empty()) return;
+	// The flat page (PAGE/ROW/VALROW lines, for verify_script_settings_render.ps1 -PageRows).
+	const auto flat = build_flat_page(views);
+	std::cout << "PAGE\ttitle=" << flat.title << "\tsearch=" << (flat.search ? 1 : 0) << '\n';
+	for (const auto& row : flat.rows) print_row("ROW", row);
+	for (const auto& row : flat.rows)
+	{
+		if (row.action.rfind("open:", 0) != 0) continue;
+		bool found = false;
+		const auto value_page = select_page(views, row.action.substr(5), found);
+		std::cout << "VALPAGE\t" << row.action << "\ttitle=" << value_page.title << "\trows=" << value_page.rows.size() << '\n';
+		for (const auto& value_row : value_page.rows) print_row("VALROW\t" + row.action, value_row);
+	}
+	std::cout << "SCROLL\trows=" << flat.rows.size() << " uniform=" << (stock_uniform_heights(flat) ? 1 : 0)
+		<< " scroll=" << (stock_scroll_attached(flat) ? 1 : 0) << '\n';
+	check(stock_uniform_heights(flat) && std::all_of(flat.rows.begin(), flat.rows.end(), [](const Row& row)
+		{
+			return row.kind == RowKind::Title || (row.kind == RowKind::Button && row.action.rfind("open:val:", 0) == 0);
+		}), "external: the flat layout is TITLE and value BUTTON rows only (uniform, scrolls past 14 rows)");
+
+	// Every reachable nested page.
+	const auto pages = reachable_pages(views, "root");
+	std::size_t value_pages = 0, list_pages = 0, rows = 0;
+	bool rules = true;
+	std::map<std::string, std::size_t> opened; // value id -> times a detailed page opens it
+	for (const auto& [id, page] : pages)
+	{
+		std::cout << "PAGEDUMP\t" << id << "\ttitle=" << page.title << "\trows=" << page.rows.size() << '\n';
+		for (const auto& row : page.rows) print_row("PAGEROW\t" + id, row);
+		const auto problem = page_rule_problem(id, page);
+		if (!problem.empty()) std::cout << "FAIL-DETAIL\tpage " << id << ": " << problem << '\n';
+		rules &= problem.empty();
+		rows += page.rows.size();
+		(id.rfind("val:", 0) == 0 || id.rfind("qval:", 0) == 0 ? value_pages : list_pages) += 1;
+		if (id.rfind("quick:", 0) == 0) continue;
+		for (const auto& row : page.rows)
+			if (row.action.rfind("open:val:", 0) == 0) ++opened[row.action.substr(row.action.find('/') + 1)];
+	}
+	std::cout << "NESTED\tpages=" << pages.size() << " list_pages=" << list_pages << " value_pages=" << value_pages
+		<< " rows=" << rows << '\n';
+	check(rules, "external: every reachable page keeps the stock row rules and holds no package, member, 'Use stock values', "
+		"section or 'Custom' switch (" + std::to_string(pages.size()) + " pages)");
+	bool reachable = true;
+	std::size_t declared = 0;
+	for (const auto& view : views)
+	{
+		for (const auto& value : view.declarations->values)
+		{
+			++declared;
+			const auto count = opened.find(value.id);
+			reachable &= count != opened.end() && count->second == 1;
+			if (count == opened.end() || count->second != 1)
+				std::cout << "FAIL-DETAIL\tvalue " << value.id << " is opened by " << (count == opened.end() ? 0 : count->second) << " rows\n";
+		}
+	}
+	check(reachable, "external: every declared value has exactly one row in the page tree (" + std::to_string(declared) + " values)");
+	for (const auto& view : views) print_tree(view);
 }
 
 // -----------------------------------------------------------------------------
-// Part 8 (optional, --replay <file>): the R5 edit flow end to end. The stock
-// render harness (verify_script_settings_render.ps1) drives the bridge under
-// test through the stock GenericSettings screen, with nested navigation, value
-// pages, Confirm and Back, and records every host stage call. Each recorded
-// session is replayed here from the same opening state through the exact host
-// model (settings_ui::stage, apply) and the values file writer and parser.
-// Lines (tab-separated):
-//   SESSION <name>
-//   STAGE   <setting> <bool|number|text> <value> <click|restage>
-//   RESTORE <Folder>[/<group>]
-//   EXPECT  <session> <folder> <value id> enabled=<0|1> value=<number>
-//   EXPECT  <session> <folder> file=unchanged
-namespace r5
+// Part 8 (optional, --tape <plan>): the host side of the stock render harness.
+// verify_script_settings_render.ps1 drives the bridge under test through the
+// stock screen with these host pages: for every prefix of the planned host
+// calls (stage and act, in order) this prints the pages that changed
+// (TAPEPAGE/TAPEROW, step = calls applied), then applies the whole session
+// through the values file writer and checks the EXPECT lines. The harness
+// checks that the bridge made exactly the planned calls.
+// Plan lines (tab-separated):
+//   STAGE <setting> <bool|number|text> <value> <click|restage>
+//   ACT <action>
+//   EXPECTFILE <folder> <value id> enabled=<0|1> value=<number>
+//   EXPECTFILE <folder> file=unchanged
+//   EXPECTROW <step> <page id> <row key (action or setting)> <label>
+namespace tape
 {
-const char* frost_top =
-	"{ \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"2026.09.28.13.06\", \"groups\": ["
-	" { \"id\": \"ice_wave\", \"label\": \"Ice Wave\", \"order\": 10, \"aliases\": [] } ] }";
-const char* frost_values =
-	"{ \"values\": { \"ice_wave.bonus_per_cold_stack\": { \"group\": \"ice_wave\", \"label\": \"Bonus per Cold stack\","
-	" \"unit\": \"x\", \"type\": \"float\", \"stock\": 0, \"min\": 0, \"max\": 100, \"scope\": \"Frost Ice Wave\","
-	" \"lane\": \"addon\", \"applies\": \"live_next_read\", \"stock_check\": \"none\" } } }";
-const char* missions_top =
-	"{ \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"2026.09.28.13.06\", \"groups\": ["
-	" { \"id\": \"survival\", \"label\": \"Survival\", \"order\": 10, \"aliases\": [] },"
-	" { \"id\": \"purgatory\", \"label\": \"Purgatory\", \"order\": 20, \"aliases\": [] } ] }";
-const char* missions_values =
-	"{ \"values\": {"
-	" \"survival.reward_interval\": { \"group\": \"survival\", \"label\": \"Reward interval\", \"unit\": \"s\","
-	"   \"type\": \"float\", \"stock\": 300, \"min\": 1, \"max\": 32767, \"scope\": \"All Survival nodes. Case: normal\","
-	"   \"lane\": \"addon\", \"applies\": \"live_next_read\" },"
-	" \"survival.alert_interval\": { \"group\": \"survival\", \"label\": \"Seconds per reward rotation\", \"unit\": \"s\","
-	"   \"type\": \"float\", \"stock\": 600, \"min\": 1, \"max\": 60000, \"scope\": \"All Survival nodes. Case: alert\","
-	"   \"lane\": \"addon\", \"applies\": \"live_next_read\" },"
-	" \"purgatory.difficulty1.warrior_level\": { \"group\": \"purgatory\", \"label\": \"Difficulty 1 warrior level\","
-	"   \"unit\": \"\", \"type\": \"int\", \"stock\": 10, \"min\": 1, \"max\": 1000, \"scope\": \"Purgatory\","
-	"   \"lane\": \"addon\", \"applies\": \"live_next_read\" } } }";
-
 std::vector<std::string> split_tabs(const std::string& line)
 {
 	std::vector<std::string> fields;
@@ -1412,124 +1394,117 @@ std::vector<std::string> split_tabs(const std::string& line)
 	}
 	return fields;
 }
+
+std::string page_text(const Page& page)
+{
+	std::ostringstream out;
+	out << page.title << '\x1f' << page.empty_message << '\x1f';
+	for (const auto& row : page.rows)
+	{
+		out << row_kind_name(row.kind) << '\x1e' << row.setting << '\x1e' << row.label << '\x1e' << row.action << '\x1e'
+			<< row.content << '\x1e' << row.value << '\x1e' << row.count << '\x1e' << row.number << '\x1e' << row.tooltip << '\x1d';
+	}
+	return out.str();
+}
 }
 
-void replay(const std::filesystem::path& file)
+void run_tape(const std::vector<ExternalPackage>& inputs, const std::filesystem::path& plan_path, const std::filesystem::path& work)
 {
-	using namespace renovice::settings_ui;
-	settings::Declarations frost;
-	settings::Declarations missions;
-	const auto frost_error = settings::parse_declarations(r5::frost_top,
-		{{"8fba3a28f8fef624.IceWaveColdStackDamage.target.addon.lua_B", r5::frost_values}}, frost);
-	const auto missions_error = settings::parse_declarations(r5::missions_top,
-		{{addon_file, r5::missions_values}}, missions);
-	check(frost_error.empty() && missions_error.empty(), "R5 replay: the Frost and Missions declarations parse");
-	std::vector<PackageView> views(2);
-	views[0].folder = "Frost";
-	views[0].display = "Frost";
-	views[0].declarations = &frost;
-	views[0].state.package = "package:frost";
-	views[0].state.values["ice_wave.bonus_per_cold_stack"] = settings::UserValue{true, {}, true, true, 50, false, 0};
-	views[1].folder = "Missions";
-	views[1].display = "Missions";
-	views[1].declarations = &missions;
-	views[1].state.package = "package:missions";
-	views[1].state.values["survival.reward_interval"] = settings::UserValue{true, {}, true, true, 150, false, 0};
-
-	std::ifstream input(file, std::ios::binary);
-	check(static_cast<bool>(input), "R5 replay: the recorded stage file is readable");
-	std::map<std::string, Applied> results;
-	std::map<std::string, std::size_t> stage_counts;
-	std::string current;
-	Session session;
-	std::vector<std::vector<std::string>> expectations;
-	const auto finish = [&]()
-	{
-		if (current.empty()) return;
-		results[current] = renovice::settings_ui::apply(session, views);
-		for (const auto& package : results[current].packages)
-		{
-			const auto text = settings::write_values_file(package.state, package.declarations);
-			settings::UserState reread;
-			const auto error = settings::parse_values_file(text, package.state.package, reread);
-			std::cout << "REPLAY\tsession=" << current << " write " << package.folder
-				<< (error.empty() ? " parse=ok" : " parse=" + error) << '\n';
-			for (const auto& [id, value] : reread.values)
-			{
-				std::cout << "REPLAY\tsession=" << current << " file " << package.folder << '/' << id
-					<< " enabled=" << (value.enabled ? 1 : 0) << " value=" << settings::json::number_text(value.value) << '\n';
-			}
-		}
-		session = Session{};
-	};
+	std::shared_ptr<const packages::Snapshot> snapshot;
+	const auto views = scan_external(inputs, work, snapshot);
+	check(views.size() == inputs.size(), "tape: every package has a settings view");
+	std::ifstream input(plan_path, std::ios::binary);
+	check(static_cast<bool>(input), "tape: the plan is readable");
+	std::vector<std::vector<std::string>> operations, expectations;
 	std::string line;
 	while (std::getline(input, line))
 	{
 		if (!line.empty() && line.back() == '\r') line.pop_back();
-		const auto fields = r5::split_tabs(line);
-		if (fields.empty()) continue;
-		if (fields[0] == "SESSION" && fields.size() == 2)
+		const auto fields = tape::split_tabs(line);
+		if (fields.empty() || fields[0].empty()) continue;
+		if (fields[0] == "STAGE" || fields[0] == "ACT") operations.push_back(fields);
+		else if (fields[0] == "EXPECTFILE" || fields[0] == "EXPECTROW") expectations.push_back(fields);
+	}
+	Session session;
+	std::map<std::string, std::string> last; // page id -> page text at the previous step
+	std::map<std::pair<std::size_t, std::string>, Page> at_step;
+	const auto dump = [&](std::size_t step)
+	{
+		const auto current = overlay(session, views);
+		for (const auto& [id, page] : reachable_pages(current, "root"))
 		{
-			finish();
-			current = fields[1];
+			const auto text = tape::page_text(page);
+			at_step[{step, id}] = page;
+			if (last[id] == text) continue;
+			last[id] = text;
+			std::cout << "TAPEPAGE\t" << step << '\t' << id << "\ttitle=" << page.title << "\tempty=" << page.empty_message << '\n';
+			for (const auto& row : page.rows) print_row("TAPEROW\t" + std::to_string(step) + '\t' + id, row);
 		}
-		else if (fields[0] == "STAGE" && fields.size() == 5 && !current.empty())
+	};
+	dump(0);
+	std::size_t step = 0;
+	for (const auto& operation : operations)
+	{
+		++step;
+		if (operation[0] == "STAGE" && operation.size() == 5)
 		{
 			StagedValue value;
-			if (fields[2] == "bool") value = StagedValue::of_bool(fields[3] == "true");
-			else if (fields[2] == "number") value = StagedValue::of_number(std::stod(fields[3]));
-			else value = StagedValue::of_text(fields[3]);
-			const auto source = fields[4] == "click" ? StageSource::Click : StageSource::Restage;
-			const auto reason = stage(session, views, fields[1], value, source);
-			++stage_counts[current];
-			std::cout << "REPLAY\tsession=" << current << " stage " << fields[1] << " = " << fields[3]
-				<< " (" << fields[4] << ") -> " << (reason.empty() ? std::string("accepted") : "REJECT " + reason) << '\n';
+			if (operation[2] == "bool") value = StagedValue::of_bool(operation[3] == "true");
+			else if (operation[2] == "number") value = StagedValue::of_number(std::stod(operation[3]));
+			else value = StagedValue::of_text(operation[3]);
+			const auto reason = stage(session, views, operation[1], value,
+				operation[4] == "click" ? StageSource::Click : StageSource::Restage);
+			std::cout << "TAPEOP\t" << step << "\tstage " << operation[1] << " = " << operation[3] << " (" << operation[4] << ") -> "
+				<< (reason.empty() ? std::string("accepted") : "REJECT " + reason) << '\n';
 		}
-		else if (fields[0] == "RESTORE" && fields.size() == 2 && !current.empty())
+		else if (operation[0] == "ACT" && operation.size() == 2)
 		{
-			restore(session, views, fields[1]);
-			std::cout << "REPLAY\tsession=" << current << " restore " << fields[1] << '\n';
+			const auto& action = operation[1];
+			const auto colon = action.find(':');
+			const bool staged = colon != std::string::npos && reset(session, views, std::string_view(action).substr(colon + 1));
+			std::cout << "TAPEOP\t" << step << "\tact " << action << " -> " << (staged ? "reset" : "REJECT") << '\n';
 		}
-		else if (fields[0] == "EXPECT") expectations.push_back(fields);
+		dump(step);
 	}
-	finish();
-	check(!results.empty(), "R5 replay: at least one recorded session");
+	std::cout << "TAPESTEPS\t" << step << '\n';
+	const auto applied = settings_ui::apply(session, views);
 	for (const auto& expectation : expectations)
 	{
-		const auto& name = expectation.size() > 1 ? expectation[1] : std::string();
-		const auto result = results.find(name);
-		if (expectation.size() == 4 && expectation[3] == "file=unchanged")
+		if (expectation[0] == "EXPECTROW" && expectation.size() == 5)
 		{
-			const bool unchanged = result != results.end() && std::none_of(result->second.packages.begin(),
-				result->second.packages.end(), [&](const AppliedPackage& package) { return package.folder == expectation[2]; });
-			check(unchanged, "R5 replay " + name + ": Settings/" + expectation[2] + ".json is not written");
+			const auto key = std::make_pair(static_cast<std::size_t>(std::stoul(expectation[1])), expectation[2]);
+			const auto page = at_step.find(key);
+			const Row* row = page == at_step.end() ? nullptr : row_by(page->second, expectation[3]);
+			check(row != nullptr && row->label == expectation[4], "tape step " + expectation[1] + ": page " + expectation[2] + " row "
+				+ expectation[3] + " reads '" + expectation[4] + "'" + (row != nullptr ? " (reads '" + row->label + "')" : " (missing)"));
 			continue;
 		}
-		bool found = false;
-		bool enabled = false;
-		double value = 0;
-		if (result != results.end() && expectation.size() == 6)
+		if (expectation.size() == 3 && expectation[2] == "file=unchanged")
 		{
-			for (const auto& package : result->second.packages)
-			{
-				if (package.folder != expectation[2]) continue;
-				settings::UserState reread;
-				const auto text = settings::write_values_file(package.state, package.declarations);
-				if (!settings::parse_values_file(text, package.state.package, reread).empty()) continue;
-				const auto entry = reread.values.find(expectation[3]);
-				if (entry == reread.values.end()) continue;
-				found = true;
-				enabled = entry->second.enabled;
-				value = entry->second.value;
-			}
+			check(std::none_of(applied.packages.begin(), applied.packages.end(),
+					[&](const AppliedPackage& package) { return package.folder == expectation[1]; }),
+				"tape: Settings/" + expectation[1] + ".json is not written");
+			continue;
 		}
-		const bool want_enabled = expectation.size() == 6 && expectation[4] == "enabled=1";
-		const double want_value = expectation.size() == 6 && expectation[5].rfind("value=", 0) == 0
-			? std::stod(expectation[5].substr(6)) : -1;
-		check(found && enabled == want_enabled && value == want_value,
-			"R5 replay " + name + ": Settings/" + (expectation.size() > 2 ? expectation[2] : std::string()) + ".json holds "
-				+ (expectation.size() > 3 ? expectation[3] : std::string()) + " " + (expectation.size() > 4 ? expectation[4] : std::string())
-				+ " " + (expectation.size() > 5 ? expectation[5] : std::string()) + " (stages: " + std::to_string(stage_counts[name]) + ")");
+		bool found = false, enabled = false;
+		double value = 0;
+		for (const auto& package : applied.packages)
+		{
+			if (expectation.size() != 5 || package.folder != expectation[1]) continue;
+			const auto text = settings::write_values_file(package.state, package.declarations);
+			settings::UserState reread;
+			if (!settings::parse_values_file(text, package.state.package, reread).empty()) continue;
+			const auto entry = reread.values.find(expectation[2]);
+			if (entry == reread.values.end()) continue;
+			found = true;
+			enabled = entry->second.enabled;
+			value = entry->second.value;
+		}
+		const bool want_enabled = expectation.size() == 5 && expectation[3] == "enabled=1";
+		const double want_value = expectation.size() == 5 && expectation[4].rfind("value=", 0) == 0 ? std::stod(expectation[4].substr(6)) : -1;
+		check(found && enabled == want_enabled && value == want_value, "tape: Settings/" + (expectation.size() > 1 ? expectation[1] : std::string())
+			+ ".json holds " + (expectation.size() > 2 ? expectation[2] : std::string()) + " " + (expectation.size() > 3 ? expectation[3] : std::string())
+			+ " " + (expectation.size() > 4 ? expectation[4] : std::string()));
 	}
 }
 
@@ -1547,13 +1522,30 @@ std::filesystem::path long_path(const std::filesystem::path& path)
 
 int main(int argc, char** argv)
 {
-	const bool with_package = argc >= 5 && std::string_view(argv[3]) == "--package";
-	const bool with_settings = argc == 7 && with_package && std::string_view(argv[5]) == "--settings";
-	const bool with_replay = argc == 5 && std::string_view(argv[3]) == "--replay";
-	if (!(argc == 3 || (argc == 5 && with_package) || with_settings || with_replay))
+	if (argc < 3)
 	{
 		std::cerr << "usage: verify_addon_settings <work dir> <phase2i fixture dir>"
-			" [--package <folder> [--settings <file>] | --replay <stage file>]\n";
+			" [--package <folder> [--settings <file>]]... [--tape <plan>]\n";
+		return 2;
+	}
+	std::vector<ExternalPackage> packages_in;
+	std::filesystem::path plan;
+	for (int index = 3; index < argc; ++index)
+	{
+		const std::string_view flag = argv[index];
+		if (flag == "--package" && index + 1 < argc) packages_in.push_back(ExternalPackage{long_path(argv[++index]), {}});
+		else if (flag == "--settings" && index + 1 < argc && !packages_in.empty() && packages_in.back().values.empty())
+			packages_in.back().values = long_path(argv[++index]);
+		else if (flag == "--tape" && index + 1 < argc) plan = long_path(argv[++index]);
+		else
+		{
+			std::cerr << "unknown or misplaced argument: " << flag << '\n';
+			return 2;
+		}
+	}
+	if (!plan.empty() && packages_in.empty())
+	{
+		std::cerr << "--tape needs --package\n";
 		return 2;
 	}
 	const auto work = long_path(argv[1]);
@@ -1565,12 +1557,8 @@ int main(int argc, char** argv)
 	end_to_end(work);
 	phase1_contract(long_path(argv[2]), work / "phase2i");
 	ui_page_model();
-	if (with_package)
-	{
-		const auto values = with_settings ? long_path(argv[6]) : std::filesystem::path();
-		external_package(long_path(argv[4]), with_settings ? &values : nullptr, work / "external");
-	}
-	if (with_replay) replay(long_path(argv[4]));
+	if (!packages_in.empty() && plan.empty()) external_packages(packages_in, work / "external");
+	if (!plan.empty()) run_tape(packages_in, plan, work / "tape");
 	std::cout << (pass ? "ADDON SETTINGS PASS" : "ADDON SETTINGS FAIL") << '\n';
 	return pass ? 0 : 1;
 }

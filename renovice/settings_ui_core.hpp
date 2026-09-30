@@ -1,28 +1,39 @@
 #pragma once
 
-// SCRIPT SETTINGS pause-menu editor: pure page model and staging (2026-09-30).
+// SCRIPT SETTINGS pause-menu editor: pure page model and staging.
 //
-// Contract: INGAME_EDITOR_DESIGN.md sections 4.2-4.6. The host (injection.cpp)
-// turns a Page into plain DE Luau row descriptors; the compiled bridge
+// Contract: INGAME_EDITOR_DESIGN.md sections 4.2-4.6, CONTRACT_PHASE1.md
+// Revision R7 (2026-09-30). The host (injection.cpp) turns a Page into plain DE
+// Luau row descriptors; the compiled bridge
 // (RENOVICE_SCRIPTING/INTERNAL/ScriptSettingsBridgeV1.luau) maps them onto the
 // stock GenericSettings row types TITLE, SPACER, CHECKBOX, INPUTCOUNT, INPUTBOX,
 // TOGGLE and BUTTON. Nothing here is Pluto, an overlay or a custom movie.
 //
+// R7 value model (live feedback 2026-09-30): no "Custom" switches, no package,
+// member, "Use stock values" or section switches (enabling a script is the
+// SCRIPTS menu's job). Every value has a current value and a Default:
+//   * the default is the declared `default` (an addon-owned option, for example
+//     the Ice Wave bonus 50x) or else the game stock;
+//   * changing a value applies it; a value equal to its default means "leave
+//     it as intended". In the values file that is `enabled = value ~= default`
+//     (unchanged V1 file format and delivery);
+//   * "Reset to default" (value page) and "Reset all to defaults" (every list
+//     page) put values back at their default;
+//   * the Quick settings page is the one on/off: `active:` toggles the stored
+//     `enabled` flag and keeps the typed value (`stored:`).
+//
 // Row setting ids (the value-changed callback receives them as mSetting):
-//   package:<folder lower>            package enable (ScriptStates.json)
-//   member:<folder lower>/<file lower> member enable  (ScriptStates.json)
-//   stock:<folder lower>              master "Use stock values"
-//   group:<folder lower>/<group id>   section switch
-//   custom:<folder lower>/<value id>  per-value "Custom" switch
-//   value:<folder lower>/<value id>   the value editor
-// BUTTON actions: open:val:<Folder>/<value id> (every layout: the one-value
-// INPUTCOUNT or INPUTBOX page, see "Stock scroll contract" below and
-// uses_value_page), open:pkg:<Folder>,
-// open:grp:<Folder>/<group>, restore:<Folder> and restore:<Folder>/<group>
-// (nested layout only).
-// Layout (R5): nested by default (root -> package -> section -> value page);
-// SettingsMenuNested=false selects the flat list. An accepted edit on a value
-// page turns the value's Custom switch on (Session::implied_custom).
+//   value:<folder lower>/<value id>   the value (detailed pages)
+//   stored:<folder lower>/<value id>  the kept value of a quick value (qval page)
+//   active:<folder lower>/<value id>  the quick on/off (and the legacy literal switch)
+// BUTTON actions:
+//   open:<page id>                    push a child page
+//   reset:<Folder>/value:<value id>   value page: reset, then close the page
+//   resetall:<Folder>[/node:<node>]   list page: reset everything below, refresh in place
+// Page ids: root, flat, pkg:<Folder>, node:<Folder>/<node id>, quick:<Folder>,
+// val:<Folder>/<value id>, qval:<Folder>/<value id>.
+// Layout: nested by default (root -> package -> path pages -> value page);
+// SettingsMenuNested=false selects one flat list.
 
 #include <algorithm>
 #include <cctype>
@@ -56,8 +67,9 @@ inline constexpr std::size_t maximum_input_chars = 16;
 // grows with the summed row heights, so a long list runs off the screen and
 // the mouse wheel (onKeyDown_MENU_MOUSE_Z needs mScrollBar) does nothing.
 // Therefore: the bridge gives TITLE and SPACER mHeight = 44 (the CHECKBOX,
-// TOGGLE, BUTTON and INPUTCOUNT default), and an INPUTBOX editor never shares
-// a list page: it lives alone on its one-value page ("val:" page id).
+// TOGGLE, BUTTON and INPUTCOUNT default), and an editor never shares a list
+// page: it lives on its value page ("val:" page id) with at most its reset
+// BUTTON, which never scrolls.
 inline constexpr double stock_uniform_row_height = 44.0;
 inline constexpr double stock_inputbox_row_height = 108.0;
 inline constexpr std::size_t stock_uniform_visible_rows = 14;
@@ -136,6 +148,8 @@ inline bool stock_scroll_attached(const Page& page) noexcept
 	return stock_uniform_heights(page) && page.rows.size() > stock_uniform_visible_rows;
 }
 
+// Members stay in the view for the host's inventory; since R7 no page shows
+// them (enabling a package or a member is the SCRIPTS menu's job).
 struct MemberView
 {
 	std::string filename;
@@ -196,7 +210,7 @@ inline std::string fit_words(std::string text, std::size_t budget)
 	if (cut == 0) cut = budget;
 	while (cut != 0 && (static_cast<unsigned char>(text[cut]) & 0xC0u) == 0x80u) --cut;
 	text.resize(cut);
-	while (!text.empty() && text.back() == ' ') text.pop_back();
+	while (!text.empty() && (text.back() == ' ' || text.back() == ':' || text.back() == ',')) text.pop_back();
 	return text;
 }
 
@@ -205,6 +219,13 @@ inline std::string bounded_tooltip(std::string text)
 	text = clean(text);
 	if (text.size() <= maximum_tooltip) return text;
 	return fit_words(text, maximum_tooltip);
+}
+
+inline std::string sentence(std::string text)
+{
+	text = clean(text);
+	if (!text.empty() && text.back() != '.' && text.back() != '!' && text.back() != '?') text += '.';
+	return text;
 }
 
 inline std::string folder_key(std::string_view folder)
@@ -240,7 +261,7 @@ inline std::string value_text(const settings::ValueDecl& declaration, double val
 	if (declaration.type == settings::ValueType::Enum)
 	{
 		for (const auto& option : declaration.options)
-			if (option.value == value) return option.label;
+			if (option.value == value) return clean(option.label);
 	}
 	return display_number(value);
 }
@@ -254,73 +275,20 @@ inline std::string with_unit(const settings::ValueDecl& declaration, double valu
 	return text;
 }
 
-inline std::string custom_label(std::string_view label)
+// "<label>: <detail>" within the 40-character row, cutting the label at a word,
+// never the detail. BUTTON rows never carry a stock sub-label (R3: the stock
+// draw needs mButtonWidth for it, source line 991).
+inline std::string button_label(std::string_view label, std::string_view detail)
 {
-	const std::string full = "Custom " + clean(label);
-	return full.size() <= maximum_row_label ? full : fit_words(clean(label), maximum_row_label);
-}
-
-inline std::string editor_label(const settings::ValueDecl& declaration)
-{
-	const std::string full = clean(declaration.label) + " (stock " + with_unit(declaration, declaration.stock) + ")";
-	return full.size() <= maximum_row_label ? full : fit_words(declaration.label, maximum_row_label);
-}
-
-// The tooltip always starts with the stock value (CONTRACT_PHASE1 D1: when
-// the "(stock ...)" suffix does not fit the 40-character label, this is where
-// the player reads it), then the range, the scope and the apply timing. The
-// live-stock sentence is derived from the declaration (`stock_check`): only an
-// addon that compares the live value with stock before writing says so.
-inline constexpr std::string_view live_stock_sentence = " Custom value applies only where the live value equals stock.";
-
-inline std::string value_tooltip(const settings::ValueDecl& declaration)
-{
-	std::string text = "Stock " + with_unit(declaration, declaration.stock) + ".";
-	if (declaration.type != settings::ValueType::Enum)
-	{
-		text += " Range " + display_number(declaration.minimum) + " to "
-			+ display_number(declaration.maximum) + ".";
-	}
-	if (!declaration.scope.empty()) text += " " + clean(declaration.scope) + ".";
-	if (declaration.lane == settings::Lane::Literal)
-		text += " Edited in Ability Studio; this switch applies the edited script at the next mission.";
-	else if (declaration.lane == settings::Lane::Metadata)
-		text += " Metadata value: read-only here; applies after a game restart.";
-	else
-	{
-		text += " Applies: " + applies_text(declaration.applies) + ".";
-		if (declaration.stock_check == settings::StockCheck::Live) text += live_stock_sentence;
-	}
-	return bounded_tooltip(text);
-}
-
-inline std::size_t custom_count(const PackageView& view, std::string_view group)
-{
-	if (view.declarations == nullptr) return 0;
-	std::size_t count = 0;
-	for (const auto& declaration : view.declarations->values)
-	{
-		if (!group.empty() && declaration.group != group) continue;
-		const auto entry = view.state.values.find(declaration.id);
-		if (entry != view.state.values.end() && entry->second.shape_valid && entry->second.enabled) ++count;
-	}
-	return count;
-}
-
-inline std::size_t value_count(const PackageView& view, std::string_view group)
-{
-	if (view.declarations == nullptr) return 0;
-	return static_cast<std::size_t>(std::count_if(view.declarations->values.begin(),
-		view.declarations->values.end(), [&](const settings::ValueDecl& declaration)
-		{
-			return group.empty() || declaration.group == group;
-		}));
-}
-
-inline std::string summary(std::size_t values, std::size_t custom)
-{
-	return std::to_string(values) + (values == 1 ? " value - " : " values - ")
-		+ std::to_string(custom) + " custom";
+	const std::string base = clean(label);
+	const std::string text = clean(detail);
+	if (text.empty()) return fit_words(base, maximum_row_label);
+	const std::string full = base + ": " + text;
+	if (full.size() <= maximum_row_label) return full;
+	constexpr std::size_t minimum_label = 8;
+	if (text.size() + 2 + minimum_label <= maximum_row_label)
+		return fit_words(base, maximum_row_label - text.size() - 2) + ": " + text;
+	return fit_words(base, maximum_row_label);
 }
 
 inline Row title(std::string_view text)
@@ -349,27 +317,6 @@ inline Row checkbox(std::string label, std::string setting, bool value, std::str
 	return row;
 }
 
-// BUTTON rows never carry a stock sub-label (R3). The stock draw callback
-// (ThemedGenericSettings 44.0.2, source line 991) places mSubLabel at
-// `mButtonWidth - (mSubLabelOffset or 100)`, and stock screens that use it
-// always set mButtonWidth (ThemedTennoCustomization: 400). A BUTTON with a
-// sub-label and no width raised a nil arithmetic error that aborted the List
-// redraw and the panel layout (live, bridge 2e337a43). The detail (a current
-// value or a section summary) is therefore part of the label: "<label>:
-// <detail>" within the 40-character row, cutting the label, never the detail.
-inline std::string button_label(std::string_view label, std::string_view detail)
-{
-	const std::string base = clean(label);
-	const std::string text = clean(detail);
-	if (text.empty()) return fit_words(base, maximum_row_label);
-	const std::string full = base + ": " + text;
-	if (full.size() <= maximum_row_label) return full;
-	constexpr std::size_t minimum_label = 8;
-	if (text.size() + 2 + minimum_label <= maximum_row_label)
-		return fit_words(base, maximum_row_label - text.size() - 2) + ": " + text;
-	return fit_words(base, maximum_row_label);
-}
-
 inline Row button(std::string label, std::string action, std::string detail, std::string tooltip)
 {
 	Row row;
@@ -377,44 +324,275 @@ inline Row button(std::string label, std::string action, std::string detail, std
 	row.label = button_label(label, detail);
 	row.action = std::move(action);
 	row.setting = "action:" + row.action;
-	const std::string shown = clean(detail);
-	const bool detail_shown = shown.empty()
-		|| (row.label.size() >= shown.size() + 2 && row.label.compare(row.label.size() - shown.size() - 2, std::string::npos, ": " + shown) == 0);
-	row.tooltip = bounded_tooltip(detail_shown ? std::move(tooltip) : shown + ". " + tooltip);
+	row.tooltip = bounded_tooltip(std::move(tooltip));
 	return row;
 }
 
-inline bool group_enabled(const PackageView& view, std::string_view group)
+// ---------------------------------------------------------------------------
+// R7 value model.
+// ---------------------------------------------------------------------------
+inline double default_value(const settings::ValueDecl& declaration) noexcept
 {
-	const auto found = view.state.groups.find(std::string(group));
-	return found == view.state.groups.end() || found->second;
+	return settings::default_of(declaration);
 }
 
-// Every number is edited on its own one-value page (R4). Floats and negative
-// integers use an INPUTBOX, which the stock scroll contract forbids on a list
-// page. Integers >= 0 use the stock INPUTCOUNT stepper, which cannot live on a
-// recycled (scrolled) list: stock builds its Minus/Count/Plus widgets once per
-// row, bound to the clip of the first draw (ThemedGenericSettings 44.0.2
-// source lines 1081-1152), while CHECKBOX and TOGGLE are rebuilt on every
-// scrolled draw (lines 878-880, 927-929). A scrolled INPUTCOUNT showed an
-// uninitialised count field (raw "SELECT ITEMS", `size="19" color`, "Hold to
-// clear"), and after a search filter the per-frame count poll (line 1627 ->
-// 1474) indexed a row copy without mCountButton (live EE.log 2026-09-30). On
-// a one-row page the INPUTCOUNT is drawn once in its own clip, like stock.
-inline bool uses_value_page(const settings::ValueDecl& declaration) noexcept
+// Literal lane (a replacement built with a fixed number): the option the
+// built script applies, i.e. the first declared option that is not the stock.
+inline const settings::EnumOption* built_option(const settings::ValueDecl& declaration) noexcept
 {
-	return declaration.type == settings::ValueType::Float || declaration.type == settings::ValueType::Int;
+	if (declaration.lane != settings::Lane::Literal || declaration.type != settings::ValueType::Enum) return nullptr;
+	for (const auto& option : declaration.options)
+		if (option.value != declaration.stock) return &option;
+	return nullptr;
 }
 
-inline double current_value(const PackageView& view, const settings::ValueDecl& declaration)
+inline bool group_enabled(const settings::UserState& state, std::string_view group)
+{
+	const auto found = state.groups.find(std::string(group));
+	return found == state.groups.end() || found->second;
+}
+
+inline const settings::UserValue* entry_of(const PackageView& view, const settings::ValueDecl& declaration)
 {
 	const auto entry = view.state.values.find(declaration.id);
-	if (entry != view.state.values.end() && entry->second.shape_valid && entry->second.has_value
-		&& settings::validate_value(declaration, entry->second.value).empty())
+	if (entry == view.state.values.end() || !entry->second.shape_valid) return nullptr;
+	return &entry->second;
+}
+
+// The stored number of an entry, when it is one the declaration accepts.
+inline bool stored_number(const PackageView& view, const settings::ValueDecl& declaration, double& number)
+{
+	const auto* entry = entry_of(view, declaration);
+	if (entry == nullptr || !entry->has_value || !settings::validate_value(declaration, entry->value).empty()) return false;
+	number = entry->value;
+	return true;
+}
+
+// Whether the file entry is what applies (the host's evaluation, ignoring
+// build-carry-over checks): a valid file, not use_stock, section on, enabled
+// and, outside the literal lane, a valid number.
+inline bool entry_applies(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	if (view.file_malformed || view.state.use_stock || !group_enabled(view.state, declaration.group)) return false;
+	const auto* entry = entry_of(view, declaration);
+	if (entry == nullptr || !entry->enabled) return false;
+	if (declaration.lane == settings::Lane::Literal) return true;
+	double number = 0.0;
+	return stored_number(view, declaration, number);
+}
+
+// The value the player currently gets (what the rows show).
+inline double current_value(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	if (declaration.lane == settings::Lane::Literal)
 	{
-		return entry->second.value;
+		if (!entry_applies(view, declaration)) return declaration.stock;
+		if (const auto* built = built_option(declaration)) return built->value;
+		double number = 0.0;
+		return stored_number(view, declaration, number) ? number : declaration.stock;
 	}
-	return declaration.stock;
+	if (!entry_applies(view, declaration)) return default_value(declaration);
+	const auto* entry = entry_of(view, declaration);
+	return entry->value;
+}
+
+// The number a quick value keeps while it is off (the qval page edits it).
+inline double kept_value(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	double number = 0.0;
+	if (stored_number(view, declaration, number)) return number;
+	if (const auto* built = built_option(declaration)) return built->value;
+	return default_value(declaration);
+}
+
+inline bool at_default(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	return current_value(view, declaration) == default_value(declaration);
+}
+
+inline std::string default_text(const settings::ValueDecl& declaration)
+{
+	if (!declaration.default_label.empty()) return clean(declaration.default_label);
+	return with_unit(declaration, default_value(declaration));
+}
+
+inline std::string number_text(const settings::ValueDecl& declaration, double value)
+{
+	return value == default_value(declaration) ? default_text(declaration) : with_unit(declaration, value);
+}
+
+inline std::string shown_value(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	return number_text(declaration, current_value(view, declaration));
+}
+
+inline std::string row_text(const settings::ValueDecl& declaration)
+{
+	return clean(declaration.row.empty() ? declaration.label : declaration.row);
+}
+
+// "Time between rewards: 60 s", or "Time between rewards: 300 s (default)".
+inline std::string value_row_label(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	const bool is_default = at_default(view, declaration);
+	return button_label(row_text(declaration),
+		shown_value(view, declaration) + (is_default ? " (default)" : ""));
+}
+
+inline std::string description(const settings::ValueDecl& declaration)
+{
+	if (!declaration.scope.empty()) return sentence(declaration.scope);
+	return sentence(clean(declaration.label));
+}
+
+// The addon compares the live game value with its stock before writing
+// (`stock_check` live): said once, on the editor, in player words.
+inline constexpr std::string_view live_stock_sentence = " A changed value applies only where the game still uses its default.";
+
+inline std::string editor_tooltip(const settings::ValueDecl& declaration)
+{
+	std::string text = "Default " + default_text(declaration) + ".";
+	if (declaration.lane == settings::Lane::Literal)
+	{
+		text += " Built into the mission script; applies at the next mission.";
+		return bounded_tooltip(text);
+	}
+	if (declaration.lane == settings::Lane::Metadata)
+		return bounded_tooltip(text + " Metadata value: read-only here; applies after a game restart.");
+	if (declaration.type != settings::ValueType::Enum)
+		text += " Range " + display_number(declaration.minimum) + " to " + display_number(declaration.maximum) + ".";
+	text += " Applies " + applies_text(declaration.applies) + ".";
+	if (declaration.stock_check == settings::StockCheck::Live) text += live_stock_sentence;
+	return bounded_tooltip(text);
+}
+
+// ---------------------------------------------------------------------------
+// Tree of pages (R7 `path`). Values are taken in (section order, declaration
+// order); a node's items (child pages and value rows) keep the order in which
+// they first appear. Values without `path` in a package that uses paths sit
+// under their section label. A package without any `path` renders its
+// sections flat on the package page (older packages, for example Frost).
+// ---------------------------------------------------------------------------
+struct TreeItem
+{
+	std::size_t node = 0;                          // child node index (when value == nullptr)
+	const settings::ValueDecl* value = nullptr;
+};
+
+struct TreeNode
+{
+	std::string name;
+	std::string id;       // "" for the package page, else "0", "0.2", ...
+	std::size_t children = 0;
+	std::vector<TreeItem> items;
+};
+
+struct Tree
+{
+	bool uses_paths = false;
+	std::vector<TreeNode> nodes; // nodes[0] = package page
+};
+
+inline std::vector<const settings::ValueDecl*> ordered_values(const settings::Declarations& declarations)
+{
+	std::map<std::string, long long> order;
+	for (const auto& group : declarations.groups) order[group.id] = group.order;
+	std::vector<const settings::ValueDecl*> values;
+	for (const auto& value : declarations.values) values.push_back(&value);
+	std::stable_sort(values.begin(), values.end(), [&](const auto* lhs, const auto* rhs)
+	{
+		return order[lhs->group] < order[rhs->group];
+	});
+	return values;
+}
+
+inline std::vector<const settings::GroupDecl*> ordered_groups(const settings::Declarations& declarations)
+{
+	std::vector<const settings::GroupDecl*> groups;
+	for (const auto& group : declarations.groups) groups.push_back(&group);
+	std::stable_sort(groups.begin(), groups.end(), [](const auto* lhs, const auto* rhs)
+	{
+		return lhs->order < rhs->order;
+	});
+	return groups;
+}
+
+inline std::vector<std::string> value_path(const settings::Declarations& declarations, const settings::ValueDecl& value)
+{
+	if (!value.path.empty()) return value.path;
+	const auto* group = declarations.group(value.group);
+	return {group != nullptr ? clean(group->label) : value.group};
+}
+
+inline Tree build_tree(const settings::Declarations& declarations)
+{
+	Tree tree;
+	tree.nodes.push_back(TreeNode{});
+	tree.uses_paths = std::any_of(declarations.values.begin(), declarations.values.end(),
+		[](const settings::ValueDecl& value) { return !value.path.empty(); });
+	for (const auto* value : ordered_values(declarations))
+	{
+		if (!tree.uses_paths)
+		{
+			tree.nodes[0].items.push_back(TreeItem{0, value});
+			continue;
+		}
+		std::size_t at = 0;
+		for (const auto& name : value_path(declarations, *value))
+		{
+			std::size_t found = 0;
+			bool exists = false;
+			for (const auto& item : tree.nodes[at].items)
+			{
+				if (item.value == nullptr && tree.nodes[item.node].name == name)
+				{
+					found = item.node;
+					exists = true;
+					break;
+				}
+			}
+			if (!exists)
+			{
+				TreeNode node;
+				node.name = name;
+				const auto index = tree.nodes[at].children++;
+				node.id = tree.nodes[at].id.empty() ? std::to_string(index) : tree.nodes[at].id + "." + std::to_string(index);
+				found = tree.nodes.size();
+				tree.nodes.push_back(std::move(node));
+				tree.nodes[at].items.push_back(TreeItem{found, nullptr});
+			}
+			at = found;
+		}
+		tree.nodes[at].items.push_back(TreeItem{0, value});
+	}
+	return tree;
+}
+
+inline const TreeNode* find_node(const Tree& tree, std::string_view id)
+{
+	for (const auto& node : tree.nodes)
+		if (node.id == id) return &node;
+	return nullptr;
+}
+
+inline void collect_values(const Tree& tree, const TreeNode& node, std::vector<const settings::ValueDecl*>& out)
+{
+	for (const auto& item : node.items)
+	{
+		if (item.value != nullptr) out.push_back(item.value);
+		else collect_values(tree, tree.nodes[item.node], out);
+	}
+}
+
+inline std::size_t changed_count(const PackageView& view, const std::vector<const settings::ValueDecl*>& values)
+{
+	return static_cast<std::size_t>(std::count_if(values.begin(), values.end(),
+		[&](const settings::ValueDecl* value) { return !at_default(view, *value); }));
+}
+
+inline std::string changed_detail(std::size_t changed)
+{
+	return changed == 0 ? std::string() : std::to_string(changed) + " changed";
 }
 
 inline std::string value_page_action(const PackageView& view, const settings::ValueDecl& declaration)
@@ -422,19 +600,188 @@ inline std::string value_page_action(const PackageView& view, const settings::Va
 	return "open:val:" + view.folder + "/" + declaration.id;
 }
 
-// The stock value editor of one value: TOGGLE (enum, inline), or on the value
-// page INPUTCOUNT (int >= 0) or a validated INPUTBOX (float, negative int).
-inline Row value_editor(const PackageView& view, const settings::ValueDecl& declaration)
+inline Row value_row(const PackageView& view, const settings::ValueDecl& declaration)
 {
-	const double current = current_value(view, declaration);
+	Row row;
+	row.kind = RowKind::Button;
+	row.label = value_row_label(view, declaration);
+	row.action = value_page_action(view, declaration);
+	row.setting = "action:" + row.action;
+	row.tooltip = bounded_tooltip(description(declaration));
+	return row;
+}
+
+inline Row node_row(const PackageView& view, const Tree& tree, const TreeNode& node)
+{
+	std::vector<const settings::ValueDecl*> values;
+	collect_values(tree, node, values);
+	return button(node.name, "open:node:" + view.folder + "/" + node.id,
+		changed_detail(changed_count(view, values)), "Open " + clean(node.name) + ".");
+}
+
+inline void append_items(std::vector<Row>& rows, const PackageView& view, const Tree& tree, const TreeNode& node)
+{
+	for (const auto& item : node.items)
+	{
+		if (item.value != nullptr) rows.push_back(value_row(view, *item.value));
+		else rows.push_back(node_row(view, tree, tree.nodes[item.node]));
+	}
+}
+
+inline Row reset_all_row(std::string action, std::string_view where)
+{
+	return button("Reset all to defaults", std::move(action), "",
+		"Sets every value " + std::string(where) + " back to its default.");
+}
+
+// The stock search box stays off (R4). The stock filter (ThemedGenericSettings
+// 44.0.2 source lines 685-709) rebuilds the list from copies taken at populate
+// (lines 1656-1678): a row edited before typing shows its old value again and
+// the completion pass would stage that old value. Live 2026-09-30 the filter
+// also re-added an INPUTCOUNT row copy without widgets, the per-frame count
+// poll raised a script error and the screen could not be left.
+inline constexpr bool stock_search_box = false;
+
+inline std::vector<const settings::ValueDecl*> quick_values(const settings::Declarations& declarations)
+{
+	std::vector<const settings::ValueDecl*> values;
+	for (const auto* value : ordered_values(declarations))
+		if (!value->quick.empty()) values.push_back(value);
+	return values;
+}
+
+inline bool quick_on(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	return entry_applies(view, declaration);
+}
+
+// Nested layout, the default (SettingsMenuNested=false selects the flat list).
+// The top page lists only the packages that declare settings.
+inline Page build_root_page(const std::vector<PackageView>& views)
+{
+	Page page;
+	page.title = "SCRIPT SETTINGS";
+	page.empty_message = "NO PACKAGE SETTINGS FOUND";
+	for (const auto& view : views)
+	{
+		if (view.declarations == nullptr) continue;
+		std::vector<const settings::ValueDecl*> values;
+		for (const auto& value : view.declarations->values) values.push_back(&value);
+		page.rows.push_back(button(clean(view.display), "open:pkg:" + view.folder,
+			changed_detail(changed_count(view, values)),
+			"Open the settings of " + clean(view.display) + ". Turn the script on or off in SCRIPTS."));
+	}
+	return page;
+}
+
+// Package page: Quick settings (when declared), then the path pages and value
+// rows (or, without paths, the values section by section), then one "Reset
+// all to defaults". No package, member, "Use stock values" or section switch.
+inline Page build_package_page(const PackageView& view)
+{
+	Page page;
+	page.title = fit_words(upper(view.display), maximum_title_label);
+	if (view.declarations == nullptr) return page;
+	const auto quick = quick_values(*view.declarations);
+	if (!quick.empty())
+	{
+		const auto on = static_cast<std::size_t>(std::count_if(quick.begin(), quick.end(),
+			[&](const settings::ValueDecl* value) { return quick_on(view, *value); }));
+		page.rows.push_back(button("Quick settings", "open:quick:" + view.folder,
+			on == 0 ? std::string() : std::to_string(on) + " on",
+			"The main value of each mission type, each with its own on/off."));
+	}
+	const auto tree = build_tree(*view.declarations);
+	if (tree.uses_paths)
+	{
+		append_items(page.rows, view, tree, tree.nodes[0]);
+	}
+	else
+	{
+		std::size_t sections = 0;
+		for (const auto* group : ordered_groups(*view.declarations))
+		{
+			sections += std::any_of(view.declarations->values.begin(), view.declarations->values.end(),
+				[&](const settings::ValueDecl& value) { return value.group == group->id; }) ? 1 : 0;
+		}
+		for (const auto* group : ordered_groups(*view.declarations))
+		{
+			bool titled = false;
+			for (const auto* value : ordered_values(*view.declarations))
+			{
+				if (value->group != group->id) continue;
+				if (!titled && sections > 1) page.rows.push_back(title(group->label));
+				titled = true;
+				page.rows.push_back(value_row(view, *value));
+			}
+		}
+	}
+	page.rows.push_back(spacer());
+	page.rows.push_back(reset_all_row("resetall:" + view.folder, "of " + clean(view.display)));
+	return page;
+}
+
+inline Page build_node_page(const PackageView& view, std::string_view node_id)
+{
+	Page page;
+	page.search = stock_search_box;
+	if (view.declarations == nullptr) return page;
+	const auto tree = build_tree(*view.declarations);
+	const auto* node = node_id.empty() ? nullptr : find_node(tree, node_id);
+	if (node == nullptr) return page;
+	page.title = fit_words(upper(node->name), maximum_title_label);
+	append_items(page.rows, view, tree, *node);
+	page.rows.push_back(spacer());
+	page.rows.push_back(reset_all_row("resetall:" + view.folder + "/node:" + node->id, "on this page"));
+	return page;
+}
+
+// Quick settings: per quick value its on/off (CHECKBOX, `active:`) and the
+// number it keeps (BUTTON to the qval page). Off returns the mission to its
+// default; on restores the kept number. Same storage as the detailed pages.
+inline Page build_quick_page(const PackageView& view)
+{
+	Page page;
+	page.title = "QUICK SETTINGS";
+	page.search = stock_search_box;
+	if (view.declarations == nullptr) return page;
+	const std::string key = folder_key(view.folder);
+	for (const auto* value : quick_values(*view.declarations))
+	{
+		const std::string kept = number_text(*value, kept_value(view, *value));
+		page.rows.push_back(checkbox(value->quick, "active:" + key + "/" + value->id, quick_on(view, *value),
+			"On: " + kept + ". Off: the default (" + default_text(*value) + "); your number is kept. "
+				+ description(*value)));
+		const std::string target = value->lane == settings::Lane::Literal
+			? "open:val:" + view.folder + "/" + value->id
+			: "open:qval:" + view.folder + "/" + value->id;
+		// "<mission>: <kept value>", the part of the quick label before its colon.
+		const std::string quick = clean(value->quick);
+		const auto colon = quick.find(':');
+		const std::string owner = colon == std::string::npos ? quick : quick.substr(0, colon);
+		const bool is_default = kept_value(view, *value) == default_value(*value);
+		Row open = button(owner, target, kept + (is_default ? " (default)" : ""),
+			"The value used while " + quick + " is on (default " + default_text(*value) + ").");
+		page.rows.push_back(std::move(open));
+	}
+	return page;
+}
+
+// The stock editor of one value: TOGGLE (enum, literal choices), INPUTCOUNT
+// (int >= 0) or a validated INPUTBOX (float, negative int). `setting` is
+// value: (detailed) or stored: (quick kept value).
+inline Row value_editor(const PackageView& view, const settings::ValueDecl& declaration, bool kept)
+{
+	const double current = kept ? kept_value(view, declaration) : current_value(view, declaration);
 	Row editor;
-	editor.label = editor_label(declaration);
-	editor.setting = "value:" + folder_key(view.folder) + "/" + declaration.id;
-	editor.tooltip = value_tooltip(declaration);
+	editor.label = declaration.unit.empty() || declaration.type == settings::ValueType::Enum
+		? std::string("Value") : "Value (" + clean(declaration.unit) + ")";
+	editor.setting = std::string(kept ? "stored:" : "value:") + folder_key(view.folder) + "/" + declaration.id;
+	editor.tooltip = editor_tooltip(declaration);
 	editor.minimum = declaration.minimum;
 	editor.maximum = declaration.maximum;
 	editor.integer = declaration.type != settings::ValueType::Float;
-	editor.locked = declaration.lane != settings::Lane::Addon;
+	editor.locked = declaration.lane == settings::Lane::Metadata;
 	editor.invalid_message = fit_words(clean(declaration.label), 40) + ": enter "
 		+ (editor.integer ? "a whole number" : "a number") + " from "
 		+ display_number(declaration.minimum) + " to "
@@ -444,7 +791,11 @@ inline Row value_editor(const PackageView& view, const settings::ValueDecl& decl
 		editor.kind = RowKind::Toggle;
 		editor.number = current;
 		for (const auto& option : declaration.options)
-			editor.options.push_back(ToggleOption{fit_words(option.label, maximum_row_label), option.value});
+		{
+			std::string label = clean(option.label);
+			if (option.value == default_value(declaration) && label.size() + 10 <= maximum_row_label) label += " (default)";
+			editor.options.push_back(ToggleOption{fit_words(label, maximum_row_label), option.value});
+		}
 	}
 	else if (declaration.type == settings::ValueType::Int && declaration.minimum >= 0)
 	{
@@ -463,272 +814,136 @@ inline Row value_editor(const PackageView& view, const settings::ValueDecl& decl
 	return editor;
 }
 
-// Label of the BUTTON that opens a value page: "<label>: <current> (stock
-// <stock>)" when it fits the row, else "<label>: <current>" (the tooltip
-// always starts with the stock value). The value is as of this page build (the
-// stock list is built once per open).
-inline std::string value_button_label(const settings::ValueDecl& declaration, double current)
-{
-	const std::string value = with_unit(declaration, current);
-	const std::string with_stock = clean(declaration.label) + ": " + value + " (stock "
-		+ with_unit(declaration, declaration.stock) + ")";
-	if (with_stock.size() <= maximum_row_label) return with_stock;
-	return button_label(declaration.label, value);
-}
-
-// The per-value pair: "Custom <label>" CHECKBOX, then either the enum TOGGLE
-// (rebuilt by stock on every scrolled draw, list-safe) or a BUTTON showing the
-// current value (value_button_label) that opens the value's one-value page
-// (INPUTCOUNT or INPUTBOX). The BUTTON is never locked: stock dims a locked
-// row's Label (source line 1304, alpha 60) and never restores it, so on a
-// recycled list the next row drawn into that clip stayed dimmed. The value
-// page's editor carries the lock (read-only lanes) instead.
-inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, const settings::ValueDecl& declaration)
-{
-	const std::string key = folder_key(view.folder);
-	const auto entry = view.state.values.find(declaration.id);
-	const bool enabled = entry != view.state.values.end() && entry->second.shape_valid && entry->second.enabled;
-	const std::string tooltip = value_tooltip(declaration);
-	auto custom = checkbox(custom_label(declaration.label), "custom:" + key + "/" + declaration.id, enabled,
-		"Off: the stock value is used. " + tooltip);
-	custom.locked = declaration.lane == settings::Lane::Metadata;
-	rows.push_back(std::move(custom));
-
-	if (!uses_value_page(declaration))
-	{
-		rows.push_back(value_editor(view, declaration));
-		return;
-	}
-	Row open;
-	open.kind = RowKind::Button;
-	open.label = value_button_label(declaration, current_value(view, declaration));
-	open.action = value_page_action(view, declaration);
-	open.setting = "action:" + open.action;
-	open.tooltip = tooltip;
-	open.locked = false;
-	rows.push_back(std::move(open));
-}
-
-// One-value page (page id "val:<Folder>/<value id>"): the value's stock
-// editor alone (INPUTCOUNT for int >= 0, validated INPUTBOX otherwise). Its
-// close stages the value; the root close applies.
-inline Page build_value_page(const PackageView& view, std::string_view value_id)
+// Value page ("val:<Folder>/<id>", or "qval:" for a quick value's kept
+// number): the editor and "Reset to default: <default>". A literal value
+// without choices (packages before R7) shows its switch instead of an editor.
+inline Page build_value_page(const PackageView& view, std::string_view value_id, bool kept = false)
 {
 	Page page;
 	page.empty_message = "NO SETTINGS";
 	if (view.declarations == nullptr) return page;
 	const auto* declaration = view.declarations->value(value_id);
-	if (declaration == nullptr || !uses_value_page(*declaration)) return page;
+	if (declaration == nullptr) return page;
+	if (kept && (declaration->quick.empty() || declaration->lane != settings::Lane::Addon)) return page;
 	page.title = fit_words(upper(declaration->label), maximum_title_label);
-	page.rows.push_back(value_editor(view, *declaration));
+	if (declaration->lane == settings::Lane::Literal && declaration->type != settings::ValueType::Enum)
+	{
+		page.rows.push_back(checkbox("Use the built value", "active:" + folder_key(view.folder) + "/" + declaration->id,
+			entry_applies(view, *declaration), description(*declaration) + " " + editor_tooltip(*declaration)));
+	}
+	else
+	{
+		page.rows.push_back(value_editor(view, *declaration, kept));
+	}
+	page.rows.push_back(button("Reset to default", "reset:" + view.folder + "/value:" + declaration->id,
+		default_text(*declaration), "Puts this value back to its default and returns."));
 	return page;
 }
 
-inline std::vector<const settings::GroupDecl*> ordered_groups(const settings::Declarations& declarations)
-{
-	std::vector<const settings::GroupDecl*> groups;
-	for (const auto& group : declarations.groups) groups.push_back(&group);
-	std::stable_sort(groups.begin(), groups.end(), [](const auto* lhs, const auto* rhs)
-	{
-		return lhs->order < rhs->order;
-	});
-	return groups;
-}
-
-// Member switch label: the manifest label when it fits the row. A longer label
-// (the loader allows 128) is cut at a word boundary without the dangling list
-// punctuation ("Mission tunables: Purgatory," read as a broken sentence); the
-// full label always opens the tooltip. Producers should keep labels within 40.
-inline std::string member_row_label(const MemberView& member)
-{
-	std::string label = clean(member.label.empty() ? member.filename : member.label);
-	if (label.size() <= maximum_row_label) return label;
-	label = fit_words(std::move(label), maximum_row_label);
-	while (!label.empty() && std::string_view(" ,;:(-/").find(label.back()) != std::string_view::npos)
-		label.pop_back();
-	return label.empty() ? fit_words(member.filename, maximum_row_label) : label;
-}
-
-// Member tooltip: full label, what the switch does, the file, and the values
-// the member declares per section (derived from the declarations, so every
-// package gets the detail without extra manifest fields).
-inline std::string member_tooltip(const PackageView& view, const MemberView& member)
-{
-	std::string text = clean(member.label.empty() ? member.filename : member.label);
-	if (!text.empty() && text.back() != '.') text += '.';
-	if (member.replacement) text += " Replaces a stock script.";
-	text += " Off: this script stays out of the package. File: " + clean(member.filename) + ".";
-	if (view.declarations == nullptr) return bounded_tooltip(text);
-	const std::string member_key = script_control::ascii_lower(member.filename);
-	std::size_t total = 0;
-	std::string sections;
-	std::size_t section_count = 0;
-	for (const auto* group : ordered_groups(*view.declarations))
-	{
-		const auto count = static_cast<std::size_t>(std::count_if(view.declarations->values.begin(),
-			view.declarations->values.end(), [&](const settings::ValueDecl& declaration)
-			{
-				return declaration.group == group->id && script_control::ascii_lower(declaration.member) == member_key;
-			}));
-		if (count == 0) continue;
-		total += count;
-		++section_count;
-		sections += (sections.empty() ? "" : ", ") + clean(group->label) + " (" + std::to_string(count) + ")";
-	}
-	if (total == 0) return bounded_tooltip(text);
-	const std::string detailed = " Sections: " + sections + ".";
-	const std::string compact = " Sections: " + std::to_string(section_count) + " (" + std::to_string(total)
-		+ (total == 1 ? " value)." : " values).");
-	return bounded_tooltip(text + (text.size() + detailed.size() <= maximum_tooltip ? detailed : compact));
-}
-
-inline void append_package_switches(std::vector<Row>& rows, const PackageView& view, bool with_title)
-{
-	const std::string key = folder_key(view.folder);
-	if (with_title) rows.push_back(title(view.display));
-	rows.push_back(checkbox(clean(view.display) + " package", "package:" + key, view.package_enabled,
-		"Turns the whole package on or off (same switch as the SCRIPTS row)."));
-	rows.push_back(checkbox("Use stock values", "stock:" + key, view.state.use_stock,
-		"On: every value of this package is stock. Your custom values are kept for later."));
-	if (view.file_malformed)
-	{
-		auto note = checkbox("Values file invalid, using stock", "note:" + key, false,
-			"Settings/" + view.folder + ".json was rejected (" + view.file_reason
-				+ "). Saving from this screen writes a new file.");
-		note.locked = true;
-		rows.push_back(std::move(note));
-	}
-	if (view.members.size() > 1)
-	{
-		for (const auto& member : view.members)
-		{
-			rows.push_back(checkbox(member_row_label(member), member.state_id, member.enabled,
-				member_tooltip(view, member)));
-		}
-	}
-}
-
-inline void append_group_rows(std::vector<Row>& rows, const PackageView& view, const settings::GroupDecl& group, bool with_title)
-{
-	const std::string key = folder_key(view.folder);
-	if (with_title) rows.push_back(title(group.label));
-	const std::string section_label = "Custom " + clean(group.label) + " values";
-	rows.push_back(checkbox(section_label.size() <= maximum_row_label ? section_label : std::string("Custom values in this section"),
-		"group:" + key + "/" + group.id, group_enabled(view, group.id),
-		"Off: every value in " + clean(group.label) + " is stock. Your custom values are kept."));
-	for (const auto& declaration : view.declarations->values)
-	{
-		if (declaration.group == group.id) append_value_rows(rows, view, declaration);
-	}
-}
-
-// The stock search box stays off (R4). The stock filter (ThemedGenericSettings
-// 44.0.2 source lines 685-709) rebuilds the list from copies taken at populate
-// (lines 1656-1678): a row edited before typing shows its old value again and
-// the completion pass would stage that old value. Live 2026-09-30 the filter
-// also re-added an INPUTCOUNT row copy without widgets, the per-frame count
-// poll raised a script error and the screen could not be left.
-inline constexpr bool stock_search_box = false;
-
-// Default layout: one flat list with TITLE sections. Its only BUTTON rows
-// open one-value pages (open:val:); it has no package/section navigation,
-// Restore or FinishSelection buttons.
+// Flat layout (SettingsMenuNested=false): one list, a TITLE per package and per
+// page of values, every value one row.
 inline Page build_flat_page(const std::vector<PackageView>& views)
 {
 	Page page;
 	page.title = "SCRIPT SETTINGS";
 	page.search = stock_search_box;
 	page.empty_message = "NO PACKAGE SETTINGS FOUND";
-	// No SPACER rows: under the stock scroll contract every row takes one 43 px
-	// slot of the 14 visible, and each package and section already starts with
-	// a TITLE row.
 	for (const auto& view : views)
 	{
 		if (view.declarations == nullptr) continue;
-		append_package_switches(page.rows, view, true);
-		for (const auto* group : ordered_groups(*view.declarations))
+		page.rows.push_back(title(view.display));
+		const auto tree = build_tree(*view.declarations);
+		if (!tree.uses_paths)
 		{
-			if (value_count(view, group->id) == 0) continue;
-			append_group_rows(page.rows, view, *group, true);
+			for (const auto& item : tree.nodes[0].items) page.rows.push_back(value_row(view, *item.value));
+			continue;
+		}
+		// Depth-first; a TITLE names the page ("Survival - Timers") before its values.
+		std::vector<std::pair<std::size_t, std::string>> stack{{0, std::string()}};
+		while (!stack.empty())
+		{
+			const auto [index, name] = stack.back();
+			stack.pop_back();
+			const auto& node = tree.nodes[index];
+			bool titled = false;
+			for (const auto& item : node.items)
+			{
+				if (item.value == nullptr) continue;
+				if (!titled && !name.empty()) page.rows.push_back(title(name));
+				titled = true;
+				page.rows.push_back(value_row(view, *item.value));
+			}
+			for (auto item = node.items.rbegin(); item != node.items.rend(); ++item)
+			{
+				if (item->value != nullptr) continue;
+				const auto& child = tree.nodes[item->node];
+				stack.emplace_back(item->node, name.empty() ? child.name : name + " - " + child.name);
+			}
 		}
 	}
 	return page;
 }
 
-// Nested layout, the default since R5 (SettingsMenuNested=false selects the
-// flat list). Like Risk of Options, the framework itself shows no values: the
-// top page only lists the packages that declare settings; each opens its own
-// page (package switch, use-stock master, member switches when there is more
-// than one member, then its sections). The live R2-R4 value pages proved the
-// stock child push and return (N-1).
-inline Page build_root_page(const std::vector<PackageView>& views)
+inline const PackageView* view_for_folder(const std::vector<PackageView>& views, std::string_view folder)
 {
-	Page page;
-	page.title = "SCRIPT SETTINGS";
-	page.empty_message = "NO PACKAGE SETTINGS FOUND";
 	for (const auto& view : views)
-	{
-		if (view.declarations == nullptr) continue;
-		page.rows.push_back(button(clean(view.display), "open:pkg:" + view.folder,
-			summary(value_count(view, {}), custom_count(view, {})),
-			"Open the settings of " + clean(view.display) + "."));
-	}
-	return page;
+		if (view.folder == folder && view.declarations != nullptr) return &view;
+	return nullptr;
 }
 
-inline Page build_package_page(const PackageView& view)
+// Page id -> page (the host serves exactly these).
+inline Page select_page(const std::vector<PackageView>& views, std::string_view page_id, bool& found)
 {
-	Page page;
-	page.title = fit_words(upper(view.display), maximum_title_label);
-	if (view.declarations == nullptr) return page;
-	// The page title already names the package; no second TITLE row.
-	append_package_switches(page.rows, view, false);
-	page.rows.push_back(spacer());
-	page.rows.push_back(title("Sections"));
-	for (const auto* group : ordered_groups(*view.declarations))
+	found = true;
+	if (page_id == "flat") return build_flat_page(views);
+	if (page_id == "root") return build_root_page(views);
+	const auto split = [&](std::string_view prefix, std::string_view& folder, std::string_view& rest)
 	{
-		const auto values = value_count(view, group->id);
-		if (values == 0) continue;
-		page.rows.push_back(button(clean(group->label), "open:grp:" + view.folder + "/" + group->id,
-			summary(values, custom_count(view, group->id)),
-			group->aliases.empty() ? "Open " + clean(group->label) + "."
-				: "Open " + clean(group->label) + ". Also: " + [&]()
-				{
-					std::string aliases;
-					for (const auto& alias : group->aliases)
-					{
-						if (aliases.size() + alias.size() > 160) break;
-						aliases += (aliases.empty() ? "" : ", ") + clean(alias);
-					}
-					return aliases;
-				}()));
+		if (page_id.substr(0, prefix.size()) != prefix) return false;
+		const auto body = page_id.substr(prefix.size());
+		const auto slash = body.find('/');
+		folder = slash == std::string_view::npos ? body : body.substr(0, slash);
+		rest = slash == std::string_view::npos ? std::string_view() : body.substr(slash + 1);
+		return true;
+	};
+	std::string_view folder, rest;
+	if (split("pkg:", folder, rest) && rest.empty())
+	{
+		if (const auto* view = view_for_folder(views, folder)) return build_package_page(*view);
 	}
-	page.rows.push_back(spacer());
-	page.rows.push_back(button("Restore all stock values", "restore:" + view.folder, "",
-		"Unticks every Custom switch of this package and returns. Your values are kept."));
-	return page;
-}
-
-inline Page build_group_page(const PackageView& view, std::string_view group_id)
-{
-	Page page;
-	page.search = stock_search_box;
-	if (view.declarations == nullptr) return page;
-	const auto* group = view.declarations->group(group_id);
-	if (group == nullptr) return page;
-	page.title = fit_words(upper(group->label), maximum_title_label);
-	append_group_rows(page.rows, view, *group, false);
-	page.rows.push_back(spacer());
-	const std::string restore_label = "Restore " + clean(group->label) + " stock values";
-	page.rows.push_back(button(restore_label.size() <= maximum_row_label ? restore_label : std::string("Restore stock values"),
-		"restore:" + view.folder + "/" + group->id, "",
-		"Unticks every Custom switch in " + clean(group->label) + " and returns. Your values are kept."));
-	return page;
+	else if (split("node:", folder, rest))
+	{
+		if (const auto* view = view_for_folder(views, folder))
+		{
+			auto page = build_node_page(*view, rest);
+			if (!page.rows.empty()) return page;
+		}
+	}
+	else if (split("quick:", folder, rest) && rest.empty())
+	{
+		if (const auto* view = view_for_folder(views, folder))
+		{
+			auto page = build_quick_page(*view);
+			if (!page.rows.empty()) return page;
+		}
+	}
+	else if (split("val:", folder, rest) || split("qval:", folder, rest))
+	{
+		if (const auto* view = view_for_folder(views, folder))
+		{
+			auto page = build_value_page(*view, rest, page_id.substr(0, 5) == "qval:");
+			if (!page.rows.empty()) return page;
+		}
+	}
+	found = false;
+	return {};
 }
 
 // ---------------------------------------------------------------------------
-// Staging. The host re-validates every value (the native validator runs only
-// on the Confirm route and cannot see filtered copies).
+// Staging. Every edit is an operation replayed in order over the file state;
+// the host re-validates every value (the native validator runs only on the
+// Confirm route). A completion restage that equals what the page showed is not
+// an operation, so opening and closing pages never writes a file.
 // ---------------------------------------------------------------------------
 struct StagedValue
 {
@@ -743,21 +958,24 @@ struct StagedValue
 	static StagedValue of_text(std::string value) { StagedValue staged; staged.kind = Kind::Text; staged.text = std::move(value); return staged; }
 };
 
-// R5 (live 2026-09-30): since R2/R4 a number is edited on its own value page,
-// away from its "Custom <label>" switch on the list. A player who typed 60 on
-// the page and confirmed got the value written with enabled=false, so it
-// never applied. An accepted value that differs from the value the screen
-// opened with therefore turns its Custom switch on ("implied"). The list's
-// own switch row restaged at close (it still shows the old state) does not
-// undo that; only an explicit click on the switch (stage source Click) or a
-// Restore does. Group and "Use stock values" switches are not changed.
+// Click: the bridge's value-changed callback (a player's action). Restage: the
+// completion pass of a closing page (what the rows hold).
 enum class StageSource { Restage, Click };
+
+struct Operation
+{
+	enum class Kind { Value, Stored, Active, Reset };
+	Kind kind = Kind::Value;
+	std::string folder_key;
+	std::string target;   // value id, or the reset scope after the folder
+	double number = 0.0;
+	bool boolean = false;
+};
 
 struct Session
 {
-	std::map<std::string, StagedValue> staged;
-	std::vector<std::string> restores; // "<Folder>" or "<Folder>/<group>"
-	std::set<std::string> implied_custom; // "custom:<folder key>/<value id>"
+	std::vector<Operation> operations;
+	std::size_t resets = 0;
 };
 
 struct ParsedSetting
@@ -797,78 +1015,231 @@ inline bool parse_number_text(std::string_view text, double& value) noexcept
 	return result.ec == std::errc{} && result.ptr == text.data() + text.size() && std::isfinite(value);
 }
 
-// Returns an empty string when the staged value is accepted.
+// The values a reset scope covers: "<Folder>", "<Folder>/node:<node id>",
+// "<Folder>/value:<value id>" or (older pages) "<Folder>/<group id>".
+inline std::vector<const settings::ValueDecl*> scope_values(const PackageView& view, std::string_view rest)
+{
+	std::vector<const settings::ValueDecl*> values;
+	if (view.declarations == nullptr) return values;
+	if (rest.empty())
+	{
+		for (const auto& value : view.declarations->values) values.push_back(&value);
+	}
+	else if (rest.substr(0, 5) == "node:")
+	{
+		const auto tree = build_tree(*view.declarations);
+		if (const auto* node = find_node(tree, rest.substr(5)); node != nullptr && !node->id.empty())
+			collect_values(tree, *node, values);
+	}
+	else if (rest.substr(0, 6) == "value:")
+	{
+		if (const auto* value = view.declarations->value(rest.substr(6))) values.push_back(value);
+	}
+	else
+	{
+		for (const auto& value : view.declarations->values)
+			if (value.group == rest) values.push_back(&value);
+	}
+	return values;
+}
+
+// An entry that turns on must also apply: a package on use_stock or a section
+// switched off (files written before R7; the UI no longer has those switches)
+// is switched back on, and every other entry that was not applying because of
+// it is turned off, so nothing else starts to apply.
+inline void make_effective(settings::UserState& state, const settings::Declarations& declarations,
+	const settings::ValueDecl& declaration)
+{
+	if (state.use_stock)
+	{
+		for (auto& [id, entry] : state.values) if (id != declaration.id) entry.enabled = false;
+		state.use_stock = false;
+	}
+	if (!group_enabled(state, declaration.group))
+	{
+		for (auto& [id, entry] : state.values)
+		{
+			const auto* other = declarations.value(id);
+			if (id != declaration.id && other != nullptr && other->group == declaration.group) entry.enabled = false;
+		}
+		state.groups[declaration.group] = true;
+	}
+}
+
+inline settings::UserValue& entry_for(settings::UserState& state, const settings::ValueDecl& declaration)
+{
+	auto& entry = state.values[declaration.id];
+	if (!entry.shape_valid || !entry.has_value)
+	{
+		entry = settings::UserValue{};
+		entry.has_value = true;
+		entry.value = default_value(declaration);
+	}
+	return entry;
+}
+
+inline void replay(settings::UserState& state, const PackageView& view, const Operation& operation)
+{
+	const auto& declarations = *view.declarations;
+	if (operation.kind == Operation::Kind::Reset)
+	{
+		for (const auto* declaration : scope_values(view, operation.target))
+		{
+			const auto found = state.values.find(declaration->id);
+			if (found == state.values.end()) continue;
+			found->second = settings::UserValue{};
+			found->second.enabled = false;
+			found->second.has_value = true;
+			found->second.value = default_value(*declaration);
+		}
+		return;
+	}
+	const auto* declaration = declarations.value(operation.target);
+	if (declaration == nullptr) return;
+	const bool existed = state.values.count(declaration->id) != 0;
+	if (operation.kind == Operation::Kind::Value)
+	{
+		const bool enabled = operation.number != default_value(*declaration);
+		if (!existed && !enabled) return;
+		auto& entry = entry_for(state, *declaration);
+		entry.value = operation.number;
+		entry.enabled = enabled;
+		if (enabled) make_effective(state, declarations, *declaration);
+	}
+	else if (operation.kind == Operation::Kind::Stored)
+	{
+		if (!existed && operation.number == default_value(*declaration)) return;
+		auto& entry = entry_for(state, *declaration);
+		entry.value = operation.number;
+	}
+	else if (operation.kind == Operation::Kind::Active)
+	{
+		if (!existed && !operation.boolean) return;
+		auto& entry = entry_for(state, *declaration);
+		if (!existed)
+		{
+			if (const auto* built = built_option(*declaration)) entry.value = built->value;
+		}
+		entry.enabled = operation.boolean;
+		if (operation.boolean) make_effective(state, declarations, *declaration);
+	}
+}
+
+// Session replayed over the current state: what the next page shows and what
+// the root close writes.
+inline settings::UserState overlaid_state(const Session& session, const PackageView& view)
+{
+	auto state = view.state;
+	const std::string key = folder_key(view.folder);
+	state.package = "package:" + key;
+	if (view.declarations != nullptr) state.build = view.declarations->build;
+	if (view.declarations == nullptr) return state;
+	for (const auto& operation : session.operations)
+		if (operation.folder_key == key) replay(state, view, operation);
+	return state;
+}
+
+inline bool touches(const Session& session, const PackageView& view)
+{
+	const auto key = folder_key(view.folder);
+	return std::any_of(session.operations.begin(), session.operations.end(),
+		[&](const Operation& operation) { return operation.folder_key == key; });
+}
+
+inline std::vector<PackageView> overlay(const Session& session, std::vector<PackageView> views)
+{
+	for (auto& view : views)
+	{
+		if (view.declarations == nullptr) continue;
+		view.state = overlaid_state(session, view);
+		// An edit of a package with a malformed file writes a valid file.
+		if (touches(session, view)) view.file_malformed = false;
+	}
+	return views;
+}
+
+// Returns an empty string when the staged value is accepted (an unchanged
+// completion restage is accepted and records nothing).
 inline std::string stage(
 	Session& session, const std::vector<PackageView>& views,
 	std::string_view setting, const StagedValue& value,
 	StageSource source = StageSource::Restage)
 {
+	// R7: a click and a restage are the same edit; an unchanged value is none.
+	(void)source;
 	const auto parsed = parse_setting(setting);
 	const auto* view = find_view(views, parsed.folder_key);
 	if (view == nullptr) return "unknown-setting";
-	if (parsed.prefix == "package" || parsed.prefix == "stock")
+	const auto* declaration = view->declarations->value(parsed.rest);
+	if (declaration == nullptr) return "unknown-setting";
+	Operation operation;
+	operation.folder_key = parsed.folder_key;
+	operation.target = declaration->id;
+	PackageView current = *view;
+	current.state = overlaid_state(session, *view);
+	if (touches(session, *view)) current.file_malformed = false;
+	if (parsed.prefix == "active")
 	{
-		if (!parsed.rest.empty()) return "unknown-setting";
 		if (value.kind != StagedValue::Kind::Bool) return "wrong-type";
+		const bool legacy_literal = declaration->lane == settings::Lane::Literal
+			&& declaration->type != settings::ValueType::Enum;
+		if (declaration->quick.empty() && !legacy_literal) return "unknown-setting";
+		if (declaration->lane == settings::Lane::Metadata) return "read-only-row";
+		if (value.boolean == entry_applies(current, *declaration)) return {};
+		operation.kind = Operation::Kind::Active;
+		operation.boolean = value.boolean;
 	}
-	else if (parsed.prefix == "member")
+	else if (parsed.prefix == "value" || parsed.prefix == "stored")
 	{
-		if (value.kind != StagedValue::Kind::Bool) return "wrong-type";
-		if (std::none_of(view->members.begin(), view->members.end(),
-			[&](const MemberView& member) { return member.state_id == setting; }))
-		{
+		if (declaration->lane == settings::Lane::Metadata) return "read-only-row";
+		if (declaration->lane == settings::Lane::Literal && declaration->type != settings::ValueType::Enum)
+			return "read-only-row";
+		if (parsed.prefix == "stored" && (declaration->quick.empty() || declaration->lane != settings::Lane::Addon))
 			return "unknown-setting";
-		}
-	}
-	else if (parsed.prefix == "group")
-	{
-		if (value.kind != StagedValue::Kind::Bool) return "wrong-type";
-		if (view->declarations->group(parsed.rest) == nullptr) return "unknown-setting";
-	}
-	else if (parsed.prefix == "custom" || parsed.prefix == "value")
-	{
-		const auto* declaration = view->declarations->value(parsed.rest);
-		if (declaration == nullptr) return "unknown-setting";
-		if (parsed.prefix == "custom")
+		double number = 0.0;
+		if (value.kind == StagedValue::Kind::Number) number = value.number;
+		else if (value.kind == StagedValue::Kind::Text)
 		{
-			if (value.kind != StagedValue::Kind::Bool) return "wrong-type";
-			if (declaration->lane == settings::Lane::Metadata) return "read-only-row";
-			if (source == StageSource::Click) session.implied_custom.erase(std::string(setting));
+			if (!parse_number_text(value.text, number)) return "not-a-number";
 		}
-		else
-		{
-			if (declaration->lane != settings::Lane::Addon) return "read-only-row";
-			double number = 0.0;
-			if (value.kind == StagedValue::Kind::Number) number = value.number;
-			else if (value.kind == StagedValue::Kind::Text)
-			{
-				if (!parse_number_text(value.text, number)) return "not-a-number";
-			}
-			else return "wrong-type";
-			if (auto reason = settings::validate_value(*declaration, number); !reason.empty()) return reason;
-			session.staged[std::string(setting)] = StagedValue::of_number(number);
-			// R5: editing the value is choosing it. Back at the opening value
-			// (edited, then set back) the switch returns to its opening state.
-			const std::string custom = "custom:" + parsed.folder_key + "/" + parsed.rest;
-			if (number != current_value(*view, *declaration)) session.implied_custom.insert(custom);
-			else session.implied_custom.erase(custom);
-			return {};
-		}
+		else return "wrong-type";
+		if (auto reason = settings::validate_value(*declaration, number); !reason.empty()) return reason;
+		// What the row showed: an unchanged restage (or click) is not an edit.
+		const double shown = parsed.prefix == "stored" ? kept_value(current, *declaration) : current_value(current, *declaration);
+		if (number == shown) return {};
+		operation.kind = parsed.prefix == "stored" ? Operation::Kind::Stored : Operation::Kind::Value;
+		operation.number = number;
 	}
 	else
 	{
+		// package:, member:, stock:, group: and custom: rows no longer exist (R7).
 		return "unknown-setting";
 	}
-	session.staged[std::string(setting)] = value;
+	session.operations.push_back(std::move(operation));
 	return {};
+}
+
+// Reset scope after "reset:" / "resetall:" / (older pages) "restore:".
+inline bool reset(Session& session, const std::vector<PackageView>& views, std::string_view scope)
+{
+	const auto slash = scope.find('/');
+	const auto folder = scope.substr(0, slash);
+	const auto* view = find_view(views, folder_key(folder));
+	if (view == nullptr) return false;
+	const auto rest = slash == std::string_view::npos ? std::string_view() : scope.substr(slash + 1);
+	if (slash != std::string_view::npos && scope_values(*view, rest).empty()) return false;
+	Operation operation;
+	operation.kind = Operation::Kind::Reset;
+	operation.folder_key = folder_key(folder);
+	operation.target = std::string(rest);
+	session.operations.push_back(std::move(operation));
+	++session.resets;
+	return true;
 }
 
 inline void restore(Session& session, const std::vector<PackageView>& views, std::string_view scope)
 {
-	const auto slash = scope.find('/');
-	const auto folder = scope.substr(0, slash);
-	if (find_view(views, folder_key(folder)) == nullptr) return;
-	session.restores.emplace_back(scope);
+	(void)reset(session, views, scope);
 }
 
 struct AppliedPackage
@@ -881,7 +1252,7 @@ struct AppliedPackage
 struct Applied
 {
 	std::vector<AppliedPackage> packages;               // values files to write
-	std::vector<std::pair<std::string, bool>> policy;   // ScriptStates.json batch
+	std::vector<std::pair<std::string, bool>> policy;   // ScriptStates.json batch (never used since R7)
 };
 
 inline bool same_state(const settings::UserState& lhs, const settings::UserState& rhs)
@@ -901,91 +1272,19 @@ inline bool same_state(const settings::UserState& lhs, const settings::UserState
 	return true;
 }
 
-// Session overlaid on the current state: what the next page should show and
-// what the root close writes. Staged rows first, restores last (a Restore
-// always wins over the rows the bridge restages at close).
-inline settings::UserState overlaid_state(const Session& session, const PackageView& view)
+// A file written by SCRIPT SETTINGS: no use_stock, every declared section on,
+// and every entry that did not apply because of those switches turned off.
+inline settings::UserState normalized(settings::UserState state, const settings::Declarations& declarations)
 {
-	auto state = view.state;
-	const std::string key = folder_key(view.folder);
-	state.package = "package:" + key;
-	if (view.declarations != nullptr) state.build = view.declarations->build;
-	for (const auto& [setting, staged] : session.staged)
+	for (auto& [id, entry] : state.values)
 	{
-		const auto parsed = parse_setting(setting);
-		if (parsed.folder_key != key) continue;
-		if (parsed.prefix == "stock") state.use_stock = staged.boolean;
-		else if (parsed.prefix == "group")
-		{
-			const bool current = group_enabled(view, parsed.rest);
-			if (staged.boolean != current || state.groups.count(parsed.rest)) state.groups[parsed.rest] = staged.boolean;
-		}
-		else if (parsed.prefix == "custom" || parsed.prefix == "value")
-		{
-			const auto* declaration = view.declarations->value(parsed.rest);
-			if (declaration == nullptr) continue;
-			auto entry = state.values.find(parsed.rest);
-			if (entry == state.values.end() || !entry->second.shape_valid)
-			{
-				// Creating an entry only when it changes something: an untouched
-				// stock row restaged at close must not write a file.
-				const bool becomes_custom = parsed.prefix == "custom" && staged.boolean;
-				const bool non_stock_value = parsed.prefix == "value" && staged.number != declaration->stock;
-				if (!becomes_custom && !non_stock_value) continue;
-				settings::UserValue fresh;
-				fresh.enabled = false;
-				fresh.has_value = true;
-				fresh.value = declaration->stock;
-				entry = state.values.insert_or_assign(parsed.rest, fresh).first;
-			}
-			if (parsed.prefix == "custom") entry->second.enabled = staged.boolean;
-			else
-			{
-				entry->second.has_value = true;
-				entry->second.value = staged.number;
-			}
-		}
+		const auto* declaration = declarations.value(id);
+		if (declaration == nullptr) continue;
+		if (state.use_stock || !group_enabled(state, declaration->group)) entry.enabled = false;
 	}
-	// R5: a value edited on its page is custom, whatever the list's switch row
-	// restaged at close (it still showed the opening state). An edit always
-	// stages its value first, so the entry exists. Restores (below) still win.
-	for (const auto& implied : session.implied_custom)
-	{
-		const auto parsed = parse_setting(implied);
-		if (parsed.folder_key != key || view.declarations->value(parsed.rest) == nullptr) continue;
-		const auto entry = state.values.find(parsed.rest);
-		if (entry != state.values.end() && entry->second.shape_valid) entry->second.enabled = true;
-	}
-	for (const auto& scope : session.restores)
-	{
-		const auto slash = scope.find('/');
-		if (folder_key(std::string_view(scope).substr(0, slash)) != key) continue;
-		const std::string group = slash == std::string::npos ? std::string() : scope.substr(slash + 1);
-		for (auto& [id, value] : state.values)
-		{
-			const auto* declaration = view.declarations->value(id);
-			if (declaration != nullptr && (group.empty() || declaration->group == group)) value.enabled = false;
-		}
-	}
+	state.use_stock = false;
+	for (const auto& group : declarations.groups) state.groups[group.id] = true;
 	return state;
-}
-
-inline std::vector<PackageView> overlay(const Session& session, std::vector<PackageView> views)
-{
-	for (auto& view : views)
-	{
-		if (view.declarations == nullptr) continue;
-		view.state = overlaid_state(session, view);
-		const std::string key = folder_key(view.folder);
-		if (const auto staged = session.staged.find("package:" + key); staged != session.staged.end())
-			view.package_enabled = staged->second.boolean;
-		for (auto& member : view.members)
-		{
-			if (const auto staged = session.staged.find(member.state_id); staged != session.staged.end())
-				member.enabled = staged->second.boolean;
-		}
-	}
-	return views;
 }
 
 inline Applied apply(const Session& session, const std::vector<PackageView>& views)
@@ -994,24 +1293,12 @@ inline Applied apply(const Session& session, const std::vector<PackageView>& vie
 	for (const auto& view : views)
 	{
 		if (view.declarations == nullptr) continue;
-		const std::string key = folder_key(view.folder);
 		// Only a real difference writes the values file: opening and closing the
-		// screen (the bridge restages every visible row) is a no-op, and a
-		// hand-edited malformed file is replaced only by an actual edit.
+		// screen is a no-op, and a hand-edited malformed file is replaced only
+		// by an actual edit.
 		auto state = overlaid_state(session, view);
 		if (!same_state(state, view.state))
-			applied.packages.push_back(AppliedPackage{view.folder, std::move(state), view.declarations});
-		if (const auto staged = session.staged.find("package:" + key);
-			staged != session.staged.end() && staged->second.boolean != view.package_enabled)
-		{
-			applied.policy.emplace_back("package:" + key, staged->second.boolean);
-		}
-		for (const auto& member : view.members)
-		{
-			const auto staged = session.staged.find(member.state_id);
-			if (staged != session.staged.end() && staged->second.boolean != member.enabled)
-				applied.policy.emplace_back(member.state_id, staged->second.boolean);
-		}
+			applied.packages.push_back(AppliedPackage{view.folder, normalized(std::move(state), *view.declarations), view.declarations});
 	}
 	return applied;
 }

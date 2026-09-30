@@ -1,5 +1,17 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 Settings R7: page tree, value/default model, Quick settings, no script switches — staged (not deployed)
+
+Branch `feat/settings-r7-hierarchy-2026-09-30` from `b5a120b` (contains R5 and REPLACEMENT_SETTINGS_V1; not R8 live literals). Generic; no mission or ability rule in shared code.
+
+- **Declarations.** Optional `path`, `row`, `default` (addon lane), `default_label`, `quick` (`CONTRACT_PHASE1.md` Revision R7). A declared `default` is always delivered (`value` = the applying entry, else the default); absent = V1. DLLs before R7 reject such a package's settings capability only (members run compiled values).
+- **SCRIPT SETTINGS.** Root lists scripts with options; package page: Quick settings (if declared), the `path` pages (or, without paths, the values by section), "Reset all to defaults"; every list page: child pages ("N changed"), one row per value ("X: 60 s" or "X: 300 s (default)"), Reset all; value page: editor + "Reset to default". **No package, member, "Use stock values", section or Custom switch anywhere** (SCRIPTS owns enabling).
+- **Staging.** Ordered operations (`value:`, `stored:`, `active:`, `reset:`/`resetall:`/`restore:`); `enabled = value != default`; an unchanged restage is no operation; files written from the menu drop `use_stock` and section switches without letting waiting entries start. Bridge: `resetall:` re-reads the page in place, `reset:` closes the value page without restaging.
+- **Gates.** `verify_addon_settings.ps1` (169 + 14; `-Package` repeatable with page dump and tree; `-Tape` host tape), `verify_script_settings_render.ps1` section 1c (real host pages, 20 planned calls, depth 6, in-place resets, no switch rows), `verify_replacement_settings.ps1` updated, 36/36 build-listed gates PASS.
+- **Build.** Main DLL `76f8d852ce17d25fc7cae710a9d6a0255b0873150d60be37552cdae0401603b0` (5,707,776 B), 0 warnings, 0 errors; bridge `5635b1e2f54f55b7fe87a027195d844c3ad0e011f15b460cc5802f37762cbabe` (8,769 B). Staged in `work/staging/editor-phase2-3/` (R5 set in `older/r5-settings-9bc0b68c/`), with the R7 Missions package (`work/staging/missions-full-package/`) and the Frost/Octavia R7 manifests (`work/staging/settings-second-consumer/`).
+
+**Deployment and every live check are pending.** Rollback is `9bc0b68c…` + bridge `299cac5e…` (installed R5). [Record](../RESEARCH/SETTINGS_R7_HIERARCHY_2026-09-30/README.md).
+
 ## 2026-09-30 Replacement settings (REPLACEMENT_SETTINGS_V1): replacements read SCRIPT SETTINGS, staged (not deployed)
 
 Branch `feat/replacement-settings-2026-09-30`, rebased onto Settings R5 (`0afb9cd`); the DLL contains R5. Generic; no module, mission or ability rule.

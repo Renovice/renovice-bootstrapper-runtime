@@ -457,7 +457,8 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 		if (logged++ == settings::maximum_logged_value_rejections) break;
 		report("RENOVICE SETTINGS VALUE REJECT trigger=" + std::string(trigger)
 			+ " package=" + package.folder + " id=" + rejection.id
-			+ " reason=" + rejection.reason + " scope=value-local value=stock");
+			+ " reason=" + rejection.reason + " scope=value-local value="
+			+ (evaluation.defaulted.count(rejection.id) != 0 ? "default" : "stock"));
 	}
 	if (evaluation.rejections.size() > settings::maximum_logged_value_rejections)
 	{
@@ -472,7 +473,11 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 		<< " groups=" << declarations.groups.size()
 		<< " file=" << settings::file_status_label(evaluation.file)
 		<< " use_stock=" << (evaluation.use_stock ? 1 : 0)
-		<< " effective=" << evaluation.effective.size()
+		<< " effective=" << evaluation.effective.size();
+	// R7: declared defaults delivered without a file entry (field only when used,
+	// so V1 packages keep the exact line).
+	if (!evaluation.defaulted.empty()) summary << " defaults=" << evaluation.defaulted.size();
+	summary
 		<< " rejected=" << evaluation.rejections.size()
 		<< " unknown_entries=" << evaluation.unknown_entries
 		<< " members_staged=" << staged << "/" << package.members.size();

@@ -1,0 +1,10 @@
+{
+  "format": "RENOVICE_SCRIPT_SETTINGS_V1",
+  "package": "package:frost",
+  "build": "2026.09.28.13.06",
+  "use_stock": false,
+  "groups": { "ice_wave": true },
+  "values": {
+    "ice_wave.bonus_per_cold_stack": { "enabled": true, "value": 50, "stock": 0 }
+  }
+}

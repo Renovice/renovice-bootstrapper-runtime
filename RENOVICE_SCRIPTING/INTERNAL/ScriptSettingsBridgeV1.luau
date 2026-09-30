@@ -12,6 +12,13 @@
 -- host; the root page close applies one batch through the ordinary F9
 -- transaction. This file holds no state between sessions beyond the natives
 -- of the current open.
+--
+-- R7 (2026-09-30): the host pages are a tree (package -> mission type ->
+-- category -> set -> value page) with one row per value; value pages hold the
+-- editor and "Reset to default" (action reset:, closes the page without
+-- restaging the old value); every list page ends with "Reset all to defaults"
+-- (action resetall:, re-reads the page in place). The bridge renders whatever
+-- rows the host sends; it names no page, package or value.
 
 local lotusUtilities = require("Lotus.Interface.LotusUtilities")
 -- Stock message box (ThemedGenericSettings shows its validator text with
@@ -272,6 +279,20 @@ local function buildRow(spec, types, movie, depth, recycled, context)
                 end
                 if string.sub(action, 1, 5) == "open:" then
                     openPage(movie, string.sub(action, 6), depth + 1, context.refresh)
+                elseif string.sub(action, 1, 9) == "resetall:" then
+                    -- R7 "Reset all to defaults" on a list page: stage the
+                    -- reset, then re-read this page in place, so the rows
+                    -- show their defaults at once (the page stays open; its
+                    -- parent refreshes when it closes).
+                    host.act(action)
+                    context.refresh()
+                elseif string.sub(action, 1, 6) == "reset:" then
+                    -- R7 "Reset to default" on a value page: stage the reset
+                    -- and close through the stock Confirm route. The close
+                    -- must not restage the editor's old value over the reset.
+                    host.act(action)
+                    context.skipRestage = true
+                    movie:Execute("FinishSelection", "")
                 elseif string.sub(action, 1, 8) == "restore:" then
                     -- Stage the restore, then close through the stock Confirm
                     -- route; the batch applies with the root page.
@@ -422,6 +443,7 @@ local function configure(child, page, depth, types, pageId, onClosed)
         recycled = false,
         built = {},
         refresh = nil,
+        skipRestage = false,
     }
     context.refresh = function()
         refreshRows(context)
@@ -450,7 +472,7 @@ local function configure(child, page, depth, types, pageId, onClosed)
         stage(value, setting, "click")
     end
     _T[doneName] = function(elements, flag)
-        if elements ~= nil then
+        if elements ~= nil and context.skipRestage ~= true then
             pcall(stageVisible, elements)
             if flag ~= nil then
                 pcall(reportInvalid, elements)

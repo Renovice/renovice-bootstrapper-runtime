@@ -566,3 +566,11 @@ Rejected:
 - Scrolling the list to force a redraw. It moves the view.
 - Making the switch row itself the editor. The stock INPUTBOX breaks the scroll contract, and the INPUTCOUNT the
   recycled list (R2/R4).
+
+## Follow-up R7 (2026-09-30): page tree, value/default model, Quick settings
+
+Live feedback on the R5/R6 menus (flat Missions section list with broken titles, alias node lists in tooltips, two rows
+per value, package/member/"Use stock values" switches, "Restore stock values" that seemed to do nothing, Frost's bonus only
+after ticking Custom). Branch `feat/settings-r7-hierarchy-2026-09-30`. Record:
+`RESEARCH/SETTINGS_R7_HIERARCHY_2026-09-30/README.md`; contract `CONTRACT_PHASE1.md` Revision R7. The Custom switches,
+section switches, member rows and Restore buttons described above are superseded by it.

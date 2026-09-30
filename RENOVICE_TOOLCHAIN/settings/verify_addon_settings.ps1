@@ -6,20 +6,21 @@
 # integration in injection.cpp, replacements.cpp and script_control.cpp. It
 # never reads or writes a game folder.
 #
-# -Package <folder> [-Settings <file>]: additionally run a real package folder
-# (package.json plus its member files) and, optionally, its values file through
-# the same scanner, the settings evaluation, the deliveries and the SCRIPT
-# SETTINGS page model, and print every row. The values file is copied to
-# Settings\<package folder>.json in the temporary tree. Without -Settings the
-# package is checked with no values file (every value stock).
+# -Package <folder>[,<folder>...] [-Settings <file>[,<file>...]]: additionally
+# run real package folders (package.json plus member files) and, optionally,
+# their values files (same order; '' = none) through the same scanner, the
+# settings evaluation, the deliveries and the SCRIPT SETTINGS page model, and
+# print every reachable page and row (PAGEDUMP/PAGEROW), the navigation tree
+# (TREE) and the flat page (PAGE/ROW/VALROW). Each values file is copied to
+# Settings\<package folder>.json in the temporary tree.
 #
-# -Replay <file>: R5 edit flow. Replays the host stage calls that the stock
-# render harness recorded (verify_script_settings_render.ps1) through the host
-# model and the values file writer, and checks the EXPECT lines in the file.
+# -Tape <plan> (with -Package): R7 host tape for the stock render harness
+# (verify_script_settings_render.ps1): the pages after every planned host call
+# and the EXPECTFILE/EXPECTROW checks of the plan.
 param(
-    [string]$Package = '',
-    [string]$Settings = '',
-    [string]$Replay = ''
+    [string[]]$Package = @(),
+    [string[]]$Settings = @(),
+    [string]$Tape = ''
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -28,9 +29,14 @@ $settingsDir = $PSScriptRoot
 $toolchainDir = Split-Path -Parent $settingsDir
 $repo = Split-Path -Parent $toolchainDir
 . (Join-Path $toolchainDir 'gate_paths.ps1')
-if ([string]::IsNullOrWhiteSpace($Package) -and -not [string]::IsNullOrWhiteSpace($Settings)) {
+# A child "powershell -File" call passes one string: entries may also be joined with ';'.
+$Package = @($Package | ForEach-Object { $_ -split ';' } | Where-Object { $_ -ne '' })
+$Settings = @($Settings | ForEach-Object { $_ -split ';' })
+if ($Package.Count -eq 0 -and $Settings.Count -gt 0) {
     throw "ADDON SETTINGS GATE FAIL: -Settings requires -Package"
 }
+if ($Settings.Count -gt $Package.Count) { throw "ADDON SETTINGS GATE FAIL: more -Settings than -Package entries" }
+if ($Tape -ne '' -and $Package.Count -eq 0) { throw "ADDON SETTINGS GATE FAIL: -Tape requires -Package" }
 $scratch = Get-GateScratch $repo 'addon-settings'
 
 function Get-Region([string]$Text, [string]$Begin, [string]$End, [string]$Label) {
@@ -73,14 +79,13 @@ try {
     $output | Write-Output
     if ($compileExit -ne 0) { throw "ADDON SETTINGS GATE FAIL: checker compilation failed: $compileExit" }
     $arguments = @($work, (ConvertTo-GateLongPath (Join-Path $settingsDir 'fixtures\phase2i')))
-    if (-not [string]::IsNullOrWhiteSpace($Replay)) {
-        if (-not [string]::IsNullOrWhiteSpace($Package)) { throw "ADDON SETTINGS GATE FAIL: -Replay and -Package are separate runs" }
-        $arguments += @('--replay', (ConvertTo-GateLongPath $Replay))
+    for ($index = 0; $index -lt $Package.Count; $index++) {
+        $arguments += @('--package', (ConvertTo-GateLongPath $Package[$index]))
+        if ($index -lt $Settings.Count -and -not [string]::IsNullOrWhiteSpace($Settings[$index])) {
+            $arguments += @('--settings', (ConvertTo-GateLongPath $Settings[$index]))
+        }
     }
-    if (-not [string]::IsNullOrWhiteSpace($Package)) {
-        $arguments += @('--package', (ConvertTo-GateLongPath $Package))
-        if (-not [string]::IsNullOrWhiteSpace($Settings)) { $arguments += @('--settings', (ConvertTo-GateLongPath $Settings)) }
-    }
+    if ($Tape -ne '') { $arguments += @('--tape', (ConvertTo-GateLongPath $Tape)) }
     & $binary @arguments
     if ($LASTEXITCODE -ne 0) { throw "ADDON SETTINGS GATE FAIL: checker failed: $LASTEXITCODE" }
 }

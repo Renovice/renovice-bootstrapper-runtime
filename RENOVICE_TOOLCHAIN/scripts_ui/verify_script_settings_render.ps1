@@ -144,7 +144,7 @@ function Get-HarnessRender($Module) {
 
 # PAGE / ROW / VALROW lines (verify_addon_settings.cpp print_row) -> Luau table.
 function ConvertTo-LuauString([string]$Text) {
-    $escaped = $Text.Replace('\', '\\').Replace('"', '\"')
+    $escaped = $Text.Replace('\', '\\').Replace('"', '\"').Replace("`t", '\t')
     return '"' + $escaped + '"'
 }
 function ConvertTo-LuauRow([string[]]$Fields) {
@@ -215,7 +215,7 @@ function ConvertTo-HarnessPage([string]$Path) {
     return @{ Text = $builder.ToString(); Rows = $rows.Count; ValuePages = $valpages.Count; InlineCounts = $inlineCounts; ExpectedPages = $expectedPages }
 }
 
-function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [switch]$R5) {
+function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [switch]$R5, [string]$TapeData = '') {
     $builder = New-Object System.Text.StringBuilder
     $offsets = @{}
     $append = {
@@ -237,6 +237,7 @@ function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [
     & $append "end"
     if ($PageData -ne '') { & $append $PageData }
     if ($R5) { & $append "HARNESS_R5 = true" }
+    if ($TapeData -ne '') { & $append $TapeData; & $append "HARNESS_R7 = true" }
     & $append ([IO.File]::ReadAllText((Join-Path $renderDir "harness_driver.luau")))
     $file = Join-Path $scratch "harness_$Tag.luau"
     [IO.File]::WriteAllText($file, $builder.ToString(), (New-Object System.Text.UTF8Encoding($false)))
@@ -300,28 +301,129 @@ Require ([int]$report['r5_refreshed'] -ge 16) "R5: after each return the parent 
 Require ([int]$report['r5_back_messages'] -eq 1) "R5: Back with an out-of-range value shows the row's stock message (EE.Interface.Utilities.ShowMessage) once"
 Require ([int]$report['r5_stock_messages'] -eq 1) "R5: Confirm with an out-of-range value is stopped by the stock validator with its message; the page stays open"
 
-# 1c. The recorded host stage calls through the real host model and the
-# values-file writer and parser (verify_addon_settings.ps1 -Replay).
-$stageLines = @($run.Output | Where-Object { $_ -like "STAGELOG`t*" } | ForEach-Object { $_.Substring(9) })
-Require ($stageLines.Count -ge 20) "R5: the harness recorded the host stage calls ($($stageLines.Count) lines)"
-$expect = @(
-    "EXPECT`tmissions_alert_confirm`tMissions`tsurvival.alert_interval`tenabled=1`tvalue=60",
-    "EXPECT`tmissions_alert_confirm`tFrost`tfile=unchanged",
-    "EXPECT`tmissions_alert_exit`tMissions`tsurvival.alert_interval`tenabled=1`tvalue=60",
-    "EXPECT`tmissions_alert_close`tMissions`tfile=unchanged",
-    "EXPECT`tmissions_alert_close`tFrost`tfile=unchanged",
-    "EXPECT`tfrost_invalid_then_valid`tFrost`tice_wave.bonus_per_cold_stack`tenabled=1`tvalue=100",
-    "EXPECT`tfrost_invalid_then_valid`tMissions`tfile=unchanged",
-    "EXPECT`tmissions_click_off`tMissions`tsurvival.alert_interval`tenabled=0`tvalue=60",
-    "EXPECT`tpurgatory_int_and_survival_restore`tMissions`tpurgatory.difficulty1.warrior_level`tenabled=1`tvalue=25",
-    "EXPECT`tpurgatory_int_and_survival_restore`tMissions`tsurvival.reward_interval`tenabled=0`tvalue=150"
+# 1c. R7 (2026-09-30): the real host pages. The fixture packages (the staged R7
+# Missions package.json, Frost and Octavia with their author's defaults; member
+# files are synthetic: the page model reads only package.json and the member
+# names) go through verify_addon_settings.ps1 -Tape, which prints the pages the
+# exact C++ page model serves after every planned host call. The bridge under
+# test then walks them through the stock screen (HARNESS_R7) and must make
+# exactly the planned calls; the tape applies them through the values-file
+# writer and checks the resulting files.
+$r7Fixture = Join-Path $renderDir 'fixtures\r7'
+$r7Packages = Join-Path $scratch 'r7-packages'
+if (Test-Path -LiteralPath $r7Packages) { Remove-Item -LiteralPath $r7Packages -Recurse -Force }
+$r7Keys = @([IO.File]::ReadAllLines((Join-Path $r7Fixture 'Missions.target_keys.txt')) | Where-Object { $_ -match '^[0-9a-f]{16}$' })
+$packageDirs = @()
+foreach ($name in @('Missions', 'Frost', 'Octavia')) {
+    $dir = Join-Path $r7Packages $name
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    $manifestPath = Join-Path $r7Fixture "$name\package.json"
+    Copy-Item -LiteralPath $manifestPath -Destination $dir
+    $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
+    foreach ($member in $manifest.members.PSObject.Properties.Name) {
+        $bytes = New-Object System.Collections.Generic.List[byte]
+        if ($member -like '*.targets.addon.lua_B') {
+            # The synthetic string pool the scanner reads the declared target keys from (as verify_addon_settings.cpp synthetic_pool).
+            $bytes.AddRange([byte[]](0x09, 0x03, [byte]$r7Keys.Count))
+            foreach ($key in $r7Keys) { $bytes.Add([byte]$key.Length); $bytes.AddRange([Text.Encoding]::ASCII.GetBytes($key)) }
+            $bytes.AddRange([byte[]]::new(32))
+        }
+        else { $bytes.AddRange([Text.Encoding]::ASCII.GetBytes('RENOVICE R7 FIXTURE MEMBER')) }
+        [IO.File]::WriteAllBytes((Join-Path $dir $member), $bytes.ToArray())
+    }
+    $packageDirs += $dir
+}
+$settingsFiles = @('Missions', 'Frost', 'Octavia') | ForEach-Object { Join-Path $r7Fixture "Settings\$_.json" }
+# The stock checkbox reports the first click on a freshly drawn page twice
+# (focus, then the widget's ValueChanged); the host takes the unchanged second
+# stage as no operation.
+$plan = @(
+    "STAGE`tactive:missions/survival.reward_interval`tbool`tfalse`tclick",
+    "STAGE`tactive:missions/survival.reward_interval`tbool`tfalse`tclick",
+    "STAGE`tstored:missions/survival.reward_interval`ttext`t45`trestage",
+    "STAGE`tactive:missions/survival.reward_interval`tbool`ttrue`tclick",
+    "STAGE`tactive:missions/control_area_deimos.duration`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/control_area_plains.duration`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/excavation.dig_time`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/mobiledefense.time_per_terminal`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/orphix.spawn_interval`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/survival.reward_interval`tbool`ttrue`trestage",
+    "STAGE`tactive:missions/void_cascade.pillar_duration`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/void_flood.fractures_per_round.normal`tbool`ttrue`trestage",
+    "STAGE`tvalue:missions/loopdefend.max_enemies.p4`tnumber`t40`trestage",
+    "STAGE`tvalue:missions/survival.reward_interval`ttext`t60`trestage",
+    "ACT`treset:Missions/value:survival.reward_interval",
+    "STAGE`tvalue:missions/survival.capsule_interval`ttext`t60`trestage",
+    "ACT`tresetall:Missions/node:19.0.0",
+    "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t250`trestage",
+    "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t60`trestage",
+    "ACT`tresetall:Frost"
+    # Octavia's value page closed with Close (cancel): the stock screen passes no rows, nothing is staged.
 )
-$replayFile = Join-Path $scratch 'r5_stage_replay.txt'
-[IO.File]::WriteAllText($replayFile, ((@($stageLines) + $expect) -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
-$replayOutput = @(& (Join-Path $repo 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1') -Replay $replayFile 2>&1 | ForEach-Object { $_.ToString() })
-$replayOutput | Where-Object { $_ -like 'REPLAY*' -or $_ -like '*R5 replay*' -or $_ -like 'FAIL*' } | ForEach-Object { Write-Output "R5-REPLAY`t$_" }
-$replayPasses = @($replayOutput | Where-Object { $_ -like "PASS`tR5 replay *" }).Count
-Require (@($replayOutput | Where-Object { $_ -eq 'ADDON SETTINGS PASS' }).Count -eq 1 -and $replayPasses -eq $expect.Count -and @($replayOutput | Where-Object { $_ -like 'FAIL*' }).Count -eq 0) "R5: the recorded stage calls replayed through the host model write exactly the expected values files ($replayPasses checks)"
+$tapeExpect = @(
+    "EXPECTROW`t3`tquick:Missions`topen:qval:Missions/survival.reward_interval`tSurvival: 45 s",
+    "EXPECTROW`t13`tnode:Missions/14.0.0`topen:val:Missions/loopdefend.max_enemies.p4`tSquad: 40",
+    "EXPECTROW`t13`tpkg:Missions`topen:node:Missions/14`tMirror Defense: 1 changed",
+    "EXPECTROW`t15`tnode:Missions/19.0`topen:val:Missions/survival.reward_interval`tTime between rewards: 300 s (default)",
+    "EXPECTROW`t17`tnode:Missions/19.0.0`topen:val:Missions/survival.capsule_interval`tTime between capsules: 90 s (default)",
+    "EXPECTROW`t19`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 60x",
+    "EXPECTROW`t20`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 50x (default)",
+    "EXPECTFILE`tMissions`tloopdefend.max_enemies.p4`tenabled=1`tvalue=40",
+    "EXPECTFILE`tMissions`tsurvival.reward_interval`tenabled=0`tvalue=300",
+    "EXPECTFILE`tMissions`tsurvival.capsule_interval`tenabled=0`tvalue=90",
+    "EXPECTFILE`tFrost`tice_wave.bonus_per_cold_stack`tenabled=0`tvalue=50",
+    "EXPECTFILE`tOctavia`tfile=unchanged"
+)
+$planFile = Join-Path $scratch 'r7_tape_plan.txt'
+[IO.File]::WriteAllText($planFile, ((@($plan) + $tapeExpect) -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $tapeOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1') -Package ($packageDirs -join ';') -Settings ($settingsFiles -join ';') -Tape $planFile 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    $tapeExit = $LASTEXITCODE
+}
+finally { $ErrorActionPreference = $previousPreference }
+$tapeOutput | Where-Object { $_ -like 'TAPEOP*' -or $_ -like 'TAPESTEPS*' -or $_ -like 'FAIL*' -or ($_ -like 'PASS*' -and $_.Contains('tape')) } | ForEach-Object { Write-Output "R7-TAPE`t$_" }
+Require ($tapeExit -eq 0 -and ($tapeOutput -contains 'ADDON SETTINGS PASS') -and @($tapeOutput | Where-Object { $_ -like 'FAIL*' }).Count -eq 0) "R7 host tape: the fixture packages pass the scanner and page model, every planned call is applied and every EXPECTROW/EXPECTFILE holds ($($tapeExpect.Count) checks)"
+$steps = @{}
+$pageOrder = @{}
+foreach ($line in $tapeOutput) {
+    $fields = $line.Split("`t")
+    if ($fields[0] -eq 'TAPEPAGE') {
+        $key = "$($fields[1])|$($fields[2])"
+        $title = ($fields[3] -replace '^title=', '')
+        $empty = ($fields[4] -replace '^empty=', '')
+        $steps[$key] = @{ Step = [int]$fields[1]; Id = $fields[2]; Title = $title; Empty = $empty; Rows = (New-Object System.Collections.Generic.List[string]) }
+    }
+    elseif ($fields[0] -eq 'TAPEROW') {
+        $key = "$($fields[1])|$($fields[2])"
+        $steps[$key].Rows.Add((ConvertTo-LuauRow $fields[3..($fields.Count - 1)]))
+    }
+}
+$tape = New-Object System.Text.StringBuilder
+[void]$tape.Append("HARNESS_TAPE = { plan = {`n")
+foreach ($call in $plan) { [void]$tape.Append("  $(ConvertTo-LuauString $call),`n") }
+[void]$tape.Append("}, steps = {}`n}`n")
+foreach ($entry in ($steps.Values | Sort-Object { $_.Step })) {
+    [void]$tape.Append("HARNESS_TAPE.steps[$($entry.Step)] = HARNESS_TAPE.steps[$($entry.Step)] or {}`n")
+    [void]$tape.Append("HARNESS_TAPE.steps[$($entry.Step)][$(ConvertTo-LuauString $entry.Id)] = { title = $(ConvertTo-LuauString $entry.Title), empty = $(ConvertTo-LuauString $entry.Empty), search = false, rows = {`n")
+    foreach ($row in $entry.Rows) { [void]$tape.Append("  $row,`n") }
+    [void]$tape.Append("} }`n")
+}
+Require ($steps.Count -gt 100) "R7 host tape holds the reachable pages and every page a call changed ($($steps.Count) page versions)"
+$r7 = Invoke-Harness $bridgeSource 'r7' '' -TapeData $tape.ToString()
+$r7.Output | Where-Object { $_ -like 'TAPECALL*' -or $_ -like 'R7REPORT*' -or $_ -like 'FAIL*' -or $_ -like 'ERROR*' -or $_ -like 'SCRIPT SETTINGS RENDER HARNESS*' } | Select-Object -First 80 | ForEach-Object { Write-Output "R7`t$_" }
+$r7Line = @($r7.Output | Where-Object { $_ -like "R7REPORT`t*" })
+$r7Report = @{}
+if ($r7Line.Count -gt 0) { foreach ($pair in $r7Line[0].Substring(9).Split(' ')) { $kv = $pair.Split('=', 2); if ($kv.Count -eq 2) { $r7Report[$kv[0]] = $kv[1] } } }
+Require ($r7.Exit -eq 0 -and @($r7.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0 -and @($r7.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "R7: the bridge renders every real host page it opens through the stock screen with no Lua error; every drawn row shows its own label and widgets"
+Require ([int]$r7Report['calls'] -eq $plan.Count -and (Get-Category $r7 'r7-plan') -eq 0) "R7: the bridge made exactly the $($plan.Count) planned host calls (edits, restages, resets), in order"
+Require ([int]$r7Report['max_depth'] -ge 6) "R7: Missions -> Mirror Defense -> Enemies -> Max enemies at once -> Squad reaches the value page at depth 6"
+Require ([int]$r7Report['returns'] -ge 16 -and (Get-Category $r7 'r7-close') -eq 0 -and (Get-Category $r7 'r7-nav') -eq 0) "R7: every page closed with Confirm, Back (Exit) and Close returns to its open, intact parent ($($r7Report['returns']) returns)"
+Require ([int]$r7Report['refreshed'] -ge 14 -and (Get-Category $r7 'r7-refresh') -eq 0) "R7: after each return and each in-place reset the rows show the host's new text (value, '(default)', 'N changed', quick on/off; $($r7Report['refreshed']) checks)"
+Require ([int]$r7Report['inplace'] -eq 2) "R7: 'Reset all to defaults' re-reads its page in place (Missions Life support, Frost) and the page stays open"
+Require ([int]$r7Report['messages'] -eq 1 -and (Get-Category $r7 'r7-validate') -eq 0) "R7: Back with an out-of-range value shows the row's stock message (Frost 250)"
+Require ([int]$r7Report['switches'] -eq 0 -and (Get-Category $r7 'r7-switch') -eq 0) "R7: no page the player opens holds a package, member, 'Use stock values', section or Custom switch"
 
 # 2. Negative control R3: the installed bridge 739d8177 on the same page
 # reproduces the live R4 defects.
@@ -370,6 +472,8 @@ Require ($bridgeText.Contains('openRowPage(movie, standIn.mRenoviceSpec, depth +
 Require ($bridgeText.Contains('stage(value, setting, "click")')) "R5: a value-changed callback stages as a player's click"
 Require ($bridgeText.Contains('local function refreshRows(context)') -and $bridgeText.Contains('pcall(onClosed)')) "R5: a child page close refreshes its parent from the host model"
 Require ($bridgeText.Contains('eeUtilities.ShowMessage(message)') -and $bridgeText.Contains('if flag ~= nil then')) "R5: Back with an invalid value shows the row's stock message"
+Require ($bridgeText.Contains('string.sub(action, 1, 9) == "resetall:"') -and $bridgeText.Contains('context.refresh()')) "R7: 'Reset all to defaults' stages the reset and re-reads its page in place"
+Require ($bridgeText.Contains('string.sub(action, 1, 6) == "reset:"') -and $bridgeText.Contains('context.skipRestage = true') -and $bridgeText.Contains('context.skipRestage ~= true')) "R7: 'Reset to default' closes its value page without restaging the old value over the reset"
 
 # 4b. REPLACEMENT_SETTINGS_V1 (2026-09-30): the rows of a replacement member's
 # values (example package HijackSettingsExample; the rows file is pinned against

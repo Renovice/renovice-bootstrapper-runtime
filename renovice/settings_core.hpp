@@ -61,6 +61,12 @@ inline constexpr std::size_t maximum_json_nodes = 262144;
 // Numbers reach DE Luau as 32-bit floats; integers are exact up to 2^24.
 inline constexpr double maximum_exact_integer = 16777216.0;
 inline constexpr std::size_t maximum_logged_value_rejections = 16;
+// Revision R7 layout fields (see ValueDecl).
+inline constexpr std::size_t maximum_path_depth = 6;
+inline constexpr std::size_t maximum_path_text = 40;
+inline constexpr std::size_t maximum_row_text = 33;
+inline constexpr std::size_t maximum_default_label = 20;
+inline constexpr std::size_t maximum_quick_label = 40;
 
 // ---------------------------------------------------------------------------
 // Minimal strict JSON DOM (RFC 8259, optional UTF-8 BOM, duplicate keys and
@@ -475,7 +481,34 @@ struct ValueDecl
 	StockCheck stock_check = StockCheck::Live;
 	bool stock_check_declared = false; // the field was present (reporting only)
 	std::vector<EnumOption> options;
+	// Revision R7 (all optional; absent = the V1 behaviour).
+	//   path          the SCRIPT SETTINGS pages below the package page, outermost
+	//                 first (for example a type, a category and a set page);
+	//   row           the row text on the page at the end of `path`;
+	//                 default: `label`;
+	//   default       addon lane only: the author's default, distinct from the
+	//                 game stock (a bonus of 50 where the game has 0). A value with a
+	//                 declared default is always delivered: its file value when
+	//                 enabled, else the default. Absent: default = stock and a
+	//                 value is delivered only when enabled (V1);
+	//   default_label display text of the default when the game value is not
+	//                 one number ("60-80 s"); display only;
+	//   quick         label of the value's row on the package's Quick settings
+	//                 page (an on/off that keeps the typed value).
+	std::vector<std::string> path;
+	std::string row;
+	bool default_declared = false;
+	double default_value = 0.0;
+	std::string default_label;
+	std::string quick;
 };
+
+// The value that means "leave it as the author/game intends": the declared
+// default, else the stock.
+inline double default_of(const ValueDecl& declaration) noexcept
+{
+	return declaration.default_declared ? declaration.default_value : declaration.stock;
+}
 
 struct Declarations
 {
@@ -609,9 +642,9 @@ inline std::string parse_value_decl(
 	const std::string where = "value=" + id;
 	if (!valid_value_id(id)) return "value-id-invalid=" + id;
 	if (!value.is_object()) return where + " declaration-not-object";
-	static constexpr std::array<std::string_view, 12> fields{
+	static constexpr std::array<std::string_view, 17> fields{
 		"group", "label", "unit", "type", "stock", "min", "max", "scope", "lane", "applies", "options",
-		"stock_check"};
+		"stock_check", "path", "row", "default", "default_label", "quick"};
 	for (const auto& [key, field] : value.members)
 	{
 		(void)field;
@@ -724,6 +757,57 @@ inline std::string parse_value_decl(
 	else if (options != nullptr)
 	{
 		return where + " options-only-for-enum";
+	}
+	// Revision R7 layout and default fields.
+	const auto layout_text = [](const std::string& text, std::size_t maximum)
+	{
+		return valid_text(text, maximum, false) && text.front() != ' ' && text.back() != ' ';
+	};
+	if (const auto* path = value.find("path"))
+	{
+		if (!path->is_array() || path->items.empty() || path->items.size() > maximum_path_depth)
+			return where + " path-invalid";
+		for (const auto& element : path->items)
+		{
+			if (!element.is_string() || !layout_text(element.text, maximum_path_text))
+			{
+				return where + " path-element-invalid";
+			}
+			out.path.push_back(element.text);
+		}
+	}
+	if (const auto* row = value.find("row"))
+	{
+		if (!row->is_string() || !layout_text(row->text, maximum_row_text)) return where + " row-invalid";
+		out.row = row->text;
+	}
+	if (const auto* default_label = value.find("default_label"))
+	{
+		if (!default_label->is_string() || !layout_text(default_label->text, maximum_default_label))
+			return where + " default_label-invalid";
+		out.default_label = default_label->text;
+	}
+	if (const auto* quick = value.find("quick"))
+	{
+		if (!quick->is_string() || !layout_text(quick->text, maximum_quick_label)) return where + " quick-invalid";
+		out.quick = quick->text;
+	}
+	if (const auto* declared_default = value.find("default"))
+	{
+		if (!declared_default->is_number() || !std::isfinite(declared_default->number))
+			return where + " default-not-number";
+		if (out.lane != Lane::Addon) return where + " default-only-for-addon-lane";
+		const double number = declared_default->number;
+		if (number < out.minimum || number > out.maximum) return where + " default-outside-min-max";
+		if (out.type == ValueType::Int && !whole(number)) return where + " default-int-has-fraction";
+		if (out.type == ValueType::Enum
+			&& std::none_of(out.options.begin(), out.options.end(),
+				[&](const EnumOption& option) { return option.value == number; }))
+		{
+			return where + " default-not-an-option";
+		}
+		out.default_declared = true;
+		out.default_value = number;
 	}
 	return {};
 }
@@ -1090,7 +1174,10 @@ struct PackageEvaluation
 	std::string file_reason;
 	bool use_stock = false;
 	std::set<std::string> effective;        // effective value ids (all lanes)
-	std::vector<ValueRejection> rejections; // invalid entries (value reverts to stock)
+	// R7: addon-lane values with a declared default that are delivered at that
+	// default (no enabled entry, or an invalid one; not use_stock, section on).
+	std::set<std::string> defaulted;
+	std::vector<ValueRejection> rejections; // invalid entries (value reverts to stock, or to its declared default)
 	std::size_t unknown_entries = 0;        // entries without a declaration (ignored)
 };
 
@@ -1142,7 +1229,29 @@ inline PackageEvaluation evaluate(
 		result.file_reason = file_error;
 		return result;
 	}
-	if (state == nullptr) return result;
+	// R7: a declared default applies without any file entry (absent file, no
+	// entry, entry off or invalid), unless the package is on use_stock or the
+	// value's section is switched off (then the game stock applies, as in V1).
+	const auto add_defaults = [&]()
+	{
+		for (const auto& declaration : declarations.values)
+		{
+			if (!declaration.default_declared || declaration.lane != Lane::Addon
+				|| result.effective.count(declaration.id) != 0) continue;
+			if (state != nullptr)
+			{
+				if (state->use_stock) continue;
+				const auto group = state->groups.find(declaration.group);
+				if (group != state->groups.end() && !group->second) continue;
+			}
+			result.defaulted.insert(declaration.id);
+		}
+	};
+	if (state == nullptr)
+	{
+		add_defaults();
+		return result;
+	}
 	result.file = FileStatus::Valid;
 	result.use_stock = state->use_stock;
 	const bool build_changed = !state->build.empty() && !declarations.build.empty()
@@ -1186,6 +1295,7 @@ inline PackageEvaluation evaluate(
 		if (group != state->groups.end() && !group->second) continue; // section switch off
 		result.effective.insert(id);
 	}
+	add_defaults();
 	return result;
 }
 
@@ -1196,21 +1306,29 @@ inline std::shared_ptr<const MemberDelivery> member_delivery(
 	std::string_view member)
 {
 	auto delivery = std::make_shared<MemberDelivery>();
-	if (state != nullptr && evaluation.file == FileStatus::Valid)
+	if (evaluation.file != FileStatus::Malformed)
 	{
 		for (const auto& declaration : declarations.values)
 		{
-			if (declaration.member != member || declaration.lane != Lane::Addon
-				|| evaluation.effective.count(declaration.id) == 0)
+			if (declaration.member != member || declaration.lane != Lane::Addon) continue;
+			if (state != nullptr && evaluation.file == FileStatus::Valid
+				&& evaluation.effective.count(declaration.id) != 0)
 			{
-				continue;
+				const auto entry = state->values.find(declaration.id);
+				if (entry == state->values.end()) continue;
+				delivery->values.push_back(DeliveredValue{
+					declaration.id,
+					static_cast<float>(entry->second.value),
+					static_cast<float>(declaration.stock)});
 			}
-			const auto entry = state->values.find(declaration.id);
-			if (entry == state->values.end()) continue;
-			delivery->values.push_back(DeliveredValue{
-				declaration.id,
-				static_cast<float>(entry->second.value),
-				static_cast<float>(declaration.stock)});
+			else if (evaluation.defaulted.count(declaration.id) != 0)
+			{
+				// R7: the author's default, delivered like an enabled entry.
+				delivery->values.push_back(DeliveredValue{
+					declaration.id,
+					static_cast<float>(declaration.default_value),
+					static_cast<float>(declaration.stock)});
+			}
 		}
 	}
 	std::sort(delivery->values.begin(), delivery->values.end(),

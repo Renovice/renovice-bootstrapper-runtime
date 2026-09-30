@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "name": "Frost",
+  "description": "Frost Ice Wave addon (opt-in): extra damage per Cold stack on the target, scaled by Ability Strength. Replaces the loose Inject copy of the same addon.",
+  "members": {
+    "8fba3a28f8fef624.IceWaveColdStackDamage.target.addon.lua_B": {
+      "label": "Ice Wave Cold-stack damage",
+      "settings": {
+        "values": {
+          "ice_wave.bonus_per_cold_stack": {
+            "group": "ice_wave",
+            "label": "Bonus per Cold stack",
+            "unit": "x",
+            "type": "float",
+            "stock": 0,
+            "default": 50,
+            "min": 0,
+            "max": 100,
+            "scope": "Ice Wave damage grows with each Cold stack on the target (up to 10) and with Ability Strength. 0 turns the bonus off.",
+            "lane": "addon",
+            "applies": "live_next_read",
+            "stock_check": "none"
+          }
+        }
+      }
+    }
+  },
+  "settings": {
+    "format": "RENOVICE_SETTINGS_DECL_V1",
+    "build": "2026.09.28.13.06",
+    "groups": [
+      {
+        "id": "ice_wave",
+        "label": "Ice Wave",
+        "order": 10,
+        "aliases": [
+          "Frost",
+          "Frost Prime",
+          "Cold",
+          "IceWave"
+        ]
+      }
+    ]
+  }
+}

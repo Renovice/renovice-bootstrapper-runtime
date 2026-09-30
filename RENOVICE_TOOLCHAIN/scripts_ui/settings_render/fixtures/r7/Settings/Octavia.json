@@ -1,0 +1,10 @@
+{
+  "format": "RENOVICE_SCRIPT_SETTINGS_V1",
+  "package": "package:octavia",
+  "build": "2026.09.28.13.06",
+  "use_stock": false,
+  "groups": { "mallet": true },
+  "values": {
+    "mallet.threat_level": { "enabled": true, "value": 5, "stock": 5 }
+  }
+}

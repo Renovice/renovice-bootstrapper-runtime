@@ -6396,50 +6396,11 @@ void log_script_settings(const std::string& message)
 settings_ui::Page select_script_settings_page(
 	const std::vector<settings_ui::PackageView>& views, const std::string& page_id, bool& found)
 {
-	found = true;
-	if (page_id == "flat") return settings_ui::build_flat_page(views);
-	if (page_id == "root") return settings_ui::build_root_page(views);
-	const auto view_for = [&](std::string_view folder) -> const settings_ui::PackageView*
-	{
-		for (const auto& view : views)
-			if (view.folder == folder && view.declarations != nullptr) return &view;
-		return nullptr;
-	};
-	if (page_id.rfind("pkg:", 0) == 0)
-	{
-		if (const auto* view = view_for(std::string_view(page_id).substr(4)))
-			return settings_ui::build_package_page(*view);
-	}
-	else if (page_id.rfind("grp:", 0) == 0)
-	{
-		const auto body = std::string_view(page_id).substr(4);
-		const auto slash = body.find('/');
-		if (slash != std::string_view::npos)
-		{
-			if (const auto* view = view_for(body.substr(0, slash)))
-			{
-				if (view->declarations->group(body.substr(slash + 1)) != nullptr)
-					return settings_ui::build_group_page(*view, body.substr(slash + 1));
-			}
-		}
-	}
-	else if (page_id.rfind("val:", 0) == 0)
-	{
-		// One-value page: INPUTCOUNT or INPUTBOX (stock scroll contract: no
-		// INPUTBOX on lists; R4: no INPUTCOUNT on a recycled list).
-		const auto body = std::string_view(page_id).substr(4);
-		const auto slash = body.find('/');
-		if (slash != std::string_view::npos)
-		{
-			if (const auto* view = view_for(body.substr(0, slash)))
-			{
-				auto page = settings_ui::build_value_page(*view, body.substr(slash + 1));
-				if (!page.rows.empty()) return page;
-			}
-		}
-	}
-	found = false;
-	return {};
+	// R7: the page ids and pages are the pure page model's (root, flat, pkg:,
+	// node:, quick:, val:, qval:); value editors live on their own value page
+	// (stock scroll contract: no INPUTBOX on lists; R4: no INPUTCOUNT on a
+	// recycled list).
+	return settings_ui::select_page(views, page_id, found);
 }
 
 int script_settings_page_callback(luau_State* state)
@@ -6619,7 +6580,15 @@ int script_settings_action_callback(luau_State* state)
 			|| luau_gettop(state) < 1) return 0;
 		std::string action;
 		if (!read_short_lua_string(state->intop[0], action, 256)) return 0;
-		if (action.rfind("restore:", 0) != 0) return 0;
+		// R7: "reset:" (value page: reset, then close), "resetall:" (list
+		// page: reset everything below, refresh in place) and the older
+		// "restore:" all stage one reset of the named scope.
+		std::size_t prefix = 0;
+		if (action.rfind("resetall:", 0) == 0) prefix = 9;
+		else if (action.rfind("reset:", 0) == 0) prefix = 6;
+		else if (action.rfind("restore:", 0) == 0) prefix = 8;
+		else return 0;
+		bool staged = false;
 		{
 			std::lock_guard lock(script_settings_session_mutex);
 			if (!script_settings_session.open
@@ -6627,10 +6596,11 @@ int script_settings_action_callback(luau_State* state)
 			{
 				return 0;
 			}
-			settings_ui::restore(script_settings_session.session,
-				script_settings_session.views, std::string_view(action).substr(8));
+			staged = settings_ui::reset(script_settings_session.session,
+				script_settings_session.views, std::string_view(action).substr(prefix));
 		}
-		log_script_settings("RENOVICE Script Settings action PASS " + action + " staged=restore");
+		log_script_settings("RENOVICE Script Settings action " + std::string(staged ? "PASS " : "REJECT ")
+			+ action + (staged ? " staged=reset" : " reason=unknown-scope"));
 	}
 	catch (...)
 	{
@@ -6671,8 +6641,8 @@ void apply_script_settings_session(ScriptSettingsHostSession& closed, const char
 		<< " policy=" << (policy_committed ? applied.policy.size() : 0)
 		<< " stage_calls=" << closed.stage_calls
 		<< " stage_rejections=" << closed.stage_rejections
-		<< " restores=" << closed.session.restores.size()
-		<< " edited_custom=" << closed.session.implied_custom.size();
+		<< " resets=" << closed.session.resets
+		<< " operations=" << closed.session.operations.size();
 	log_script_settings(line.str());
 	if (written != 0 || policy_committed) request_reload("Script settings applied");
 	else log_script_settings("RENOVICE Script Settings close PASS action=no-changes");

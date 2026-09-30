@@ -135,7 +135,9 @@ Require ($injection.Contains('if (!script_settings_row_available()) return false
 Require ($hostBlock.Contains('request_reload("Script settings applied");') -and -not $hostBlock.Contains('apply_generation(')) 'changes apply only through the ordinary F9 transaction'
 Require ($hostBlock.Contains('settings_ui::stage(') -and $hostBlock.Contains('if (depth != 1)')) 'clicks and child closes only stage; the root close applies'
 Require ($hostBlock.Contains('staged=discarded') -and $hostBlock.Contains('owning-vm-changed')) 'a VM change or a malformed completion discards the session (fail closed)'
-Require ($injection.Contains('else if (page_id.rfind("val:", 0) == 0)') -and $injection.Contains('settings_ui::build_value_page(')) 'INPUTBOX editors are served on their own one-value page (stock scroll contract)'
+$uiCore = [IO.File]::ReadAllText((Join-Path $repo 'renovice\settings_ui_core.hpp'))
+Require ($injection.Contains('return settings_ui::select_page(views, page_id, found);') -and $uiCore.Contains('else if (split("val:", folder, rest) || split("qval:", folder, rest))') -and $uiCore.Contains('build_value_page(*view, rest, page_id.substr(0, 5) == "qval:")')) 'editors are served on their own value page (stock scroll contract); the host serves the pure page model''s pages'
+Require ($injection.Contains('if (action.rfind("resetall:", 0) == 0) prefix = 9;') -and $injection.Contains('staged = settings_ui::reset(script_settings_session.session,')) 'R7: reset and resetall actions stage one reset of their scope (the older restore: prefix too)'
 Require ($injection.Contains('" scroll=" + (settings_ui::stock_scroll_attached(page)')) 'the page PASS line reports the stock scroll decision'
 $pageLeafStart = $injection.IndexOf('// BEGIN SCRIPT_SETTINGS_PAGE_PROTECTED_LEAF', [StringComparison]::Ordinal)
 $pageLeafEnd = $injection.IndexOf('// END SCRIPT_SETTINGS_PAGE_PROTECTED_LEAF', [StringComparison]::Ordinal)
