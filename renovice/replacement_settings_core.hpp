@@ -7,7 +7,8 @@
 // activate(context). A full replacement has no lifecycle, so this primitive
 // gives it a read-only accessor instead:
 //
-//   RENOVICE_SCRIPT_SETTINGS([key]) -> { [id] = { enabled = true, value, stock } } | nil
+//   RENOVICE_SCRIPT_SETTINGS([key] [, knownSerial])
+//     -> { [id] = { enabled = true, value, stock } } | nil, serial
 //
 // Ownership:
 //   - declarations, user values and their evaluation: unchanged
@@ -144,29 +145,74 @@ inline bool parse_key_argument(std::string_view text, std::uint64_t& key) noexce
 
 enum class CallKeySource { Bound, Argument, None };
 
-struct CallKey
+// Lua type of one accessor argument, as the native sees it.
+enum class ArgumentKind { Absent, Nil, String, Number, Other };
+
+// One accessor call:
+//   RENOVICE_SCRIPT_SETTINGS()                      bound key
+//   RENOVICE_SCRIPT_SETTINGS(knownSerial)           bound key, cache check
+//   RENOVICE_SCRIPT_SETTINGS("<16-hex key>")        explicit key
+//   RENOVICE_SCRIPT_SETTINGS("<16-hex key>", knownSerial)
+// Results: nothing (nil) when the call resolves to no key; otherwise two
+// values, `settings-or-nil, serial`. When knownSerial equals the committed
+// serial the table is not built (first result nil): the caller keeps its
+// cached table. `serial` changes at every committed startup/F9 generation.
+struct CallPlan
 {
 	std::uint64_t key = 0;
 	CallKeySource source = CallKeySource::None;
+	bool has_known_serial = false;
+	double known_serial = 0.0;
 };
 
-// A call with a string argument names its key explicitly (an invalid string
-// resolves to nothing, never to the bound key). A call without an argument
-// uses the key the accessor was bound to at install; an unbound accessor
-// (shared environment, see install_action) resolves to nothing.
-inline CallKey resolve_call_key(
+// An invalid string never falls back to the bound key; any other argument
+// type, or a non-number second argument, resolves to nothing. An unbound
+// accessor (shared environment, see install_action) needs the explicit key.
+inline CallPlan plan_call(
 	std::uint64_t bound_key,
-	bool has_string_argument,
-	bool argument_valid,
-	std::uint64_t argument_key) noexcept
+	ArgumentKind first,
+	bool first_key_valid,
+	std::uint64_t first_key,
+	double first_number,
+	ArgumentKind second,
+	double second_number) noexcept
 {
-	if (has_string_argument)
+	CallPlan plan;
+	const auto serial_argument = [&](ArgumentKind kind, double number) noexcept
 	{
-		return argument_valid && argument_key != 0
-			? CallKey{argument_key, CallKeySource::Argument}
-			: CallKey{};
+		if (kind == ArgumentKind::Number)
+		{
+			plan.has_known_serial = true;
+			plan.known_serial = number;
+			return true;
+		}
+		return kind == ArgumentKind::Absent || kind == ArgumentKind::Nil;
+	};
+	if (first == ArgumentKind::String)
+	{
+		if (!first_key_valid || first_key == 0 || !serial_argument(second, second_number)) return CallPlan{};
+		plan.key = first_key;
+		plan.source = CallKeySource::Argument;
+		return plan;
 	}
-	return bound_key != 0 ? CallKey{bound_key, CallKeySource::Bound} : CallKey{};
+	if (first == ArgumentKind::Other || bound_key == 0) return CallPlan{};
+	if (!serial_argument(first, first_number)) return CallPlan{};
+	plan.key = bound_key;
+	plan.source = CallKeySource::Bound;
+	return plan;
+}
+
+// DE Luau numbers are 32-bit floats: the serial is exact up to 2^24 commits.
+inline float serial_number(std::uint64_t serial) noexcept
+{
+	return static_cast<float>(serial & 0xFFFFFFull);
+}
+
+// True when the caller already holds the table of this committed serial.
+inline bool caller_is_current(const CallPlan& plan, std::uint64_t serial) noexcept
+{
+	return plan.has_known_serial
+		&& plan.known_serial == static_cast<double>(serial_number(serial));
 }
 
 // What the environment slot named accessor_global_name holds at install time.

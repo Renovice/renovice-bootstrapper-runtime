@@ -1,5 +1,18 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 Replacement settings (REPLACEMENT_SETTINGS_V1): replacements read SCRIPT SETTINGS, staged (not deployed)
+
+Branch `feat/replacement-settings-2026-09-30`, rebased onto Settings R5 (`0afb9cd`); the DLL contains R5. Generic; no module, mission or ability rule.
+
+- **What.** A replacement member of a package that declares addon-lane values (same schema, rows and values file as addon members) gets the same delivery. The replacement reads it with `RENOVICE_SCRIPT_SETTINGS([key] [, knownSerial])` → `settings-or-nil, serial`; `settings` has the `context.settings` shape. With the serial it already holds, a caller gets no table (hot path: no leaf, no allocation; gate model about 8 ns host side).
+- **Where.** A C closure (upvalue = content key bits) under the DE native-name hash `04ace428` in the replacement module's load environment, installed at the natural load right after a successful stock Loader and before the root runs, after an F9 refresh to replacement bytes, and at F9 commit for already-loaded modules (exact VM and thread). A VM-global install is not visible to module code (V26 live negative); the load environment is where the live-proven target dispatcher lives. A foreign value under the name is never overwritten.
+- **Lifetime.** Values come from the committed snapshot (startup scan, every F9 commit, never a prepared F9). Per-use reads are live after the apply; a root-time read applies at the next root execution (next mission). No module refresh on a settings-only change. Native code retains no Lua object.
+- **Fail closed.** No entry (no declarations, rejected declarations, package or member off, loose file) → no VM write, `nil`, compiled values; replacements without declarations load byte for byte as before.
+- **Gates.** New `RENOVICE_TOOLCHAIN/replacements/verify_replacement_settings.ps1` (in the build list, 149 checks + 10-check Luau harness): a real U44 Hijack replacement fixture (`fb346b59e2b7687a`, payload health; stock-equivalent baseline passes CONST-ID and CFG-ID against stock, the edit adds only `H:04ace428` and four string fields), the recommended generated-replacement pattern (second fixture, plain-Luau harness against the host contract), the exact scanner, nested pages, an edit-to-accessor chain, name-hash collision check (922,276 names), source pins. `verify_script_settings_render.ps1` section 4b renders the example rows. 36/36 build-listed gates PASS; `verify_replacement_core.ps1` PASS.
+- **Build.** Main DLL `29a9c6c8a9f357e20d258e13712a591c06bb43cee38bd41134ee14f650e8e934` (5,693,440 B), 0 warnings, 0 errors. Bridge `299cac5e…` (R5) unchanged. Staged in `work/staging/replacement-settings/` with the example package `HijackSettingsExample`.
+
+**Deployment and every live check are pending** (install line, READ line, payload 20,000 in Hijack, apply to 15,000, the in-game behaviour of the full U44 recompile). Rollback is `9bc0b68c…` (R5, installed). Contract for the generator: `CONTRACT_PHASE1.md` Revision R6. [Record](../RESEARCH/REPLACEMENT_SETTINGS_2026-09-30/README.md).
+
 ## 2026-09-30 Settings R5: F9 never committed (Riven gate), edits saved with Custom off, nested layout default — staged (not deployed)
 
 Branch `fix/settings-r5-apply-riven-nested-2026-09-30` (from `1a67d99`, the installed DLL `aebb08e3`). Generic; no target-specific code.

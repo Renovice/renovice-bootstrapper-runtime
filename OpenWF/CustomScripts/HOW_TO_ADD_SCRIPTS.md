@@ -366,40 +366,66 @@ Since bootstrapper `feat/replacement-settings-2026-09-30` (2026-09-30), a
 replacement files get no settings.
 
 **Declare** the values exactly as for an addon member: same `settings.values`
-schema, validation, labels, stock values, SCRIPT SETTINGS rows and values file.
-Use `"lane": "addon"` (the default); that lane means "read at run time by the
-script". A replacement that declares only `literal` values is unchanged (it is
-still switched by the literal-lane gate and reads nothing).
+schema, validation, labels, stock values, SCRIPT SETTINGS rows (flat and
+nested) and values file. Use `"lane": "addon"` (the default); for a
+replacement it means "read at run time by the script". A replacement that
+declares only `literal` values is unchanged (still switched by the
+literal-lane gate; it reads nothing).
 
 **Read** them with the global function `RENOVICE_SCRIPT_SETTINGS`:
 
-```lua
-local COMPILED = 10000          -- the value compiled into the replacement
-local value = COMPILED
-local accessor = RENOVICE_SCRIPT_SETTINGS          -- nil on older DLLs
-if accessor ~= nil then
-    local settings = accessor()                    -- nil: no settings for this module
-    local entry = settings ~= nil and settings["hijack.payload_health"] or nil
-    if entry ~= nil and entry.enabled == true and entry.stock == COMPILED
-        and entry.value ~= nil then
-        value = entry.value
-    end
-end
+```
+RENOVICE_SCRIPT_SETTINGS([key] [, knownSerial])  ->  settings-or-nil, serial
 ```
 
-- `RENOVICE_SCRIPT_SETTINGS()` returns a **fresh** table
+- `settings` is a **fresh** table
   `{ [id] = { enabled = true, value = <number>, stock = <declared stock> } }`
-  (the same shape as an addon's `context.settings`), or nothing (`nil`).
-- It returns `nil` when the member has no readable declarations, the package's
-  declarations were rejected, or the module is not a staged package member. An
-  empty table means the values file is missing or malformed, `use_stock` is on,
-  or every value is off: keep your compiled values.
-- Optional argument: `RENOVICE_SCRIPT_SETTINGS("<16-hex content key>")` names
-  the replacement explicitly. Without it the accessor uses the key it was bound
-  to. It exists for the case where two replacements share one module
-  environment (the accessor is then unbound and needs the key).
-- The table is yours; changing it changes nothing else. Treat values as
-  read-only input.
+  (the same shape as an addon's `context.settings`). It is `nil` when this
+  module has no readable settings (no addon-lane declarations, declarations
+  rejected, not a staged package member). An empty table means the values file
+  is missing or malformed, `use_stock` is on, or every value is off.
+- `serial` is the committed generation (startup scan or the last successful
+  F9). It changes at every commit, including a SCRIPT SETTINGS apply.
+- `knownSerial`: pass the serial you already hold. If it is still current the
+  host returns `nil, serial` **without building a table** (no allocation, no
+  VM work beyond the call), so you keep your cached table.
+- `key`: optional, the 16-hex content key of the replacement. Without it the
+  accessor uses the key it was bound to. It is needed only when two
+  replacements share one module environment (the accessor is then unbound).
+- Anything else as an argument, or an unbound accessor without a key,
+  returns nothing. On an older DLL the global is `nil`. Treat both as "use the
+  compiled values".
+- The returned table is yours; changing it changes nothing else.
+
+**Recommended pattern** (also for generated replacements: every former
+literal site calls `setting(id, stock)`, and the stock literal stays the
+fallback):
+
+```lua
+local settingsCache, settingsSerial = nil, nil
+local function setting(id, stock)
+  local accessor = RENOVICE_SCRIPT_SETTINGS          -- nil on older DLLs
+  if accessor == nil then return stock end
+  local fresh, serial = accessor(settingsSerial)     -- no table while unchanged
+  if serial ~= settingsSerial then settingsCache, settingsSerial = fresh, serial end
+  local entry = settingsCache ~= nil and settingsCache[id] or nil
+  if entry ~= nil and entry.enabled == true and entry.stock == stock and entry.value ~= nil then
+    return entry.value
+  end
+  return stock
+end
+
+-- at a former literal site:  local terminalTime = setting("mobile_defense.terminal_time", 180)
+```
+
+- `entry.stock == stock` ties the value to the stock the script was built
+  from; after a game update that changes the stock, the value is ignored.
+- Cost: one C call per read while the serial is unchanged (the host's side is
+  about 8 ns in the gate model: snapshot load, key lookup, serial compare),
+  plus the Lua lookups. The table is built once per committed generation.
+  Reading inside hot functions is fine; do not create closures per read.
+- A single read in the root chunk (`local s = RENOVICE_SCRIPT_SETTINGS()`) is
+  also valid; see "Lifetime".
 
 **Where the accessor comes from.** At the natural load of a replacement whose
 member has settings, right after DE's Loader has undumped the replacement and
@@ -408,9 +434,10 @@ native-name hash of `RENOVICE_SCRIPT_SETTINGS` in the module's **load
 environment** (the environment of the loaded root closure). That is where the
 live-proven generic target dispatcher lives, and module code resolves globals
 through it; a VM-global install is not visible to module code (V26/V27
-records). The first live read by a replacement root is still pending. The same happens after an F9 refresh to
-replacement bytes, and at every F9 commit for replacement modules this VM has
-already loaded. It never overwrites a value it does not own under that name
+records). The first live read by a replacement root is still pending. The same
+happens after an F9 refresh to replacement bytes, and at every F9 commit for
+replacement modules this VM has already loaded. It never overwrites a value it
+does not own under that name
 (`RENOVICE REPLACEMENT SETTINGS ACCESSOR REJECT … action=rejected-foreign-value`).
 A replacement without declarations: no entry, no VM write, byte-for-byte as
 before.
@@ -419,17 +446,16 @@ before.
 
 | Where your code reads | When a changed value applies |
 |---|---|
-| In a function, on each call (`RENOVICE_SCRIPT_SETTINGS()` inside the function) | **Live**: from the next call after the F9 / SCRIPT SETTINGS apply that committed it. |
-| In the root chunk, stored in a local | At the **next root execution** of the module (for mission scripts: the next mission). The running instance keeps the values it read. |
+| In a function, on each use (the pattern above) | **Live**: from the first read after the F9 / SCRIPT SETTINGS apply that committed it. |
+| Once in the root chunk, stored in a local | At the **next root execution** of the module (for mission scripts: the next mission). The running instance keeps what it read. |
 
-- Every call reads the **committed** generation (startup scan, or the last
-  successful F9). A prepared F9 that rolls back is never visible.
+- Every call reads the **committed** generation. A prepared F9 that rolls back
+  is never visible.
 - Replacement bytes are unchanged by a settings apply, so no module refresh is
   triggered; there is no `activate`/`cleanup` for a replacement.
-- Each call builds a new table (a few microseconds). Do not call it every
-  frame; read it where the value is used once, or once per instance.
-- Declare `applies` to match: `live_next_read` for per-call reads,
+- Declare `applies` to match: `live_next_read` for per-use reads,
   `next_mission` for root-time reads.
+- DE numbers are 32-bit floats; `serial` is exact for 16,777,215 commits.
 
 **Fail closed.** Every failure keeps the compiled values: no declarations,
 rejected declarations, malformed values file, disabled package or member, loose
@@ -443,10 +469,13 @@ module's next load), or a load nested inside RENOVICE's own chunk execution
 (once per install, never for an accessor that is already correct), and at most
 16 `RENOVICE REPLACEMENT SETTINGS CALL FAIL` lines. With Diagnostics on, one
 `RENOVICE REPLACEMENT SETTINGS READ key=… serial=… values=N` line per key and
-committed generation proves the replacement called the accessor.
+committed generation (written when a table is built) proves the replacement
+called the accessor.
 
-**Example and gate.** `RENOVICE_TOOLCHAIN/replacements/fixtures/replacement_settings/`
-(Hijack payload health, content key `fb346b59e2b7687a`) and
+**Examples and gate.** `RENOVICE_TOOLCHAIN/replacements/fixtures/replacement_settings/`:
+the Hijack payload-health replacement (content key `fb346b59e2b7687a`, a
+root-time read), the example package, and `GeneratedReplacementPattern.u44.luau`
+(the pattern above, with a plain-Luau harness). Gate:
 `RENOVICE_TOOLCHAIN/replacements/verify_replacement_settings.ps1`.
 
 ## Module instances and environments

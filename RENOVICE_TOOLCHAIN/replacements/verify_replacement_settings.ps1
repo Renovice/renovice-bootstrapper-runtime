@@ -158,6 +158,48 @@ $rows = @($pageModel | Where-Object { $_ -match '^(PAGE|ROW|VALPAGE|VALROW)\t' }
 $pinnedRows = @((Read-Lf (Join-Path $fixtureDir 'HijackSettingsExample.rows.txt')).TrimEnd("`n").Split("`n"))
 Require ($rows.Count -gt 0 -and (($rows -join "`n") -eq ($pinnedRows -join "`n"))) "example package rows equal the pinned rows file rendered by the settings render gate ($($rows.Count) lines)"
 
+# 1c. Second, unrelated fixture: the recommended pattern for generated
+# replacements (many values, reads inside hot functions, a cache keyed by the
+# committed serial). Compiled on the U44 raw-hash path; CONST-ID against the
+# same module with a settings-free helper shows exactly the accessor global and
+# the three string-class entry fields; then executed in plain Luau against a
+# mock of the host contract (stock fallback, custom values, one table per
+# committed serial over 20000 reads, stock guard, removal, empty call).
+$patternText = Read-Lf (Join-Path $fixtureDir 'GeneratedReplacementPattern.u44.luau')
+$helperStart = $patternText.IndexOf('local function setting(id, stock)', [StringComparison]::Ordinal)
+$helperEnd = $patternText.IndexOf("`nend`n", $helperStart, [StringComparison]::Ordinal)
+Require ($helperStart -gt 0 -and $helperEnd -gt $helperStart) 'pattern fixture: the setting(id, stock) helper is present'
+$patternBaselineText = $patternText.Substring(0, $helperStart) + "local function setting(id, stock)`n  return stock`nend`n" + $patternText.Substring($helperEnd + 5)
+$patternSource = Join-Path $scratch 'pattern.luau'
+$patternBaselineSource = Join-Path $scratch 'pattern.baseline.luau'
+Write-Lf $patternSource $patternText
+Write-Lf $patternBaselineSource $patternBaselineText
+$pattern = Join-Path $scratch 'pattern.lua_B'
+$patternBaseline = Join-Path $scratch 'pattern.baseline.lua_B'
+foreach ($pair in @(@($patternSource, $pattern), @($patternBaselineSource, $patternBaseline))) {
+    $result = Invoke-Derecomp @('recompile-u44', $pair[0], $pair[1])
+    Require ($result.Exit -eq 0 -and $result.Text.Contains('raw-hash-source=yes')) "recompile-u44 (raw-hash path): $(Split-Path -Leaf $pair[1])"
+}
+$patternRoundtrip = Invoke-Derecomp @('de-roundtrip', $pattern)
+Require ($patternRoundtrip.Exit -eq 0 -and $patternRoundtrip.Text.Contains('FULL BODY identical: True')) 'pattern fixture DE 09 03 container round trip is byte-exact'
+$patternConst = Invoke-Derecomp @('const-identity', $patternBaseline, $pattern, '--u44')
+$patternProtos = @($patternConst.Lines | Where-Object { $_ -match '^proto \d+ (HASH|STRING|KEYUSE) ' } | ForEach-Object { ($_ -split ' ')[1] } | Sort-Object -Unique)
+Require ($patternProtos.Count -eq 1) "pattern CONST-ID: the differences are confined to the helper prototype ($($patternProtos -join ','))"
+$helperProto = if ($patternProtos.Count -eq 1) { $patternProtos[0] } else { '' }
+Require ($patternConst.Text.Contains("proto $helperProto HASH only-stock=[] only-candidate=[$accessorHash]")) 'pattern CONST-ID: the helper reads the accessor global by its native-name hash'
+Require ($patternConst.Text.Contains("proto $helperProto KEYUSE only-stock=[] only-candidate=[FIELD S:enabled, FIELD S:stock, FIELD S:value, GLOBAL H:$accessorHash]")) 'pattern CONST-ID: entry fields are string-class reads (as the host writes them)'
+Require ($patternConst.Text.Contains('CLASS_SWAPS hash_string_class_swaps=0')) 'pattern CONST-ID: no hash/string class swap'
+$luau = Join-Path $deToolchain 'bin\luau.exe'
+Require (Test-Path -LiteralPath $luau -PathType Leaf) 'toolchain luau.exe present'
+$harnessFile = Join-Path $scratch 'pattern_harness_run.luau'
+Write-Lf $harnessFile ("PATTERN_MODULE = function(...)`n" + $patternText + "`nend`n" + (Read-Lf (Join-Path $fixtureDir 'pattern_harness.luau')))
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try { $patternRun = @(& $luau $harnessFile 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") }); $patternExit = $LASTEXITCODE }
+finally { $ErrorActionPreference = $previousPreference }
+$patternRun | ForEach-Object { Write-Output "PATTERN`t$_" }
+Require ($patternExit -eq 0 -and @($patternRun | Where-Object { $_ -like 'PATTERN HARNESS PASS*' }).Count -eq 1 -and @($patternRun | Where-Object { $_ -like 'FAIL*' }).Count -eq 0) 'pattern harness: stock fallback, custom values, one table per committed serial, guards (plain Luau against the host contract)'
+
 # 2. Pure rules, accessor-name hash and the exact loader code end to end.
 $work = ConvertTo-GateLongPath (Join-Path $scratch 'work')
 $originalEnvironment = @{}
@@ -220,9 +262,10 @@ $publish = Get-Region $injection 'void publish_replacement_settings_accessor(' '
 Require ((Index $publish 'if (entry == nullptr) return;') -gt 0 -and (Index $publish 'if (entry == nullptr) return;') -lt (Index $publish 'run_current_vm_protected')) 'no entry -> return before any VM access (replacements without declarations are untouched)'
 Require ((Index $publish 'vm_loader_may_drain_pending(lua_execution_depth)') -lt (Index $publish 'run_current_vm_protected')) 'nested RENOVICE execution defers (same boundary rule as the loader drain)'
 Require ($publish.Contains('InstallAction::Keep') -and $publish.Contains('&& context.passed) return;')) 'an already-correct accessor is kept silently (no per-load log line)'
-$accessor = Get-Region $block 'int replacement_settings_accessor(luau_State* state)
-{' 'struct ReplacementSettingsInstallContext' 'accessor'
-Require ((Index $accessor 'if (!check_stack(state, 1)) return 0;') -lt (Index $accessor 'replacement_settings::committed()')) 'the C result slot is reserved before any owning C++ object exists'
+$accessor = Get-Region $block '// RENOVICE_SCRIPT_SETTINGS([key] [, knownSerial]) -> settings table or nil, serial' 'struct ReplacementSettingsInstallContext' 'accessor'
+Require ((Index $accessor 'if (!check_stack(state, 2)) return 0;') -lt (Index $accessor 'replacement_settings::committed()')) 'both C result slots are reserved before any owning C++ object exists'
+Require ((Index $accessor '!replacement_settings::caller_is_current(plan, snapshot->serial)') -gt 0 -and (Index $accessor '!replacement_settings::caller_is_current(plan, snapshot->serial)') -lt (Index $accessor 'replacement_settings_build_leaf')) 'hot path: a caller holding the current serial gets no table (no protected leaf, no allocation)'
+Require ($accessor.Contains('return 2;') -and $accessor.Contains('replacement_settings::serial_number(snapshot->serial)')) 'every resolved call returns settings-or-nil and the committed serial'
 Require ((Index $accessor 'replacement_settings::committed()') -gt 0 -and -not $accessor.Contains('packages::candidate()')) 'the accessor reads only the committed snapshot (never a prepared F9)'
 Require ($accessor.Contains('replacement_settings_build_leaf') -and $accessor.Contains('clear_replacement_settings_return_root(state)')) 'the table is built in a protected leaf and its temporary registry root is always cleared'
 Require ((Index $accessor 'config::diagnostics_mode() != config::DiagnosticsMode::off') -lt (Index $accessor 'RENOVICE REPLACEMENT SETTINGS READ')) 'Diagnostics=false: the READ line is neither formatted nor written'

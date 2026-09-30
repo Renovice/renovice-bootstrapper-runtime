@@ -16406,7 +16406,8 @@ void log_replacement_settings_call_failure(const char* reason) noexcept
 	}
 }
 
-// RENOVICE_SCRIPT_SETTINGS([key]) -> settings table or nil (no result).
+// RENOVICE_SCRIPT_SETTINGS([key] [, knownSerial]) -> settings table or nil, serial
+// (nothing at all when the call resolves to no key). See plan_call().
 int replacement_settings_accessor(luau_State* state)
 {
 	try
@@ -16420,106 +16421,126 @@ int replacement_settings_accessor(luau_State* state)
 		const std::uint64_t bound_key = self != nullptr && self->isC && self->nupvalues >= 1
 			? static_cast<std::uint64_t>(self->c.upvals[0].value.as_uintptr) : 0;
 		const int argument_count = luau_gettop(state);
-		bool has_argument = false;
-		bool argument_valid = false;
-		std::uint64_t argument_key = 0;
-		if (argument_count >= 1 && state->intop[0].type != LUAU_NIL)
+		const auto argument_kind = [&](int index) noexcept
 		{
-			has_argument = true;
-			auto argument = state->intop[0];
-			if (argument.type == deployed_string_tag) argument.type = LUAU_STRING;
-			if (argument.type == LUAU_STRING && argument.value.as_uintptr != 0
-				&& argument.value.as_uintptr <= (std::numeric_limits<std::uintptr_t>::max)() - 0x18)
+			using replacement_settings::ArgumentKind;
+			if (index >= argument_count) return ArgumentKind::Absent;
+			const auto type = state->intop[index].type;
+			if (type == LUAU_NIL) return ArgumentKind::Nil;
+			if (type == LUAU_NUMBER) return ArgumentKind::Number;
+			if ((type == LUAU_STRING || type == deployed_string_tag)
+				&& state->intop[index].value.as_uintptr != 0) return ArgumentKind::String;
+			return ArgumentKind::Other;
+		};
+		const auto first = argument_kind(0);
+		const auto second = argument_kind(1);
+		bool first_key_valid = false;
+		std::uint64_t first_key = 0;
+		if (first == replacement_settings::ArgumentKind::String
+			&& state->intop[0].value.as_uintptr <= (std::numeric_limits<std::uintptr_t>::max)() - 0x18)
+		{
+			const char* const text = reinterpret_cast<const char*>(state->intop[0].value.as_uintptr + 0x18);
+			char copy[17]{};
+			std::size_t length = 0;
+			while (length != sizeof(copy) && !diagnostics::bad_read_ptr(text + length, 1)
+				&& text[length] != '\0')
 			{
-				const char* const text = reinterpret_cast<const char*>(argument.value.as_uintptr + 0x18);
-				char copy[17]{};
-				std::size_t length = 0;
-				while (length != sizeof(copy) && !diagnostics::bad_read_ptr(text + length, 1)
-					&& text[length] != '\0')
-				{
-					copy[length] = text[length];
-					++length;
-				}
-				argument_valid = length == 16 && replacement_settings::parse_key_argument(
-					std::string_view(copy, length), argument_key);
+				copy[length] = text[length];
+				++length;
 			}
+			first_key_valid = length == 16 && replacement_settings::parse_key_argument(
+				std::string_view(copy, length), first_key);
 		}
-		const auto call = replacement_settings::resolve_call_key(
-			bound_key, has_argument, argument_valid, argument_key);
-		if (call.source == replacement_settings::CallKeySource::None) return 0;
+		const auto plan = replacement_settings::plan_call(
+			bound_key, first, first_key_valid, first_key,
+			first == replacement_settings::ArgumentKind::Number ? state->intop[0].value.as_float : 0.0f,
+			second,
+			second == replacement_settings::ArgumentKind::Number ? state->intop[1].value.as_float : 0.0f);
+		if (plan.source == replacement_settings::CallKeySource::None) return 0;
 
-		// Reserve the one C-result slot before creating any owning C++ object: a
+		// Reserve both C-result slots before creating any owning C++ object: a
 		// DE allocation error here follows the game's native error path without
 		// skipping a Renovice destructor (same rule as the SCRIPTS callbacks).
-		if (!check_stack(state, 1)) return 0;
+		if (!check_stack(state, 2)) return 0;
 
 		luau_TValue result{};
-		bool prepared = false;
+		result.type = LUAU_NIL;
+		luau_TValue serial{};
+		serial.type = LUAU_NUMBER;
+		bool built_table = false;
 		{
 			const auto snapshot = replacement_settings::committed();
-			const auto* entry = snapshot != nullptr ? snapshot->find(call.key) : nullptr;
-			if (entry == nullptr || entry->delivery == nullptr) return 0;
-			std::vector<ReplacementSettingsValueView> views;
-			views.reserve(entry->delivery->values.size());
-			for (const auto& value : entry->delivery->values)
+			if (snapshot == nullptr) return 0;
+			serial.value.as_float = replacement_settings::serial_number(snapshot->serial);
+			const auto* entry = snapshot->find(plan.key);
+			// Hot path: no entry, or the caller already holds this generation's
+			// table. No table, no protected leaf, no allocation.
+			if (entry != nullptr && entry->delivery != nullptr
+				&& !replacement_settings::caller_is_current(plan, snapshot->serial))
 			{
-				views.push_back(ReplacementSettingsValueView{value.id.c_str(), value.value, value.stock});
-			}
-			ReplacementSettingsBuildContext build;
-			build.values = views.data();
-			build.count = views.size();
-			const auto built = de_vm_authority::run_current_vm_protected(
-				state, &replacement_settings_build_leaf, &build);
-			if (!built.admitted || !built.restored || built.status != 0 || !build.completed)
-			{
-				(void)clear_replacement_settings_return_root(state);
-				log_replacement_settings_call_failure("protected-build");
-				return 0;
-			}
-			result = build.result;
-			prepared = true;
-			if (config::diagnostics_mode() != config::DiagnosticsMode::off)
-			{
-				bool first = false;
+				std::vector<ReplacementSettingsValueView> views;
+				views.reserve(entry->delivery->values.size());
+				for (const auto& value : entry->delivery->values)
 				{
-					std::lock_guard lock(replacement_settings_read_log_mutex);
-					const auto identity = std::make_pair(call.key, snapshot->serial);
-					if (replacement_settings_read_logged.size() < replacement_settings_read_log_limit
-						&& std::find(replacement_settings_read_logged.begin(),
-							replacement_settings_read_logged.end(), identity)
-							== replacement_settings_read_logged.end())
-					{
-						replacement_settings_read_logged.push_back(identity);
-						first = true;
-					}
+					views.push_back(ReplacementSettingsValueView{value.id.c_str(), value.value, value.stock});
 				}
-				if (first)
+				ReplacementSettingsBuildContext build;
+				build.values = views.data();
+				build.count = views.size();
+				const auto built = de_vm_authority::run_current_vm_protected(
+					state, &replacement_settings_build_leaf, &build);
+				if (!built.admitted || !built.restored || built.status != 0 || !build.completed)
 				{
-					std::ostringstream line;
-					line << "RENOVICE REPLACEMENT SETTINGS READ key="
-						<< replacement_settings_key_text(call.key)
-						<< " source=" << (call.source == replacement_settings::CallKeySource::Bound
-							? "bound" : "argument")
-						<< " serial=" << snapshot->serial
-						<< " values=" << views.size()
-						<< " package=" << entry->package
-						<< " vm=" << state->global_state
-						<< " once-per-key-and-serial=1";
-					config::diagnostic_log(line.str(), config::DiagnosticsMode::errors);
+					(void)clear_replacement_settings_return_root(state);
+					log_replacement_settings_call_failure("protected-build");
+					return 0;
+				}
+				result = build.result;
+				built_table = true;
+				if (config::diagnostics_mode() != config::DiagnosticsMode::off)
+				{
+					bool first_read = false;
+					{
+						std::lock_guard lock(replacement_settings_read_log_mutex);
+						const auto identity = std::make_pair(plan.key, snapshot->serial);
+						if (replacement_settings_read_logged.size() < replacement_settings_read_log_limit
+							&& std::find(replacement_settings_read_logged.begin(),
+								replacement_settings_read_logged.end(), identity)
+								== replacement_settings_read_logged.end())
+						{
+							replacement_settings_read_logged.push_back(identity);
+							first_read = true;
+						}
+					}
+					if (first_read)
+					{
+						std::ostringstream line;
+						line << "RENOVICE REPLACEMENT SETTINGS READ key="
+							<< replacement_settings_key_text(plan.key)
+							<< " source=" << (plan.source == replacement_settings::CallKeySource::Bound
+								? "bound" : "argument")
+							<< " serial=" << snapshot->serial
+							<< " values=" << views.size()
+							<< " package=" << entry->package
+							<< " vm=" << state->global_state
+							<< " once-per-key-and-serial=1";
+						config::diagnostic_log(line.str(), config::DiagnosticsMode::errors);
+					}
 				}
 			}
 		}
-		if (!prepared || !append_game_vm_stack_value_reserved(state, result))
+		if (!append_game_vm_stack_value_reserved(state, result)
+			|| !append_game_vm_stack_value_reserved(state, serial))
 		{
-			(void)clear_replacement_settings_return_root(state);
+			if (built_table) (void)clear_replacement_settings_return_root(state);
 			log_replacement_settings_call_failure("result-slot");
 			return 0;
 		}
-		if (!clear_replacement_settings_return_root(state))
+		if (built_table && !clear_replacement_settings_return_root(state))
 		{
 			log_replacement_settings_call_failure("temporary-root-clear");
 		}
-		return 1;
+		return 2;
 	}
 	catch (...)
 	{

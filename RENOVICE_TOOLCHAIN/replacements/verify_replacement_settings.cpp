@@ -14,9 +14,16 @@
 //         disabled package/member, loose files, literal-only replacements
 //         unchanged, mixed literal+addon members, committed-snapshot log lines.
 //
+// Part 4: SCRIPT SETTINGS for a replacement member in the nested layout (the
+//         R5 default): top page -> package page (member switch with the
+//         replacement tooltip) -> section page -> value page, then a staged
+//         edit through the host model, the values-file writer, a rescan and
+//         the committed snapshot the accessor reads.
+//
 // Usage: verify_replacement_settings <work dir> <fixture dir> <fixture.lua_B>
 //            <compiled accessor hash hex> <namebase.tsv>
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -33,6 +40,7 @@
 #include "../../renovice/replacement_settings.hpp"
 #include "../../renovice/replacement_settings_core.hpp"
 #include "../../renovice/script_control.hpp"
+#include "../../renovice/settings_ui_core.hpp"
 
 namespace gate
 {
@@ -182,16 +190,35 @@ void pure_rules()
 	check(!replacement_settings::parse_key_argument("0000000000000000", key),
 		"key argument: zero key rejected");
 
+	using replacement_settings::ArgumentKind;
 	using replacement_settings::CallKeySource;
-	auto call = replacement_settings::resolve_call_key(fixture_key, false, false, 0);
-	check(call.source == CallKeySource::Bound && call.key == fixture_key, "call(): the bound key");
-	call = replacement_settings::resolve_call_key(fixture_key, true, true, 0x1111111111111111ull);
-	check(call.source == CallKeySource::Argument && call.key == 0x1111111111111111ull,
-		"call(key): an explicit valid key overrides the bound key");
-	call = replacement_settings::resolve_call_key(fixture_key, true, false, 0);
-	check(call.source == CallKeySource::None, "call(bad): an invalid argument resolves to nothing, never to the bound key");
-	call = replacement_settings::resolve_call_key(0, false, false, 0);
-	check(call.source == CallKeySource::None, "call() on an unbound accessor resolves to nothing");
+	constexpr std::uint64_t other_key = 0x1111111111111111ull;
+	auto plan = replacement_settings::plan_call(fixture_key, ArgumentKind::Absent, false, 0, 0, ArgumentKind::Absent, 0);
+	check(plan.source == CallKeySource::Bound && plan.key == fixture_key && !plan.has_known_serial, "call(): the bound key, no cache check");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::Nil, false, 0, 0, ArgumentKind::Absent, 0);
+	check(plan.source == CallKeySource::Bound && !plan.has_known_serial, "call(nil): first call of a cache (no known serial yet)");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::Number, false, 0, 7, ArgumentKind::Absent, 0);
+	check(plan.source == CallKeySource::Bound && plan.has_known_serial && plan.known_serial == 7.0, "call(serial): bound key with a cache check");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::String, true, other_key, 0, ArgumentKind::Absent, 0);
+	check(plan.source == CallKeySource::Argument && plan.key == other_key && !plan.has_known_serial, "call(key): an explicit valid key overrides the bound key");
+	plan = replacement_settings::plan_call(0, ArgumentKind::String, true, other_key, 0, ArgumentKind::Number, 3);
+	check(plan.source == CallKeySource::Argument && plan.key == other_key && plan.has_known_serial && plan.known_serial == 3.0,
+		"call(key, serial): explicit key with a cache check (works on an unbound accessor)");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::String, false, 0, 0, ArgumentKind::Absent, 0);
+	check(plan.source == CallKeySource::None, "call(bad string): resolves to nothing, never to the bound key");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::String, true, other_key, 0, ArgumentKind::Other, 0);
+	check(plan.source == CallKeySource::None, "call(key, non-number): resolves to nothing");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::Other, false, 0, 0, ArgumentKind::Absent, 0);
+	check(plan.source == CallKeySource::None, "call(table): resolves to nothing");
+	plan = replacement_settings::plan_call(0, ArgumentKind::Absent, false, 0, 0, ArgumentKind::Absent, 0);
+	check(plan.source == CallKeySource::None, "call() on an unbound accessor resolves to nothing");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::Number, false, 0, 5, ArgumentKind::Absent, 0);
+	check(replacement_settings::caller_is_current(plan, 5) && !replacement_settings::caller_is_current(plan, 6),
+		"cache check: the table is skipped only for the exact committed serial");
+	plan = replacement_settings::plan_call(fixture_key, ArgumentKind::Absent, false, 0, 0, ArgumentKind::Absent, 0);
+	check(!replacement_settings::caller_is_current(plan, 5), "no known serial: the table is always built");
+	check(replacement_settings::serial_number(16777215) == 16777215.0f && replacement_settings::serial_number(1) == 1.0f,
+		"serial is exact in a DE float (up to 2^24 - 1 commits)");
 
 	using replacement_settings::InstallAction;
 	using replacement_settings::SlotState;
@@ -513,6 +540,163 @@ void end_to_end(const std::filesystem::path& work, const std::filesystem::path& 
 	packages::discard_prepared_reload();
 }
 
+const settings_ui::Row* find_row(const settings_ui::Page& page, std::string_view setting_or_action)
+{
+	for (const auto& row : page.rows)
+		if (row.setting == setting_or_action || row.action == setting_or_action) return &row;
+	return nullptr;
+}
+
+// A two-member package: the example replacement (Hijack group) and an addon
+// member (another group), so the package page shows member switches.
+void nested_pages(const std::filesystem::path& work, const std::filesystem::path& fixture_bytes_path)
+{
+	using namespace settings_ui;
+	std::error_code ec;
+	std::filesystem::remove_all(work, ec);
+	gate::root = work / "CustomScripts";
+	gate::inject = gate::root / "Inject";
+	std::filesystem::create_directories(gate::inject);
+	gate::policy.clear();
+	const auto bytes = read_bytes(fixture_bytes_path);
+	const std::string addon_member = "0123456789abcdef.Extra.target.addon.lua_B";
+	const auto package_dir = gate::root / "Packages" / example_folder;
+	write_bytes(package_dir / example_member, bytes);
+	write_bytes(package_dir / addon_member, {'A', 'D', 'D', 'O', 'N'});
+	const std::string manifest =
+		"{ \"schema\": 1, \"name\": \"Hijack Settings Example\", \"members\": {"
+		" \"" + example_member + "\": { \"label\": \"Hijack (script replacement)\", \"settings\": { \"values\": {"
+		"  \"hijack.payload_health\": { \"group\": \"hijack\", \"label\": \"Payload health\", \"unit\": \"HP\", \"type\": \"int\","
+		"   \"stock\": 10000, \"min\": 1000, \"max\": 200000, \"scope\": \"Hijack\", \"lane\": \"addon\","
+		"   \"applies\": \"next_mission\", \"stock_check\": \"none\" } } } },"
+		" \"" + addon_member + "\": { \"label\": \"Extra addon\", \"settings\": { \"values\": {"
+		"  \"extra.scale\": { \"group\": \"extra\", \"label\": \"Scale\", \"unit\": \"x\", \"type\": \"float\","
+		"   \"stock\": 1, \"min\": 0, \"max\": 10, \"lane\": \"addon\", \"applies\": \"live_next_read\" } } } } },"
+		" \"settings\": { \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"2026.09.28.13.06\", \"groups\": ["
+		"  { \"id\": \"hijack\", \"label\": \"Hijack\", \"order\": 10 }, { \"id\": \"extra\", \"label\": \"Extra\", \"order\": 20 } ] } }";
+	write_text(package_dir / "package.json", manifest);
+	const auto settings_path = gate::root / "Settings" / (example_folder + ".json");
+	write_text(settings_path, example_values("\"hijack.payload_health\": { \"enabled\": true, \"value\": 20000, \"stock\": 10000 }"));
+	check(packages::prepare_reload(), "nested: F9 prepare PASS (replacement + addon member)");
+	const auto snapshot = packages::candidate();
+	const auto* package = find_package(*snapshot, example_folder);
+	check(package != nullptr && package->accepted && package->declarations != nullptr, "nested: package accepted with declarations");
+	if (package == nullptr || package->declarations == nullptr) return;
+
+	// Same view the host builds (injection.cpp build_script_settings_views).
+	PackageView view;
+	view.folder = package->folder;
+	view.display = package->display;
+	view.package_enabled = true;
+	view.declarations = package->declarations.get();
+	for (const auto& member : package->members)
+	{
+		view.members.push_back(MemberView{member.filename, member.label, member.state_id, member.enabled,
+			member.kind == packages::MemberKind::Replacement});
+	}
+	std::string error;
+	check(packages::read_settings_values(*package, view.state, error) && error.empty(), "nested: values file read");
+	const std::vector<PackageView> views{view};
+
+	const auto root = build_root_page(views);
+	check(root.rows.size() == 1 && root.rows[0].kind == RowKind::Button
+		&& root.rows[0].action == "open:pkg:" + example_folder,
+		"nested top page: one package BUTTON opens the package page");
+	const auto package_page = build_package_page(view);
+	const auto* member_row = find_row(package_page,
+		"member:hijacksettingsexample/fb346b59e2b7687a (hijack payload health from settings).lua_b");
+	check(member_row != nullptr && member_row->kind == RowKind::Checkbox && member_row->value
+		&& member_row->label == "Hijack (script replacement)"
+		&& member_row->tooltip.find("Replaces a stock script.") != std::string::npos
+		&& member_row->tooltip.find("Sections: Hijack (1).") != std::string::npos,
+		"nested package page: the replacement member switch, with the replacement tooltip and its section");
+	const auto* section = find_row(package_page, "open:grp:" + example_folder + "/hijack");
+	check(section != nullptr && section->kind == RowKind::Button && section->label.rfind("Hijack", 0) == 0,
+		"nested package page: the replacement member's section BUTTON (" + (section ? section->label : std::string("missing")) + ")");
+	const auto group_page = build_group_page(view, "hijack");
+	const auto* custom = find_row(group_page, "custom:hijacksettingsexample/hijack.payload_health");
+	const auto* value_button = find_row(group_page, "open:val:" + example_folder + "/hijack.payload_health");
+	check(custom != nullptr && custom->kind == RowKind::Checkbox && custom->value && custom->label == "Custom Payload health"
+		&& value_button != nullptr && value_button->kind == RowKind::Button
+		&& value_button->label == "Payload health: 20000 HP" && !value_button->locked,
+		"nested section page: Custom switch on and the value BUTTON 'Payload health: 20000 HP' (unlocked, addon lane)");
+	const auto value_page = build_value_page(view, "hijack.payload_health");
+	check(value_page.rows.size() == 1 && value_page.rows[0].kind == RowKind::InputCount
+		&& value_page.rows[0].count == 20000.0 && value_page.rows[0].minimum == 1000.0
+		&& value_page.rows[0].maximum == 200000.0 && value_page.rows[0].integer && !value_page.rows[0].locked,
+		"nested value page: one INPUTCOUNT (20000, 1000..200000, whole numbers, editable)");
+
+	// Edit in the menu -> values file -> F9 scan -> committed snapshot -> accessor.
+	Session session;
+	check(settings_ui::stage(session, views, "value:hijacksettingsexample/hijack.payload_health", StagedValue::of_text("999999")) == "outside-min-max",
+		"nested edit: an out-of-range value is rejected by the host");
+	check(settings_ui::stage(session, views, "value:hijacksettingsexample/hijack.payload_health", StagedValue::of_text("15000")).empty(),
+		"nested edit: 15000 accepted by the host re-validation");
+	const auto applied = settings_ui::apply(session, views);
+	check(applied.packages.size() == 1 && applied.packages[0].folder == example_folder,
+		"nested edit: exactly this package's values file is written");
+	if (applied.packages.size() != 1) return;
+	write_text(settings_path, settings::write_values_file(applied.packages[0].state, applied.packages[0].declarations));
+	packages::discard_prepared_reload();
+	check(packages::prepare_reload(), "nested edit: F9 prepare PASS after the apply");
+	packages::commit_prepared_reload();
+	replacement_settings::commit(packages::candidate(), "F9");
+	const auto committed = replacement_settings::committed();
+	const auto* entry = committed->find(fixture_key);
+	check(entry != nullptr && entry->delivery->values.size() == 1 && entry->delivery->values[0].id == "hijack.payload_health"
+		&& entry->delivery->values[0].value == 15000.0f && entry->delivery->values[0].stock == 10000.0f
+		&& committed->find(0x0123456789abcdefull) == nullptr,
+		"nested edit: after the apply's F9 the accessor reads 15000 (the addon member is not a replacement entry)");
+}
+
+// Gate model of the accessor's native hot path (a call whose caller already
+// holds the current generation's table): committed-snapshot load, key lookup
+// among 256 replacement entries, serial comparison. The VM part (two stack
+// slots) is not modelled. Reported, with a loose sanity bound only.
+void hot_path_benchmark()
+{
+	packages::Snapshot source;
+	for (std::uint64_t i = 1; i <= 256; ++i)
+	{
+		packages::Package package;
+		package.folder = "P" + std::to_string(i);
+		package.accepted = true;
+		packages::Member member;
+		member.filename = "m.lua_B";
+		member.kind = packages::MemberKind::Replacement;
+		member.key = i * 0x9E3779B97F4A7C15ull;
+		member.staged = true;
+		auto delivery = std::make_shared<settings::MemberDelivery>();
+		for (int v = 0; v != 64; ++v)
+			delivery->values.push_back(settings::DeliveredValue{"value." + std::to_string(v), 1.0f, 1.0f});
+		member.delivery = delivery;
+		package.members.push_back(member);
+		source.packages.push_back(package);
+	}
+	auto shared = std::make_shared<const packages::Snapshot>(source);
+	replacement_settings::commit(shared, "benchmark");
+	const auto current = replacement_settings::committed();
+	const std::uint64_t key = 200 * 0x9E3779B97F4A7C15ull;
+	auto plan = replacement_settings::plan_call(key, replacement_settings::ArgumentKind::Number, false, 0,
+		replacement_settings::serial_number(current->serial), replacement_settings::ArgumentKind::Absent, 0);
+	constexpr int iterations = 2000000;
+	std::size_t hits = 0;
+	const auto start = std::chrono::steady_clock::now();
+	for (int i = 0; i != iterations; ++i)
+	{
+		const auto snapshot = replacement_settings::committed();
+		const auto* entry = snapshot->find(key);
+		hits += entry != nullptr && replacement_settings::caller_is_current(plan, snapshot->serial);
+	}
+	const auto elapsed = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - start).count();
+	const double per_call = elapsed / iterations;
+	std::printf("INFO\thot path (cached caller, 256 entries x 64 values): %.1f ns per call over %d calls\n", per_call, iterations);
+	check(hits == static_cast<std::size_t>(iterations) && per_call < 2000.0,
+		"hot path model: cached calls never build a table and stay far below 2 us per call");
+	gate::log_lines.clear();
+	replacement_settings::commit(nullptr, "benchmark");
+}
+
 std::filesystem::path long_path(const std::filesystem::path& path)
 {
 	const std::wstring& native = path.native();
@@ -533,6 +717,8 @@ int main(int argc, char** argv)
 	pure_rules();
 	name_hash(argv[4], long_path(argv[5]));
 	end_to_end(long_path(argv[1]), long_path(argv[2]), long_path(argv[3]));
+	nested_pages(long_path(argv[1]) / "nested", long_path(argv[3]));
+	hot_path_benchmark();
 	std::cout << (pass ? "REPLACEMENT SETTINGS PASS" : "REPLACEMENT SETTINGS FAIL") << '\n';
 	return pass ? 0 : 1;
 }
