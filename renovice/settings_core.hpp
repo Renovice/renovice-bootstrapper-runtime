@@ -475,7 +475,19 @@ struct ValueDecl
 	StockCheck stock_check = StockCheck::Live;
 	bool stock_check_declared = false; // the field was present (reporting only)
 	std::vector<EnumOption> options;
+	// LIVE_LITERALS_V1 (live_literals_core.hpp): a literal value from the
+	// package's literals.json recipe. The host synthesizes the module at apply,
+	// so the value is typeable in game. Never set by the package.json parser.
+	bool live_literal = false;
 };
+
+// Values the player can type in SCRIPT SETTINGS: addon-lane values and live
+// literal values. Other literal values (baked replacements) and metadata
+// values stay read-only there.
+inline bool editable_in_game(const ValueDecl& declaration) noexcept
+{
+	return declaration.lane == Lane::Addon || declaration.live_literal;
+}
 
 struct Declarations
 {

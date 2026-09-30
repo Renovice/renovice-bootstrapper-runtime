@@ -19331,4 +19331,41 @@ bool drain_requested(luau_State* state)
 	drain(state);
 	return !reload_pending();
 }
+
+// BEGIN LIVE_LITERALS_TARGET_REFRESH (LIVE_LITERALS_V1 / R5-C, 2026-09-30)
+// A target addon binds by the STOCK content key: inspect_target_load hashes the
+// descriptor body before the undump detour swaps replacement or synthesized
+// bytes in, and remember_target_module_identity records the prototype graph of
+// whatever closure the loader stored. A VM-local refresh (F9) calls the stock
+// Loader directly, so the refreshed closure would otherwise stay unknown to the
+// addon until the module's next natural load. Same rule, same owner thread and
+// VM as the refresh; the identity list keeps the old graph for closures of the
+// running instance.
+void remember_refreshed_target_module(
+	luau_State* state,
+	void* manager,
+	const std::uint32_t* name_handle,
+	std::uint64_t key) noexcept
+{
+	try
+	{
+		if (state == nullptr || manager == nullptr || name_handle == nullptr || key == 0
+			|| diagnostics::bad_read_ptr(state, sizeof(luau_State))
+			|| !observe_target_addons.load(std::memory_order_acquire)
+			|| !target_key_is_configured(key))
+		{
+			return;
+		}
+		remember_target_module_identity(key, state, manager, name_handle);
+		std::ostringstream line;
+		line << "RENOVICE TARGET MODULE REFRESH IDENTITY key=" << std::hex << key << std::dec
+			<< " vm=" << state->global_state << " thread=" << GetCurrentThreadId();
+		config::log(line.str());
+	}
+	catch (...)
+	{
+		config::log("RENOVICE TARGET MODULE REFRESH IDENTITY FAIL reason=native-exception scope=module-local");
+	}
+}
+// END LIVE_LITERALS_TARGET_REFRESH
 }

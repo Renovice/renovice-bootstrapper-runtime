@@ -1,0 +1,867 @@
+{
+  "schema": 1,
+  "name": "LiveLiteralsGate",
+  "description": "LIVE_LITERALS_V1 gate fixture: the generated Missions recipe with the group declarations and a few addon-lane values of the Missions package.json on a dummy member.",
+  "members": {
+    "0000000000000001 (live literals gate dummy).lua_B": {
+      "label": "Gate dummy",
+      "settings": {
+        "values": {
+          "defense.simultaneous_enemies_duviri.max.p1": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Duviri Defense enemies alive at once at enemy level 30+ (The Circuit: all levels) with 1 player; stock 12 enemies",
+            "stock": 12,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_duviri.max.p2": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Duviri Defense enemies alive at once at enemy level 30+ (The Circuit: all levels) with 2 players; stock 24 enemies",
+            "stock": 24,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_duviri.max.p3": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Duviri Defense enemies alive at once at enemy level 30+ (The Circuit: all levels) with 3 players; stock 31 enemies",
+            "stock": 31,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_duviri.max.p4": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Duviri Defense enemies alive at once at enemy level 30+ (The Circuit: all levels) with 4 players; stock 35 enemies",
+            "stock": 35,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.max_enemies.p1": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once with 1 player, easy and hard nodes; a ticked Advanced row wins; stock 10 enemies",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.max_enemies.p2": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once with 2 players, easy and hard nodes; a ticked Advanced row wins; stock 16 enemies",
+            "stock": 16,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.max_enemies.p3": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once with 3 players, easy and hard nodes; a ticked Advanced row wins; stock 22 enemies",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.max_enemies.p4": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once with 4 players, easy and hard nodes; a ticked Advanced row wins; stock 28 enemies",
+            "stock": 28,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p1": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Hard nodes: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 1 player; wins over the main knob; stock 10 enemies",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p2": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Hard nodes: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 2 players; wins over the main knob; stock 16 enemies",
+            "stock": 16,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p3": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Hard nodes: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 3 players; wins over the main knob; stock 22 enemies",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p4": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Hard nodes: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 4 players; wins over the main knob; stock 28 enemies",
+            "stock": 28,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p1": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Easy nodes: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 1 player; wins over the main knob; stock 7 enemies",
+            "stock": 7,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p2": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Easy nodes: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 2 players; wins over the main knob; stock 12 enemies",
+            "stock": 12,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p3": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Easy nodes: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 3 players; wins over the main knob; stock 17 enemies",
+            "stock": 17,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p4": {
+            "applies": "live_next_read",
+            "group": "mobiledefense_advanced",
+            "label": "Easy nodes: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 4 players; wins over the main knob; stock 22 enemies",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
+          "survival.reward_interval": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Time between rewards",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "scope": "Seconds per reward rotation in normal endless Survival (also Steel Path, Kuva, Void Eclipse); not Alert missions; stock 300 s",
+            "stock": 300,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.alert_interval": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Alert missions: reward time",
+            "lane": "addon",
+            "max": 60000,
+            "min": 1,
+            "scope": "Alert, invasion and syndicate Survival: seconds until the single reward and extraction (mission length); stock 600 s",
+            "stock": 600,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.capsule_initial_time": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Life support at start",
+            "lane": "addon",
+            "max": 15000,
+            "min": 1,
+            "scope": "Life support seconds when a Survival mission starts; stock 150 s",
+            "stock": 150,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.capsule_max_time": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Life support at 100%",
+            "lane": "addon",
+            "max": 15000,
+            "min": 1,
+            "scope": "Life support seconds that count as 100% in Survival; stock 150 s",
+            "stock": 150,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.capsule_time_added": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Life support per capsule",
+            "lane": "addon",
+            "max": 4500,
+            "min": 1,
+            "scope": "Life support seconds an activated capsule adds; stock 45 s",
+            "stock": 45,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.capsule_interval": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Time between capsules",
+            "lane": "addon",
+            "max": 9000,
+            "min": 1,
+            "scope": "Seconds between life support capsule spawns in Survival (not a reward timer); stock 90 s",
+            "stock": 90,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.capsule_incoming_time": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Capsule warning time",
+            "lane": "addon",
+            "max": 3000,
+            "min": 1,
+            "scope": "Seconds of lead time before a life support capsule spawns (warning use inferred); stock 30 s",
+            "stock": 30,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.pickup_time_added": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Life support per pickup",
+            "lane": "addon",
+            "max": 32767,
+            "min": 0,
+            "scope": "Life support seconds each personal life support pickup adds; stock 7 s",
+            "stock": 7,
+            "type": "float",
+            "unit": "s"
+          },
+          "survival.player_damage_at_zero_ls.killPlayerTime": {
+            "applies": "live_next_read",
+            "group": "survival",
+            "label": "Time at 0% before death",
+            "lane": "addon",
+            "max": 30000,
+            "min": 1,
+            "scope": "Seconds at 0% life support before players are killed in Survival; stock 300 s",
+            "stock": 300,
+            "type": "float",
+            "unit": "s"
+          }
+        }
+      }
+    }
+  },
+  "settings": {
+    "build": "2026.09.28.13.06",
+    "format": "RENOVICE_SETTINGS_DECL_V1",
+    "groups": [
+      {
+        "aliases": [
+          "MT_CAPTURE",
+          "Skyresh",
+          "Galatea",
+          "Venera",
+          "Elion",
+          "Lex",
+          "Isos",
+          "Abaddon",
+          "Copernicus",
+          "Ariel",
+          "Hepit",
+          "Ukko",
+          "Ara",
+          "Mantle",
+          "Cassini",
+          "Horend",
+          "Ananke",
+          "Hydra"
+        ],
+        "id": "capture",
+        "label": "Capture",
+        "order": 60
+      },
+      {
+        "aliases": [
+          "Colonist Door Defense"
+        ],
+        "id": "colonistdoor_advanced",
+        "label": "Colonist Door: advanced",
+        "order": 75
+      },
+      {
+        "aliases": [
+          "MT_EVACUATION",
+          "Memphis",
+          "Caracol",
+          "Yursa"
+        ],
+        "id": "defection",
+        "label": "Defection",
+        "order": 120
+      },
+      {
+        "aliases": [
+          "MT_EVACUATION",
+          "Memphis",
+          "Caracol",
+          "Yursa",
+          "Defection"
+        ],
+        "id": "defection_advanced",
+        "label": "Defection: advanced",
+        "order": 125
+      },
+      {
+        "aliases": [
+          "Descendia",
+          "MT_DEFENSE",
+          "MT_DESCENT",
+          "The Descendia",
+          "Romula",
+          "Sangeru",
+          "Akkad",
+          "Coba",
+          "Seimeni",
+          "Sechura",
+          "Sinai",
+          "Larzac",
+          "Kadesh",
+          "Gulliver",
+          "Stephano",
+          "Io",
+          "Lares",
+          "Casta",
+          "Kala-azar",
+          "Proteus",
+          "Hydron",
+          "Paimon",
+          "Tessera",
+          "Descend",
+          "Descend from Marie's Sanctuary",
+          "Descend from Lyon's Sanctuary",
+          "Roathe's Oblivion",
+          "Lith",
+          "Stofler",
+          "Taranis",
+          "Belenus",
+          "Helene",
+          "Spear",
+          "Hyf",
+          "Outer Terminus",
+          "Nabuk",
+          "Solstice Square"
+        ],
+        "id": "defense",
+        "label": "Defense",
+        "order": 130
+      },
+      {
+        "aliases": [
+          "Descendia",
+          "MT_DESCENT",
+          "The Descendia",
+          "Descend",
+          "Descend from Marie's Sanctuary",
+          "Descend from Lyon's Sanctuary",
+          "Roathe's Oblivion"
+        ],
+        "id": "coh_destroy_targets",
+        "label": "Descendia: Destroy Targets",
+        "order": 150
+      },
+      {
+        "aliases": [
+          "Descendia",
+          "MT_OFFERING",
+          "MT_DESCENT",
+          "The Descendia",
+          "Shrine Defense",
+          "Descend",
+          "Descend from Marie's Sanctuary",
+          "Descend from Lyon's Sanctuary",
+          "Roathe's Oblivion",
+          "Saya's Visions"
+        ],
+        "id": "shrine",
+        "label": "Descendia: Shrine Defense",
+        "order": 190
+      },
+      {
+        "aliases": [
+          "Descendia",
+          "MT_OFFERING",
+          "MT_DESCENT",
+          "The Descendia",
+          "Shrine Defense",
+          "Descend",
+          "Descend from Marie's Sanctuary",
+          "Descend from Lyon's Sanctuary",
+          "Roathe's Oblivion",
+          "Saya's Visions",
+          "Descendia: Shrine Defense"
+        ],
+        "id": "shrine_advanced",
+        "label": "Shrine Defense: advanced",
+        "order": 195
+      },
+      {
+        "aliases": [
+          "Demolyst",
+          "Conduit",
+          "MT_ARTIFACT",
+          "Ur",
+          "Laomedeia",
+          "Kappa",
+          "Olympus",
+          "Apollo",
+          "Armatus",
+          "Tamu",
+          "Ganymede"
+        ],
+        "id": "disruption",
+        "label": "Disruption",
+        "order": 200
+      },
+      {
+        "aliases": [
+          "Demolyst",
+          "Conduit",
+          "MT_ARTIFACT",
+          "Ur",
+          "Laomedeia",
+          "Kappa",
+          "Olympus",
+          "Apollo",
+          "Armatus",
+          "Tamu",
+          "Ganymede",
+          "Disruption"
+        ],
+        "id": "disruption_advanced",
+        "label": "Disruption: advanced",
+        "order": 205
+      },
+      {
+        "aliases": [
+          "Tears",
+          "Entrati Swarm"
+        ],
+        "id": "entrati_swarm_advanced",
+        "label": "Entrati Swarm: advanced",
+        "order": 215
+      },
+      {
+        "aliases": [
+          "1999",
+          "Hollvania",
+          "MT_EXTERMINATION",
+          "Exterminate",
+          "Exterminate: Scaldra",
+          "Exterminate: Techrot"
+        ],
+        "id": "escalation",
+        "label": "Exterminate (1999 Escalation)",
+        "order": 230
+      },
+      {
+        "aliases": [
+          "1999",
+          "Hollvania",
+          "MT_PVPVE",
+          "Faceoff: Squad VS Squad",
+          "Faceoff: Single Squad"
+        ],
+        "id": "faceoff",
+        "label": "Faceoff",
+        "order": 240
+      },
+      {
+        "aliases": [
+          "1999",
+          "Hollvania",
+          "MT_PVPVE",
+          "Faceoff: Squad VS Squad",
+          "Faceoff: Single Squad",
+          "Faceoff"
+        ],
+        "id": "faceoff_advanced",
+        "label": "Faceoff: advanced",
+        "order": 245
+      },
+      {
+        "aliases": [
+          "Five Fates",
+          "Cetus invasion"
+        ],
+        "id": "fivefates",
+        "label": "Five Fates (Cetus)",
+        "order": 250
+      },
+      {
+        "aliases": [
+          "MT_PURIFY",
+          "Oestrus"
+        ],
+        "id": "infested_salvage",
+        "label": "Infested Salvage",
+        "order": 280
+      },
+      {
+        "aliases": [
+          "MT_PURIFY",
+          "Oestrus",
+          "Infested Salvage"
+        ],
+        "id": "infested_salvage_advanced",
+        "label": "Infested Salvage: advanced",
+        "order": 285
+      },
+      {
+        "aliases": [
+          "Halloween"
+        ],
+        "id": "lantern",
+        "label": "Lantern",
+        "order": 300
+      },
+      {
+        "aliases": [
+          "Halloween",
+          "Lantern"
+        ],
+        "id": "lantern_advanced",
+        "label": "Lantern: advanced",
+        "order": 305
+      },
+      {
+        "aliases": [
+          "MT_DEFENSE",
+          "Tyana Pass",
+          "Munio"
+        ],
+        "id": "loopdefend",
+        "label": "Mirror Defense",
+        "order": 330
+      },
+      {
+        "aliases": [
+          "MT_DEFENSE",
+          "Tyana Pass",
+          "Munio",
+          "Mirror Defense"
+        ],
+        "id": "loopdefend_advanced",
+        "label": "Mirror Defense: advanced",
+        "order": 335
+      },
+      {
+        "aliases": [
+          "MT_MOBILE_DEFENSE",
+          "Sharpless",
+          "Tharsis",
+          "Kiste",
+          "Solium",
+          "Charybdis",
+          "Aphrodite",
+          "Morax",
+          "Boethius",
+          "The Greenway",
+          "Grimaldi",
+          "Minthe",
+          "Tiwaz",
+          "Aten",
+          "Larissa",
+          "Eurasia",
+          "Vallis",
+          "Dirus",
+          "Carme",
+          "Rotuma",
+          "Cressida",
+          "Erpo",
+          "Salacia",
+          "Keeler"
+        ],
+        "id": "mobiledefense",
+        "label": "Mobile Defense",
+        "order": 340
+      },
+      {
+        "aliases": [
+          "MT_MOBILE_DEFENSE",
+          "Sharpless",
+          "Tharsis",
+          "Kiste",
+          "Solium",
+          "Charybdis",
+          "Aphrodite",
+          "Morax",
+          "Boethius",
+          "The Greenway",
+          "Grimaldi",
+          "Minthe",
+          "Tiwaz",
+          "Aten",
+          "Larissa",
+          "Eurasia",
+          "Vallis",
+          "Dirus",
+          "Carme",
+          "Rotuma",
+          "Cressida",
+          "Erpo",
+          "Salacia",
+          "Keeler",
+          "Mobile Defense"
+        ],
+        "id": "mobiledefense_advanced",
+        "label": "Mobile Defense: advanced",
+        "order": 345
+      },
+      {
+        "aliases": [
+          "Orphix",
+          "Railjack"
+        ],
+        "id": "orphix",
+        "label": "Orphix Venom",
+        "order": 360
+      },
+      {
+        "aliases": [
+          "Orphix",
+          "Railjack",
+          "Orphix Venom"
+        ],
+        "id": "orphix_advanced",
+        "label": "Orphix Venom: advanced",
+        "order": 365
+      },
+      {
+        "aliases": [],
+        "id": "purgatory",
+        "label": "Purgatory",
+        "order": 370
+      },
+      {
+        "aliases": [
+          "Purgatory"
+        ],
+        "id": "purgatory_advanced",
+        "label": "Purgatory: advanced",
+        "order": 375
+      },
+      {
+        "aliases": [
+          "MT_PURGE",
+          "Purge"
+        ],
+        "id": "purge_advanced",
+        "label": "Purge: advanced",
+        "order": 385
+      },
+      {
+        "aliases": [
+          "Sentient"
+        ],
+        "id": "sentientmd",
+        "label": "Sentient Mobile Defense",
+        "order": 420
+      },
+      {
+        "aliases": [
+          "Sentient"
+        ],
+        "id": "sentientcapture",
+        "label": "Sentient Swarm Capture",
+        "order": 430
+      },
+      {
+        "aliases": [
+          "Hellscrubber",
+          "MT_SURVIVAL",
+          "Conjunction Survival",
+          "Malva",
+          "Zeugma",
+          "Piscinas",
+          "Amarna",
+          "Assur",
+          "Zabala",
+          "Kelashin",
+          "Gabii",
+          "Cameria",
+          "Wahiba",
+          "Stickney",
+          "Elara",
+          "V Prime",
+          "Draco",
+          "Nimus",
+          "Selkie",
+          "Tycho",
+          "Yuvarium",
+          "Circulus",
+          "Ani",
+          "Mot",
+          "Ophelia",
+          "Terrorem",
+          "Persto",
+          "Taveuni",
+          "Palus",
+          "Hell-Scrub",
+          "Hell-Scrub: Scaldra",
+          "Hell-Scrub: Techrot",
+          "Apollodorus",
+          "Titan"
+        ],
+        "id": "survival",
+        "label": "Survival",
+        "order": 460
+      },
+      {
+        "aliases": [
+          "Hellscrubber",
+          "MT_SURVIVAL",
+          "Conjunction Survival",
+          "Malva",
+          "Zeugma",
+          "Piscinas",
+          "Amarna",
+          "Assur",
+          "Zabala",
+          "Kelashin",
+          "Gabii",
+          "Cameria",
+          "Wahiba",
+          "Stickney",
+          "Elara",
+          "V Prime",
+          "Draco",
+          "Nimus",
+          "Selkie",
+          "Tycho",
+          "Yuvarium",
+          "Circulus",
+          "Ani",
+          "Mot",
+          "Ophelia",
+          "Terrorem",
+          "Persto",
+          "Taveuni",
+          "Palus",
+          "Hell-Scrub",
+          "Hell-Scrub: Scaldra",
+          "Hell-Scrub: Techrot",
+          "Apollodorus",
+          "Titan",
+          "Survival"
+        ],
+        "id": "survival_advanced",
+        "label": "Survival: advanced",
+        "order": 465
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "Exolizer",
+          "MT_VOID_CASCADE",
+          "Tuvul Commons"
+        ],
+        "id": "void_cascade",
+        "label": "Void Cascade",
+        "order": 480
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "Exolizer",
+          "MT_VOID_CASCADE",
+          "Tuvul Commons",
+          "Void Cascade"
+        ],
+        "id": "void_cascade_advanced",
+        "label": "Void Cascade: advanced",
+        "order": 485
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "MT_CORRUPTION",
+          "Everview Arc"
+        ],
+        "id": "void_flood",
+        "label": "Void Flood",
+        "order": 490
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "MT_CORRUPTION",
+          "Everview Arc",
+          "Void Flood"
+        ],
+        "id": "void_flood_advanced",
+        "label": "Void Flood: advanced",
+        "order": 495
+      }
+    ]
+  }
+}

@@ -282,7 +282,7 @@ inline std::string value_tooltip(const settings::ValueDecl& declaration)
 			+ display_number(declaration.maximum) + ".";
 	}
 	if (!declaration.scope.empty()) text += " " + clean(declaration.scope) + ".";
-	if (declaration.lane == settings::Lane::Literal)
+	if (declaration.lane == settings::Lane::Literal && !declaration.live_literal)
 		text += " Edited in Ability Studio; this switch applies the edited script at the next mission.";
 	else if (declaration.lane == settings::Lane::Metadata)
 		text += " Metadata value: read-only here; applies after a game restart.";
@@ -434,7 +434,7 @@ inline Row value_editor(const PackageView& view, const settings::ValueDecl& decl
 	editor.minimum = declaration.minimum;
 	editor.maximum = declaration.maximum;
 	editor.integer = declaration.type != settings::ValueType::Float;
-	editor.locked = declaration.lane != settings::Lane::Addon;
+	editor.locked = !settings::editable_in_game(declaration);
 	editor.invalid_message = fit_words(clean(declaration.label), 40) + ": enter "
 		+ (editor.integer ? "a whole number" : "a number") + " from "
 		+ display_number(declaration.minimum) + " to "
@@ -837,7 +837,7 @@ inline std::string stage(
 		}
 		else
 		{
-			if (declaration->lane != settings::Lane::Addon) return "read-only-row";
+			if (!settings::editable_in_game(*declaration)) return "read-only-row";
 			double number = 0.0;
 			if (value.kind == StagedValue::Kind::Number) number = value.number;
 			else if (value.kind == StagedValue::Kind::Text)

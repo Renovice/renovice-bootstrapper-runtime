@@ -1,6 +1,7 @@
 #include "packages.hpp"
 
 #include "config.hpp"
+#include "live_literals.hpp"
 #include "replacement_settings_core.hpp"
 #include "script_control.hpp"
 
@@ -150,6 +151,7 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 	std::vector<std::pair<std::string, std::filesystem::path>> files;
 	std::filesystem::path manifest_path;
 	bool manifest_found = false;
+	std::filesystem::path recipe_path; // LIVE_LITERALS_V1 literals.json (optional)
 	std::error_code ec;
 	for (std::filesystem::directory_iterator it(folder_path, ec), end; !ec && it != end; it.increment(ec))
 	{
@@ -168,6 +170,10 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 		else if (has_lua_bytecode_extension(name))
 		{
 			files.emplace_back(std::move(name), it->path());
+		}
+		else if (ascii_iequal(name, live_literals::recipe_filename))
+		{
+			recipe_path = it->path();
 		}
 		// Any other file (README, SHA256SUMS, ...) is documentation and ignored.
 	}
@@ -238,6 +244,7 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 			else package.settings_reason = std::move(error);
 		}
 	}
+	if (!recipe_path.empty()) live_literals::attach_recipes(package, recipe_path);
 
 	std::vector<std::uint64_t> replacement_keys;
 	for (const auto& [name, path] : files)
@@ -408,7 +415,11 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 			+ " package=" + package.folder + " reason=" + package.settings_reason
 			+ " scope=settings-capability-local members=compiled-defaults");
 	}
-	if (!package.declarations || !committing) return;
+	if (!package.declarations || !committing)
+	{
+		if (committing) live_literals::resolve_package_plans(package, nullptr, settings::PackageEvaluation{}, trigger);
+		return;
+	}
 	const auto& declarations = *package.declarations;
 	settings::UserState state;
 	std::string file_error;
@@ -444,6 +455,7 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 		}
 		if (member.staged) ++staged;
 	}
+	live_literals::resolve_package_plans(package, usable, evaluation, trigger);
 	if (trigger == nullptr) return;
 	if (evaluation.file == settings::FileStatus::Malformed)
 	{

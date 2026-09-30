@@ -1,0 +1,5247 @@
+{
+  "format": "RENOVICE_LIVE_LITERALS_V1",
+  "package": "package:missions",
+  "build": "2026.09.28.13.06",
+  "modules": {
+    "076a7b443af7fdb8": {
+      "file": "Lotus_Scripts_Libs_ConquestLib.lua_B",
+      "stock_size": 59798,
+      "stock_sha256": "73107506e80ff7853ae0c4e77d56682707492328be9eec80067c5edb86529453"
+    },
+    "0c498e078835f9fe": {
+      "file": "Lotus_Scripts_Modes_EntratiVoidVaults.lua_B",
+      "stock_size": 61951,
+      "stock_sha256": "036522b0202ab810737f23c765e45050cb02f87b10f9c293932b3be8da24f85f"
+    },
+    "1002fa2aeb0ef437": {
+      "file": "Lotus_Scripts_CaptureNew.lua_B",
+      "stock_size": 47266,
+      "stock_sha256": "4e1469f2aa8b228d4e650543a2ec153c196abecc24d8b9d2f365323f43ca7ff7"
+    },
+    "1a1354d153712f9d": {
+      "file": "Lotus_Scripts_WaveDefend.lua_B",
+      "stock_size": 96329,
+      "stock_sha256": "0fb53a2c0946acc3476df7e16c5a3aaeea1b6384a2d4efa2d7360f4c155dbf10"
+    },
+    "1f41c5821d2c5240": {
+      "file": "Lotus_Scripts_Modes_SentientMobileDefense.lua_B",
+      "stock_size": 8904,
+      "stock_sha256": "dbd1025e7f8cd2ea7547b2d6659597bd3dca744ba91b451e615e145fb456d416"
+    },
+    "2c6c686109fb50ec": {
+      "file": "Lotus_Scripts_Arbitration.lua_B",
+      "stock_size": 26059,
+      "stock_sha256": "23470a6b6a8f904c363e08da20995879ef7eb15b28e950cdd271f43eb84b93ce"
+    },
+    "415a57536412719f": {
+      "file": "Lotus_Types_Gameplay_DevilTower_LiteGameModes_CoHExcavationLite.lua_B",
+      "stock_size": 31357,
+      "stock_sha256": "c641b897157618608088a5cfbd1d5688ace5c12822f8adaadf95089c6491d0e8"
+    },
+    "4c0a341e89cab9ee": {
+      "file": "Lotus_Scripts_Modes_EscalationExtermination.lua_B",
+      "stock_size": 30722,
+      "stock_sha256": "13e7651237628ce771dee374d8a756ea779c2feca075bd4a692c0043227f7013"
+    },
+    "4c2f0f786e4a8e58": {
+      "file": "Lotus_Scripts_LoopDefend.lua_B",
+      "stock_size": 88905,
+      "stock_sha256": "377f28ee2af3f9fd21a20c6a0b27c73aa90509730b7ba4658414028eb68e1fd2"
+    },
+    "6ea7658224d2d3c3": {
+      "file": "Lotus_Types_Gameplay_DevilTower_LiteGameModes_CoHNemesis.lua_B",
+      "stock_size": 7712,
+      "stock_sha256": "7fac41544e4dd806309f151019d0f5c4cdec6ff583b279a467ed59424e7610ce"
+    },
+    "6fa60841c9e0f207": {
+      "file": "Lotus_Scripts_Modes_Purgatory.lua_B",
+      "stock_size": 46783,
+      "stock_sha256": "6b0ecd7c47b23a0c2c0a4598e4d9b044e070f51e76daa149a14f0e12aa244fe9"
+    },
+    "721710696afea305": {
+      "file": "Lotus_Scripts_Modes_MechSurvivalMission.lua_B",
+      "stock_size": 41200,
+      "stock_sha256": "724df33e2300a8cd81c39c2fc9cae201c7c53d7705ee21a45937c63239e21739"
+    },
+    "8a0b0819de60df01": {
+      "file": "Lotus_Scripts_InfestedMicroplanet_Encounters_DynamicAreaDefense.lua_B",
+      "stock_size": 11486,
+      "stock_sha256": "322d5e174ac81d86dfdff92fced2cde6a2748d9929698409381c13de936153f2"
+    },
+    "9d034c7661ec61bf": {
+      "file": "Lotus_Scripts_Modes_ArchWingMissionScript.lua_B",
+      "stock_size": 19040,
+      "stock_sha256": "33bc6f058cc5692494923a76842ae6d7bea4d80357414e464738f0b98567da8b"
+    },
+    "a6e6445b96dde942": {
+      "file": "Lotus_Scripts_Modes_ArchwingPursuitMode.lua_B",
+      "stock_size": 11756,
+      "stock_sha256": "74f207dcd4ca5704185b2edd4e10e0f6941692f79335c9541ab0f5b88bd89e01"
+    },
+    "a775f43e3aaf24ee": {
+      "file": "Lotus_Scripts_Levels_1999Defense.lua_B",
+      "stock_size": 29829,
+      "stock_sha256": "4d067b25c1bdc426826226431ac1fe4dfd4647dfede24bac7f4289b09f89c4ea"
+    },
+    "a807aae359ffc1eb": {
+      "file": "Lotus_Scripts_MobileDefense.lua_B",
+      "stock_size": 32520,
+      "stock_sha256": "4dcfa0b5633b93bc3af57f04ab5de4f1cc492fcfd2ae4de61b9b473e5f1b2da1"
+    },
+    "ae99f8ae6c2eb271": {
+      "file": "Lotus_Scripts_Modes_PurgeMission.lua_B",
+      "stock_size": 7554,
+      "stock_sha256": "a732efae605a21a7057565e61b7424b55e4df223c76975883addb6414443d2a5"
+    },
+    "b3a5a18d68d61e16": {
+      "file": "Lotus_Scripts_Eidolon_Encounters_DynamicDefend.lua_B",
+      "stock_size": 9693,
+      "stock_sha256": "f2a27591489413891650d0948414cde30dc7b7ca7ec0922ca3003b55773c150e"
+    },
+    "b6d8c45f9424d376": {
+      "file": "Lotus_Scripts_Modes_SentientArtifactMission.lua_B",
+      "stock_size": 132739,
+      "stock_sha256": "b3e18cb43701adeaac4e41293dd3f2f332071d84c766abdcd45b0084eb0ceda3"
+    },
+    "caec63d8e739b693": {
+      "file": "Lotus_Scripts_Modes_HalloweenLanternEndless.lua_B",
+      "stock_size": 46502,
+      "stock_sha256": "1e5a6e3919a93d78521e2e2f59501dcc06dfa55b0673190450542dc00b3875e2"
+    },
+    "eacd4629273a9981": {
+      "file": "Lotus_Scripts_Modes_EntratiSwarmMission.lua_B",
+      "stock_size": 99973,
+      "stock_sha256": "0e8e7fa98805f73885c50cbea3ce81368511c94f70d17e2cc38ac85174521b24"
+    },
+    "f10a043e7f825db2": {
+      "file": "Lotus_Scripts_Modes_SurvivalMission.lua_B",
+      "stock_size": 137662,
+      "stock_sha256": "0147fb5e9dc86fb5023090ca37fad652fa3fd86d109f497a3d3c28a3680a9f8d"
+    },
+    "f7444e3c621ff018": {
+      "file": "Lotus_Scripts_Modes_ExcavationMission.lua_B",
+      "stock_size": 77843,
+      "stock_sha256": "df9fb3206e468652dc7a101e26118adf2e039f35b69e228c26bb6bbd3a6f4701"
+    },
+    "fb346b59e2b7687a": {
+      "file": "Lotus_Scripts_Modes_RetrievalMission.lua_B",
+      "stock_size": 34335,
+      "stock_sha256": "294eb28a72762e81c019ce6494b2aa71f8fcd16e2d4969d7efc7ba718f544b09"
+    },
+    "fc711ff621a75552": {
+      "file": "Lotus_Scripts_Modes_ZarimanCorruptionMission.lua_B",
+      "stock_size": 112244,
+      "stock_sha256": "738aa59c66f935235c812cba1ae6ecd361fdf700d5723c0928b88a2e11d89261"
+    },
+    "fc9ba92edb027648": {
+      "file": "Lotus_Scripts_Modes_ColonistRescueMission.lua_B",
+      "stock_size": 82572,
+      "stock_sha256": "b8dd2af5e74a2b3742ef0cd87b6f6fbfbf377a3935857fa93f74de5e876b2b08"
+    },
+    "fdd5982a4fce6847": {
+      "file": "Lotus_Scripts_MultiDefend.lua_B",
+      "stock_size": 24133,
+      "stock_sha256": "616dcc530651ee9b24fd24b7d139a7ace4d40de8fe428dccee6fbe05f1f53aa6"
+    }
+  },
+  "groups": [
+    {
+      "aliases": [
+        "Elite Alert"
+      ],
+      "id": "arbitration",
+      "label": "Arbitration",
+      "order": 30
+    },
+    {
+      "aliases": [
+        "Fomorian",
+        "Balor Fomorian"
+      ],
+      "id": "archwing",
+      "label": "Archwing (Balor Fomorian)",
+      "order": 40
+    },
+    {
+      "aliases": [
+        "Bounty",
+        "Free Roam",
+        "MT_LANDSCAPE",
+        "Cambion Drift"
+      ],
+      "id": "control_area_deimos",
+      "label": "Control Area (Cambion Drift)",
+      "order": 80
+    },
+    {
+      "aliases": [
+        "Bounty",
+        "Free Roam",
+        "Cetus",
+        "MT_LANDSCAPE",
+        "Plains of Eidolon"
+      ],
+      "id": "control_area_plains",
+      "label": "Control Area (Plains)",
+      "order": 100
+    },
+    {
+      "aliases": [
+        "Archimedea",
+        "Deep Archimedea",
+        "Temporal Archimedea",
+        "EDA",
+        "ETA"
+      ],
+      "id": "archimedea",
+      "label": "Deep and Temporal Archimedea",
+      "order": 110
+    },
+    {
+      "aliases": [
+        "Descendia",
+        "MT_DEFENSE",
+        "MT_DESCENT",
+        "The Descendia",
+        "Romula",
+        "Sangeru",
+        "Akkad",
+        "Coba",
+        "Seimeni",
+        "Sechura",
+        "Sinai",
+        "Larzac",
+        "Kadesh",
+        "Gulliver",
+        "Stephano",
+        "Io",
+        "Lares",
+        "Casta",
+        "Kala-azar",
+        "Proteus",
+        "Hydron",
+        "Paimon",
+        "Tessera",
+        "Descend",
+        "Descend from Marie's Sanctuary",
+        "Descend from Lyon's Sanctuary",
+        "Roathe's Oblivion",
+        "Lith",
+        "Stofler",
+        "Taranis",
+        "Belenus",
+        "Helene",
+        "Spear",
+        "Hyf",
+        "Outer Terminus",
+        "Nabuk",
+        "Solstice Square",
+        "Defense"
+      ],
+      "id": "defense_advanced",
+      "label": "Defense: advanced",
+      "order": 135
+    },
+    {
+      "aliases": [
+        "1999",
+        "Hollvania",
+        "MT_DEFENSE",
+        "Defense",
+        "Solstice Square"
+      ],
+      "id": "wf1999def",
+      "label": "Defense (1999)",
+      "order": 140
+    },
+    {
+      "aliases": [
+        "Descendia",
+        "MT_DESCENT",
+        "The Descendia",
+        "Descend",
+        "Descend from Marie's Sanctuary",
+        "Descend from Lyon's Sanctuary",
+        "Roathe's Oblivion"
+      ],
+      "id": "coh_excavation",
+      "label": "Descendia: Excavation",
+      "order": 160
+    },
+    {
+      "aliases": [
+        "Descendia",
+        "MT_DESCENT",
+        "The Descendia",
+        "Descend",
+        "Descend from Marie's Sanctuary",
+        "Descend from Lyon's Sanctuary",
+        "Roathe's Oblivion"
+      ],
+      "id": "coh_nemesis",
+      "label": "Descendia: Nemesis",
+      "order": 180
+    },
+    {
+      "aliases": [
+        "Tears"
+      ],
+      "id": "entrati_swarm",
+      "label": "Entrati Swarm",
+      "order": 210
+    },
+    {
+      "aliases": [
+        "Excavator",
+        "MT_EXCAVATE",
+        "Hieracon",
+        "Tikal",
+        "Cholistan",
+        "Kiliken",
+        "Augustus",
+        "Valefor",
+        "Everest",
+        "Despina"
+      ],
+      "id": "excavation",
+      "label": "Excavation",
+      "order": 220
+    },
+    {
+      "aliases": [
+        "Excavator",
+        "MT_EXCAVATE",
+        "Hieracon",
+        "Tikal",
+        "Cholistan",
+        "Kiliken",
+        "Augustus",
+        "Valefor",
+        "Everest",
+        "Despina",
+        "Excavation"
+      ],
+      "id": "excavation_advanced",
+      "label": "Excavation: advanced",
+      "order": 225
+    },
+    {
+      "aliases": [
+        "MultiDefend"
+      ],
+      "id": "multidefend",
+      "label": "Hack-Station Defense",
+      "order": 260
+    },
+    {
+      "aliases": [
+        "MultiDefend",
+        "Hack-Station Defense"
+      ],
+      "id": "multidefend_advanced",
+      "label": "Hack-Station Defense: advanced",
+      "order": 265
+    },
+    {
+      "aliases": [
+        "MT_RETRIEVAL",
+        "Ludi",
+        "Marid",
+        "Sorath"
+      ],
+      "id": "hijack",
+      "label": "Hijack",
+      "order": 270
+    },
+    {
+      "aliases": [
+        "Archon Hunt",
+        "MT_VAULTS"
+      ],
+      "id": "netracell",
+      "label": "Netracell",
+      "order": 350
+    },
+    {
+      "aliases": [
+        "MT_PURGE"
+      ],
+      "id": "purge",
+      "label": "Purge",
+      "order": 380
+    },
+    {
+      "aliases": [
+        "MT_PURSUIT",
+        "Pandora"
+      ],
+      "id": "pursuit",
+      "label": "Pursuit",
+      "order": 390
+    }
+  ],
+  "values": {
+    "arbitration.resurrection_score_cap": {
+      "declaration": {
+        "group": "arbitration",
+        "label": "Max resurrection score",
+        "unit": "",
+        "type": "int",
+        "stock": 25,
+        "min": 1,
+        "max": 32767,
+        "scope": "Highest Arbitration resurrection score, also the most buff stacks it gives; stock 25 points",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "2c6c686109fb50ec",
+      "drives": [
+        {
+          "row": "arbitration.resurrection_score_cap",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 5970,
+              "expected": "08071900",
+              "register": 7,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 6791,
+              "expected": "08081900",
+              "register": 8,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 7274,
+              "expected": "08081900",
+              "register": 8,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 11276,
+              "expected": "08091900",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 12593,
+              "expected": "080e1900",
+              "register": 14,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 13345,
+              "expected": "081c1900",
+              "register": 28,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 13725,
+              "expected": "080e1900",
+              "register": 14,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 4177,
+              "expected": "08051900",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 4205,
+              "expected": "08061900",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 18685,
+              "expected": "08061900",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "archwing.fomorian_emp_timer": {
+      "declaration": {
+        "group": "archwing",
+        "label": "EMP countdown",
+        "unit": "s",
+        "type": "int",
+        "stock": 30,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds on the Balor Fomorian EMP countdown; stock 30 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "9d034c7661ec61bf",
+      "drives": [
+        {
+          "row": "archwing.fomorian_emp_timer",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 5734,
+              "expected": "08061e00",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 13154,
+              "expected": "08091e00",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "capture.bleedout_timer.grace": {
+      "declaration": {
+        "group": "capture",
+        "label": "Downed target: grace time",
+        "unit": "s",
+        "type": "int",
+        "stock": 20,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds a downed Capture target waits before its escape timer starts; stock 20 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1002fa2aeb0ef437",
+      "drives": [
+        {
+          "row": "capture.bleedout_timer.grace",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 43178,
+              "expected": "08041400",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "number_constant",
+              "offset": 43558,
+              "expected": "0000000000003440",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "capture.bleedout_timer.fail_timer": {
+      "declaration": {
+        "group": "capture",
+        "label": "Downed target: escape timer",
+        "unit": "s",
+        "type": "int",
+        "stock": 60,
+        "min": 0,
+        "max": 6000,
+        "scope": "Seconds on the escape timer of a downed Capture target; the mission fails at 0; stock 60 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1002fa2aeb0ef437",
+      "drives": [
+        {
+          "row": "capture.bleedout_timer.fail_timer",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 43549,
+              "expected": "0000000000004e40",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "control_area_deimos.duration": {
+      "declaration": {
+        "group": "control_area_deimos",
+        "label": "Hold-zone time (Cambion)",
+        "unit": "s",
+        "type": "int",
+        "stock": 90,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds to hold the zone in Cambion Drift Control Area bounties; stock 90 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "8a0b0819de60df01",
+      "drives": [
+        {
+          "row": "control_area_deimos.duration",
+          "scale": 1,
+          "integer": true,
+          "stock": 90,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 10398,
+              "expected": "08175a00",
+              "register": 23,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 3318,
+              "expected": "12040b00",
+              "register": 1,
+              "rewrites_instruction": true,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "control_area_plains.duration": {
+      "declaration": {
+        "group": "control_area_plains",
+        "label": "Hold-zone time",
+        "unit": "s",
+        "type": "int",
+        "stock": 90,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds to hold the zone in Plains of Eidolon Control Area bounties; stock 90 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b3a5a18d68d61e16",
+      "drives": [
+        {
+          "row": "control_area_plains.duration",
+          "scale": 1,
+          "integer": true,
+          "stock": 90,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 8701,
+              "expected": "08155a00",
+              "register": 21,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 4061,
+              "expected": "0c050000",
+              "register": 5,
+              "rewrites_instruction": true,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "archimedea.eda_survival_minutes": {
+      "declaration": {
+        "group": "archimedea",
+        "label": "Deep: Survival minutes",
+        "unit": "min",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 60,
+        "scope": "Survival length in newly generated Deep Archimedea chains; stock 10 min",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "076a7b443af7fdb8",
+      "drives": [
+        {
+          "row": "archimedea.eda_survival_minutes",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 46787,
+              "expected": "08090a00",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "archimedea.eta_survival_minutes": {
+      "declaration": {
+        "group": "archimedea",
+        "label": "Temporal: Survival minutes",
+        "unit": "min",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 60,
+        "scope": "Survival length in newly generated Temporal Archimedea chains; stock 10 min",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "076a7b443af7fdb8",
+      "drives": [
+        {
+          "row": "archimedea.eta_survival_minutes",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 46631,
+              "expected": "08090a00",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "archimedea.eta_defense_waves": {
+      "declaration": {
+        "group": "archimedea",
+        "label": "Temporal: Defense waves",
+        "unit": "",
+        "type": "int",
+        "stock": 6,
+        "min": 1,
+        "max": 6,
+        "scope": "Defense waves in newly generated Temporal Archimedea chains; stock 6 waves",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "076a7b443af7fdb8",
+      "drives": [
+        {
+          "row": "archimedea.eta_defense_waves",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 46643,
+              "expected": "08090600",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "archimedea.eda_alchemy": {
+      "declaration": {
+        "group": "archimedea",
+        "label": "Deep: Alchemy mixtures",
+        "unit": "",
+        "type": "int",
+        "stock": 2,
+        "min": 1,
+        "max": 2,
+        "scope": "Alchemy mixtures in newly generated Deep Archimedea chains; stock 2 mixtures",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "076a7b443af7fdb8",
+      "drives": [
+        {
+          "row": "archimedea.eda_alchemy",
+          "scale": 1,
+          "integer": true,
+          "stock": 2,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 46811,
+              "expected": "08090200",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "archimedea.eda_disruption": {
+      "declaration": {
+        "group": "archimedea",
+        "label": "Deep: Disruption conduits",
+        "unit": "",
+        "type": "int",
+        "stock": 8,
+        "min": 1,
+        "max": 8,
+        "scope": "Disruption conduits in newly generated Deep Archimedea chains; stock 8 conduits",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "076a7b443af7fdb8",
+      "drives": [
+        {
+          "row": "archimedea.eda_disruption",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 46823,
+              "expected": "08090800",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "archimedea.eda_mirror_defense_waves": {
+      "declaration": {
+        "group": "archimedea",
+        "label": "Deep: Mirror Defense phases",
+        "unit": "",
+        "type": "int",
+        "stock": 4,
+        "min": 1,
+        "max": 4,
+        "scope": "Mirror Defense phases in newly generated Deep Archimedea chains; stock 4 phases",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "076a7b443af7fdb8",
+      "drives": [
+        {
+          "row": "archimedea.eda_mirror_defense_waves",
+          "scale": 1,
+          "integer": true,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 46799,
+              "expected": "08090400",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defection.squads_required": {
+      "declaration": {
+        "group": "defection",
+        "label": "Squads to rescue",
+        "unit": "",
+        "type": "int",
+        "stock": 4,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defector squads to rescue when the node sets none; stock 4 squads",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fc9ba92edb027648",
+      "drives": [
+        {
+          "row": "defection.squads_required",
+          "scale": 1,
+          "integer": true,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 7772,
+              "expected": "08010400",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defection.squads_required.sortie": {
+      "declaration": {
+        "group": "defection",
+        "label": "Sortie: squads to rescue",
+        "unit": "",
+        "type": "int",
+        "stock": 5,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defector squads to rescue in Sorties; stock 5 squads",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fc9ba92edb027648",
+      "drives": [
+        {
+          "row": "defection.squads_required.sortie",
+          "scale": 1,
+          "integer": true,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 7796,
+              "expected": "08010500",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.max_enemies.p1": {
+      "declaration": {
+        "group": "defense",
+        "label": "Max enemies at once (solo)",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once with 1 player, regular and Infested, all levels; a ticked Advanced row wins; stock 10 enemies (fewer below level 30)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91987,
+              "expected": "081d0a00",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_min.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 7,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91955,
+              "expected": "081c0700",
+              "register": 28,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92051,
+              "expected": "081f0a00",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.min.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 7,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92019,
+              "expected": "081e0700",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.max_enemies.p2": {
+      "declaration": {
+        "group": "defense",
+        "label": "Max enemies at once (duo)",
+        "unit": "",
+        "type": "int",
+        "stock": 20,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once with 2 players, regular and Infested, all levels; a ticked Advanced row wins; stock 20 enemies (fewer below level 30)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91991,
+              "expected": "081e1400",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_min.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 13,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91959,
+              "expected": "081d0d00",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92055,
+              "expected": "08201400",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.min.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 13,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92023,
+              "expected": "081f0d00",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.max_enemies.p3": {
+      "declaration": {
+        "group": "defense",
+        "label": "Max enemies at once (trio)",
+        "unit": "",
+        "type": "int",
+        "stock": 26,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once with 3 players, regular and Infested, all levels; a ticked Advanced row wins; stock 26 enemies (fewer below level 30)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 26,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91995,
+              "expected": "081f1a00",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_min.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 22,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91963,
+              "expected": "081e1600",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 26,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92059,
+              "expected": "08211a00",
+              "register": 33,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.min.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 22,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92027,
+              "expected": "08201600",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.max_enemies.p4": {
+      "declaration": {
+        "group": "defense",
+        "label": "Max enemies at once (squad)",
+        "unit": "",
+        "type": "int",
+        "stock": 29,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once with 4 players, regular and Infested, all levels; a ticked Advanced row wins; stock 29 enemies (fewer below level 30)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 29,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91999,
+              "expected": "08201d00",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_min.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91967,
+              "expected": "081f1900",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 29,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92063,
+              "expected": "08221d00",
+              "register": 34,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "defense.simultaneous_enemies_infested.min.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92031,
+              "expected": "08211900",
+              "register": 33,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.first_wave_delay": {
+      "declaration": {
+        "group": "defense",
+        "label": "Delay before the first wave",
+        "unit": "s",
+        "type": "int",
+        "stock": 6,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds before the first Defense wave starts; stock 6 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.first_wave_delay",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 75731,
+              "expected": "080b0600",
+              "register": 11,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.inter_wave_sleep": {
+      "declaration": {
+        "group": "defense",
+        "label": "Time between waves",
+        "unit": "s",
+        "type": "int",
+        "stock": 6,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds of intermission between Defense waves; stock 6 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.inter_wave_sleep",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 63986,
+              "expected": "081e0600",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.special_mission_default_waves": {
+      "declaration": {
+        "group": "defense",
+        "label": "Alert missions: waves to finish",
+        "unit": "",
+        "type": "int",
+        "stock": 6,
+        "min": 1,
+        "max": 32767,
+        "scope": "Waves in alert, invasion and syndicate Defense when the mission sets none; stock 6 waves",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.special_mission_default_waves",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 6654,
+              "expected": "08010600",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 6974,
+              "expected": "08030600",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 23699,
+              "expected": "08120600",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 24027,
+              "expected": "08110600",
+              "register": 17,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 24259,
+              "expected": "08120600",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 58346,
+              "expected": "08180600",
+              "register": 24,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59294,
+              "expected": "081b0600",
+              "register": 27,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59586,
+              "expected": "08220600",
+              "register": 34,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60294,
+              "expected": "081f0600",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60510,
+              "expected": "081e0600",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61382,
+              "expected": "081e0600",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61594,
+              "expected": "081d0600",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 63070,
+              "expected": "081f0600",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 63582,
+              "expected": "08200600",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 76371,
+              "expected": "08100600",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.nightmare_wave_count": {
+      "declaration": {
+        "group": "defense",
+        "label": "Nightmare: waves to finish",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Waves in Nightmare Defense; stock 3 waves",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.nightmare_wave_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 6674,
+              "expected": "08010300",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 6994,
+              "expected": "08030300",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 23719,
+              "expected": "08120300",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 24047,
+              "expected": "08110300",
+              "register": 17,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 24279,
+              "expected": "08120300",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 58366,
+              "expected": "08180300",
+              "register": 24,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59314,
+              "expected": "081b0300",
+              "register": 27,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59606,
+              "expected": "08220300",
+              "register": 34,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60314,
+              "expected": "081f0300",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60530,
+              "expected": "081e0300",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61402,
+              "expected": "081e0300",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61614,
+              "expected": "081d0300",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 63090,
+              "expected": "081f0300",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 63602,
+              "expected": "08200300",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 76391,
+              "expected": "08100300",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.duviri_wave_count": {
+      "declaration": {
+        "group": "defense",
+        "label": "Duviri: waves to finish",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Waves in Duviri Defense; stock 3 waves",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.duviri_wave_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 6502,
+              "expected": "08000300",
+              "register": 0,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 6822,
+              "expected": "08010300",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 23547,
+              "expected": "08100300",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 23875,
+              "expected": "080f0300",
+              "register": 15,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 24107,
+              "expected": "08100300",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 58194,
+              "expected": "08160300",
+              "register": 22,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59142,
+              "expected": "08190300",
+              "register": 25,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59434,
+              "expected": "08200300",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60142,
+              "expected": "081d0300",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60358,
+              "expected": "081c0300",
+              "register": 28,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61230,
+              "expected": "081c0300",
+              "register": 28,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61442,
+              "expected": "081b0300",
+              "register": 27,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 62918,
+              "expected": "081d0300",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 63430,
+              "expected": "081e0300",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 76219,
+              "expected": "080e0300",
+              "register": 14,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.circle_wave_count": {
+      "declaration": {
+        "group": "defense",
+        "label": "Descendia: waves to finish",
+        "unit": "",
+        "type": "int",
+        "stock": 1,
+        "min": 1,
+        "max": 32767,
+        "scope": "Waves in Descendia (circle) Defense; stock 1 wave",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.circle_wave_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 1,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 6522,
+              "expected": "08000100",
+              "register": 0,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 6842,
+              "expected": "08010100",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 23567,
+              "expected": "08100100",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 23895,
+              "expected": "080f0100",
+              "register": 15,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 24127,
+              "expected": "08100100",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 58214,
+              "expected": "08160100",
+              "register": 22,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59162,
+              "expected": "08190100",
+              "register": 25,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 59454,
+              "expected": "08200100",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60162,
+              "expected": "081d0100",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 60378,
+              "expected": "081c0100",
+              "register": 28,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61250,
+              "expected": "081c0100",
+              "register": 28,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 61462,
+              "expected": "081b0100",
+              "register": 27,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 62938,
+              "expected": "081d0100",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 63450,
+              "expected": "081e0100",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 76239,
+              "expected": "080e0100",
+              "register": 14,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_max.p1": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Level 30+: max enemies (solo)",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 1 player, regular enemies; wins over the main knob; stock 10 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91987,
+              "expected": "081d0a00",
+              "register": 29,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_max.p2": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Level 30+: max enemies (duo)",
+        "unit": "",
+        "type": "int",
+        "stock": 20,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 2 players, regular enemies; wins over the main knob; stock 20 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91991,
+              "expected": "081e1400",
+              "register": 30,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_max.p3": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Level 30+: max enemies (trio)",
+        "unit": "",
+        "type": "int",
+        "stock": 26,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 3 players, regular enemies; wins over the main knob; stock 26 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 26,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91995,
+              "expected": "081f1a00",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_max.p4": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Level 30+: max enemies (squad)",
+        "unit": "",
+        "type": "int",
+        "stock": 29,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 4 players, regular enemies; wins over the main knob; stock 29 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_max.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 29,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 91999,
+              "expected": "08201d00",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_infested.max.p1": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Infested: max enemies (solo)",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 1 player, Infested; wins over the main knob; stock 10 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92051,
+              "expected": "081f0a00",
+              "register": 31,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_infested.max.p2": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Infested: max enemies (duo)",
+        "unit": "",
+        "type": "int",
+        "stock": 20,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 2 players, Infested; wins over the main knob; stock 20 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92055,
+              "expected": "08201400",
+              "register": 32,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_infested.max.p3": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Infested: max enemies (trio)",
+        "unit": "",
+        "type": "int",
+        "stock": 26,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 3 players, Infested; wins over the main knob; stock 26 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 26,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92059,
+              "expected": "08211a00",
+              "register": 33,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "defense.simultaneous_enemies_infested.max.p4": {
+      "declaration": {
+        "group": "defense_advanced",
+        "label": "Infested: max enemies (squad)",
+        "unit": "",
+        "type": "int",
+        "stock": 29,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defense enemies alive at once at enemy level 30 and above with 4 players, Infested; wins over the main knob; stock 29 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1a1354d153712f9d",
+      "drives": [
+        {
+          "row": "defense.simultaneous_enemies_infested.max.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 29,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 92063,
+              "expected": "08221d00",
+              "register": 34,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "wf1999def.drone_count.spawn_interval": {
+      "declaration": {
+        "group": "wf1999def",
+        "label": "Time between drone spawns",
+        "unit": "s",
+        "type": "int",
+        "stock": 5,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds between chemical-noise drone launches in 1999 Defense; stock 5 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "a775f43e3aaf24ee",
+      "drives": [
+        {
+          "row": "wf1999def.drone_count.spawn_interval",
+          "scale": 1,
+          "integer": true,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 16037,
+              "expected": "08020500",
+              "register": 2,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 17692,
+              "expected": "08060500",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "coh_excavation.dig_duration": {
+      "declaration": {
+        "group": "coh_excavation",
+        "label": "Excavation: dig time",
+        "unit": "s",
+        "type": "int",
+        "stock": 45,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds each excavator digs on a Descendia Excavation floor; stock 45 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "415a57536412719f",
+      "drives": [
+        {
+          "row": "coh_excavation.dig_duration",
+          "scale": 1,
+          "integer": true,
+          "stock": 45,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 22618,
+              "expected": "0000000000804640",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 21000,
+              "expected": "08222d00",
+              "register": 34,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "coh_nemesis.spawn_interval": {
+      "declaration": {
+        "group": "coh_nemesis",
+        "label": "Nemesis: time between spawns",
+        "unit": "s",
+        "type": "int",
+        "stock": 15,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds between Nemesis spawns on a Descendia floor; stock 15 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "6ea7658224d2d3c3",
+      "drives": [
+        {
+          "row": "coh_nemesis.spawn_interval",
+          "scale": 1,
+          "integer": true,
+          "stock": 15,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 4318,
+              "expected": "08020f00",
+              "register": 2,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies.p1": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Max enemies at once (solo)",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Disruption enemies alive at once with 1 player, standard, Sentient and Entrati lab, both ends of the range; a ticked Advanced row wins; stock 10 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "insert_before": "disruption.initial_spawn_delay",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122536,
+              "expected": "082c0a00",
+              "register": 44,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.standard.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 7,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122496,
+              "expected": "082c0700",
+              "register": 44,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122700,
+              "expected": "082d0600",
+              "register": 45,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.sentient.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122660,
+              "expected": "082d0400",
+              "register": 45,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122864,
+              "expected": "082e0800",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.entrati_lab.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122824,
+              "expected": "082e0400",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies.p2": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Max enemies at once (duo)",
+        "unit": "",
+        "type": "int",
+        "stock": 25,
+        "min": 1,
+        "max": 32767,
+        "scope": "Disruption enemies alive at once with 2 players, standard, Sentient and Entrati lab, both ends of the range; a ticked Advanced row wins; stock 25 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "insert_before": "disruption.initial_spawn_delay",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122540,
+              "expected": "082d1900",
+              "register": 45,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.standard.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 15,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122500,
+              "expected": "082d0f00",
+              "register": 45,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122704,
+              "expected": "082e0800",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.sentient.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122664,
+              "expected": "082e0600",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 12,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122868,
+              "expected": "082f0c00",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.entrati_lab.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 7,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122828,
+              "expected": "082f0700",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies.p3": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Max enemies at once (trio)",
+        "unit": "",
+        "type": "int",
+        "stock": 30,
+        "min": 1,
+        "max": 32767,
+        "scope": "Disruption enemies alive at once with 3 players, standard, Sentient and Entrati lab, both ends of the range; a ticked Advanced row wins; stock 30 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "insert_before": "disruption.initial_spawn_delay",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122544,
+              "expected": "082e1e00",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.standard.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122504,
+              "expected": "082e1900",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122708,
+              "expected": "082f0a00",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.sentient.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122668,
+              "expected": "082f0800",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122872,
+              "expected": "08301400",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.entrati_lab.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 12,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122832,
+              "expected": "08300c00",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies.p4": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Max enemies at once (squad)",
+        "unit": "",
+        "type": "int",
+        "stock": 35,
+        "min": 1,
+        "max": 32767,
+        "scope": "Disruption enemies alive at once with 4 players, standard, Sentient and Entrati lab, both ends of the range; a ticked Advanced row wins; stock 35 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "insert_before": "disruption.initial_spawn_delay",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 35,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122548,
+              "expected": "082f2300",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.standard.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122508,
+              "expected": "082f1e00",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 12,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122712,
+              "expected": "08300c00",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.sentient.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122672,
+              "expected": "08300a00",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122876,
+              "expected": "08311900",
+              "register": 49,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "disruption.min_enemies_by_players.entrati_lab.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 18,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122836,
+              "expected": "08311200",
+              "register": 49,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.default_round_count": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Rounds to finish",
+        "unit": "",
+        "type": "int",
+        "stock": 4,
+        "min": 1,
+        "max": 32767,
+        "scope": "Disruption rounds when the node sets no round count (not Sorties); stock 4 rounds",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.default_round_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 18573,
+              "expected": "08010400",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 88354,
+              "expected": "08050400",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 101667,
+              "expected": "08050400",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 104827,
+              "expected": "08050400",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 17698,
+              "expected": "08030400",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 57484,
+              "expected": "08060400",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 105787,
+              "expected": "08080400",
+              "register": 8,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.sortie_round_count": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Sortie: rounds to finish",
+        "unit": "",
+        "type": "int",
+        "stock": 8,
+        "min": 1,
+        "max": 32767,
+        "scope": "Disruption rounds in Sorties when the node sets no round count; stock 8 rounds",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.sortie_round_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 18553,
+              "expected": "08010800",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 88334,
+              "expected": "08050800",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 101647,
+              "expected": "08050800",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 104807,
+              "expected": "08050800",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.round_timeout": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Round time-out timer",
+        "unit": "s",
+        "type": "int",
+        "stock": 180,
+        "min": 1,
+        "max": 32767,
+        "scope": "Time-out timer a Disruption round shows after 900 s without a conduit defense (fail effect not traced); stock 180 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.round_timeout",
+          "scale": 1,
+          "integer": true,
+          "stock": 180,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 88662,
+              "expected": "0804b400",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.interval_between_rounds": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Time between rounds",
+        "unit": "s",
+        "type": "int",
+        "stock": 20,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds between Disruption rounds; stock 20 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.interval_between_rounds",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 89322,
+              "expected": "08011400",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 105347,
+              "expected": "08031400",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.interval_between_rounds.relic": {
+      "declaration": {
+        "group": "disruption",
+        "label": "Relics: time between rounds",
+        "unit": "s",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds between Disruption rounds on relic missions; wins over Time between rounds there; stock 10 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.interval_between_rounds.relic",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 89346,
+              "expected": "08010a00",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 105355,
+              "expected": "08030a00",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.standard.p1": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Standard: max enemies (solo)",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of standard Disruption with 1 player; wins over the main knob; stock 10 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122536,
+              "expected": "082c0a00",
+              "register": 44,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.standard.p2": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Standard: max enemies (duo)",
+        "unit": "",
+        "type": "int",
+        "stock": 25,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of standard Disruption with 2 players; wins over the main knob; stock 25 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122540,
+              "expected": "082d1900",
+              "register": 45,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.standard.p3": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Standard: max enemies (trio)",
+        "unit": "",
+        "type": "int",
+        "stock": 30,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of standard Disruption with 3 players; wins over the main knob; stock 30 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122544,
+              "expected": "082e1e00",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.standard.p4": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Standard: max enemies (squad)",
+        "unit": "",
+        "type": "int",
+        "stock": 35,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of standard Disruption with 4 players; wins over the main knob; stock 35 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.standard.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 35,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122548,
+              "expected": "082f2300",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.sentient.p1": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Sentient: max enemies (solo)",
+        "unit": "",
+        "type": "int",
+        "stock": 6,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Sentient Disruption with 1 player; wins over the main knob; stock 6 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122700,
+              "expected": "082d0600",
+              "register": 45,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.sentient.p2": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Sentient: max enemies (duo)",
+        "unit": "",
+        "type": "int",
+        "stock": 8,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Sentient Disruption with 2 players; wins over the main knob; stock 8 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122704,
+              "expected": "082e0800",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.sentient.p3": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Sentient: max enemies (trio)",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Sentient Disruption with 3 players; wins over the main knob; stock 10 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122708,
+              "expected": "082f0a00",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.sentient.p4": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Sentient: max enemies (squad)",
+        "unit": "",
+        "type": "int",
+        "stock": 12,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Sentient Disruption with 4 players; wins over the main knob; stock 12 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.sentient.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 12,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122712,
+              "expected": "08300c00",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p1": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Lab: max enemies (solo)",
+        "unit": "",
+        "type": "int",
+        "stock": 8,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Entrati lab Disruption with 1 player; wins over the main knob; stock 8 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p1",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122864,
+              "expected": "082e0800",
+              "register": 46,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p2": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Lab: max enemies (duo)",
+        "unit": "",
+        "type": "int",
+        "stock": 12,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Entrati lab Disruption with 2 players; wins over the main knob; stock 12 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p2",
+          "scale": 1,
+          "integer": true,
+          "stock": 12,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122868,
+              "expected": "082f0c00",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p3": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Lab: max enemies (trio)",
+        "unit": "",
+        "type": "int",
+        "stock": 20,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Entrati lab Disruption with 3 players; wins over the main knob; stock 20 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p3",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122872,
+              "expected": "08301400",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p4": {
+      "declaration": {
+        "group": "disruption_advanced",
+        "label": "Lab: max enemies (squad)",
+        "unit": "",
+        "type": "int",
+        "stock": 25,
+        "min": 1,
+        "max": 32767,
+        "scope": "Upper enemy count of Entrati lab Disruption with 4 players; wins over the main knob; stock 25 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "b6d8c45f9424d376",
+      "drives": [
+        {
+          "row": "disruption.max_enemies_by_players.entrati_lab.p4",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 122876,
+              "expected": "08311900",
+              "register": 49,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage.stage1": {
+      "declaration": {
+        "group": "entrati_swarm",
+        "label": "Tears for stage 1",
+        "unit": "",
+        "type": "int",
+        "stock": 8,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 1 of Entrati Swarm; stock 8 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage.stage1",
+          "scale": 1,
+          "integer": true,
+          "stock": 8,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94837,
+              "expected": "082f0800",
+              "register": 47,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage.stage2": {
+      "declaration": {
+        "group": "entrati_swarm",
+        "label": "Tears for stage 2",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 2 of Entrati Swarm; stock 10 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage.stage2",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94841,
+              "expected": "08300a00",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage.stage3": {
+      "declaration": {
+        "group": "entrati_swarm",
+        "label": "Tears for stage 3",
+        "unit": "",
+        "type": "int",
+        "stock": 12,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 3 of Entrati Swarm; stock 12 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage.stage3",
+          "scale": 1,
+          "integer": true,
+          "stock": 12,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94845,
+              "expected": "08310c00",
+              "register": 49,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage.stage4": {
+      "declaration": {
+        "group": "entrati_swarm",
+        "label": "Tears for stage 4",
+        "unit": "",
+        "type": "int",
+        "stock": 15,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 4 of Entrati Swarm; stock 15 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage.stage4",
+          "scale": 1,
+          "integer": true,
+          "stock": 15,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94849,
+              "expected": "08320f00",
+              "register": 50,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage.stage5": {
+      "declaration": {
+        "group": "entrati_swarm",
+        "label": "Tears for stage 5",
+        "unit": "",
+        "type": "int",
+        "stock": 15,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 5 of Entrati Swarm; stock 15 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage.stage5",
+          "scale": 1,
+          "integer": true,
+          "stock": 15,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94853,
+              "expected": "08330f00",
+              "register": 51,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage1": {
+      "declaration": {
+        "group": "entrati_swarm_advanced",
+        "label": "Challenge: tears for stage 1",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 1 of Entrati Swarm with the collect-tears challenge; stock 10 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage_challenge.stage1",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94873,
+              "expected": "08300a00",
+              "register": 48,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage2": {
+      "declaration": {
+        "group": "entrati_swarm_advanced",
+        "label": "Challenge: tears for stage 2",
+        "unit": "",
+        "type": "int",
+        "stock": 15,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 2 of Entrati Swarm with the collect-tears challenge; stock 15 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage_challenge.stage2",
+          "scale": 1,
+          "integer": true,
+          "stock": 15,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94877,
+              "expected": "08310f00",
+              "register": 49,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage3": {
+      "declaration": {
+        "group": "entrati_swarm_advanced",
+        "label": "Challenge: tears for stage 3",
+        "unit": "",
+        "type": "int",
+        "stock": 20,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 3 of Entrati Swarm with the collect-tears challenge; stock 20 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage_challenge.stage3",
+          "scale": 1,
+          "integer": true,
+          "stock": 20,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94881,
+              "expected": "08321400",
+              "register": 50,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage4": {
+      "declaration": {
+        "group": "entrati_swarm_advanced",
+        "label": "Challenge: tears for stage 4",
+        "unit": "",
+        "type": "int",
+        "stock": 15,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 4 of Entrati Swarm with the collect-tears challenge; stock 15 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage_challenge.stage4",
+          "scale": 1,
+          "integer": true,
+          "stock": 15,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94885,
+              "expected": "08330f00",
+              "register": 51,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage5": {
+      "declaration": {
+        "group": "entrati_swarm_advanced",
+        "label": "Challenge: tears for stage 5",
+        "unit": "",
+        "type": "int",
+        "stock": 15,
+        "min": 1,
+        "max": 32767,
+        "scope": "Tears to collect in stage 5 of Entrati Swarm with the collect-tears challenge; stock 15 tears",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "eacd4629273a9981",
+      "drives": [
+        {
+          "row": "entrati_swarm.tears_per_stage_challenge.stage5",
+          "scale": 1,
+          "integer": true,
+          "stock": 15,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 94889,
+              "expected": "08340f00",
+              "register": 52,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "excavation.dig_time": {
+      "declaration": {
+        "group": "excavation",
+        "label": "Dig time per excavator",
+        "unit": "s",
+        "type": "int",
+        "stock": 100,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds each excavator digs, all Excavation variants (standard, Elite Alert, Old World Salvage); stock 100 s (Elite Alert 140, Old World 60)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "f7444e3c621ff018",
+      "drives": [
+        {
+          "row": "excavation.dig_duration",
+          "scale": 1,
+          "integer": true,
+          "stock": 100,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 71847,
+              "expected": "081b6400",
+              "register": 27,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "excavation.dig_duration_elite_alert",
+          "scale": 1,
+          "integer": true,
+          "stock": 140,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 29560,
+              "expected": "08018c00",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "excavation.dig_duration_old_world_salvage",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 29436,
+              "expected": "08013c00",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "excavation.duviri_excavation_count": {
+      "declaration": {
+        "group": "excavation",
+        "label": "Duviri: excavations",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Excavations to finish Duviri Excavation; stock 3 excavations",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "f7444e3c621ff018",
+      "drives": [
+        {
+          "row": "excavation.duviri_excavation_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 29580,
+              "expected": "08010300",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "excavation.dig_duration": {
+      "declaration": {
+        "group": "excavation_advanced",
+        "label": "Standard dig time",
+        "unit": "s",
+        "type": "int",
+        "stock": 100,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds each excavator digs in standard Excavation; stock 100 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "f7444e3c621ff018",
+      "drives": [
+        {
+          "row": "excavation.dig_duration",
+          "scale": 1,
+          "integer": true,
+          "stock": 100,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 71847,
+              "expected": "081b6400",
+              "register": 27,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "excavation.dig_duration_elite_alert": {
+      "declaration": {
+        "group": "excavation_advanced",
+        "label": "Elite Alert: dig time",
+        "unit": "s",
+        "type": "int",
+        "stock": 140,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds each excavator digs in Elite Alert Excavation; stock 140 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "f7444e3c621ff018",
+      "drives": [
+        {
+          "row": "excavation.dig_duration_elite_alert",
+          "scale": 1,
+          "integer": true,
+          "stock": 140,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 29560,
+              "expected": "08018c00",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "excavation.dig_duration_old_world_salvage": {
+      "declaration": {
+        "group": "excavation_advanced",
+        "label": "Old World Salvage: dig time",
+        "unit": "s",
+        "type": "int",
+        "stock": 60,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds each excavator digs in Old World Salvage Excavation; stock 60 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "f7444e3c621ff018",
+      "drives": [
+        {
+          "row": "excavation.dig_duration_old_world_salvage",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 29436,
+              "expected": "08013c00",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "escalation.crate_timer": {
+      "declaration": {
+        "group": "escalation",
+        "label": "Supply crate timer",
+        "unit": "s",
+        "type": "int",
+        "stock": 120,
+        "min": 1,
+        "max": 32767,
+        "scope": "Countdown of the supply crate in 1999 Exterminate Escalation (Escalate Now adds 60 s); stock 120 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "4c0a341e89cab9ee",
+      "drives": [
+        {
+          "row": "escalation.crate_timer",
+          "scale": 1,
+          "integer": true,
+          "stock": 120,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 10159,
+              "expected": "08027800",
+              "register": 2,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 11959,
+              "expected": "08017800",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "multidefend.defend_time": {
+      "declaration": {
+        "group": "multidefend",
+        "label": "Defend time per station",
+        "unit": "s",
+        "type": "int",
+        "stock": 240,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds to defend each hack station, all node levels (sets the random range); a ticked Advanced row wins; stock 240 s (random 30 to 240 by node level)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fdd5982a4fce6847",
+      "drives": [
+        {
+          "row": "multidefend.defend_time.max_d1",
+          "scale": 1,
+          "integer": true,
+          "stock": 240,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13650,
+              "expected": "0806f000",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "multidefend.defend_time.min_d1",
+          "scale": 1,
+          "integer": true,
+          "stock": 120,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13682,
+              "expected": "08067800",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "multidefend.defend_time.max_d0",
+          "scale": 1,
+          "integer": true,
+          "stock": 120,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13646,
+              "expected": "08057800",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "multidefend.defend_time.min_d0",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13678,
+              "expected": "08051e00",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "multidefend.station_count": {
+      "declaration": {
+        "group": "multidefend",
+        "label": "Stations to defend",
+        "unit": "",
+        "type": "int",
+        "stock": 4,
+        "min": 1,
+        "max": 32767,
+        "scope": "Hack stations to defend in Hack-Station Defense; stock 4 stations",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fdd5982a4fce6847",
+      "drives": [
+        {
+          "row": "multidefend.station_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 3168,
+              "expected": "08080400",
+              "register": 8,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 3212,
+              "expected": "08070400",
+              "register": 7,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 3664,
+              "expected": "08090400",
+              "register": 9,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 6509,
+              "expected": "08120400",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "multidefend.defend_time.min_d0": {
+      "declaration": {
+        "group": "multidefend_advanced",
+        "label": "Easy nodes: shortest defend time",
+        "unit": "s",
+        "type": "int",
+        "stock": 30,
+        "min": 1,
+        "max": 32767,
+        "scope": "Low end of the random station defend time on the easiest nodes; wins over the main knob; stock 30 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fdd5982a4fce6847",
+      "drives": [
+        {
+          "row": "multidefend.defend_time.min_d0",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13678,
+              "expected": "08051e00",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "multidefend.defend_time.max_d0": {
+      "declaration": {
+        "group": "multidefend_advanced",
+        "label": "Easy nodes: longest defend time",
+        "unit": "s",
+        "type": "int",
+        "stock": 120,
+        "min": 1,
+        "max": 32767,
+        "scope": "High end of the random station defend time on the easiest nodes; wins over the main knob; stock 120 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fdd5982a4fce6847",
+      "drives": [
+        {
+          "row": "multidefend.defend_time.max_d0",
+          "scale": 1,
+          "integer": true,
+          "stock": 120,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13646,
+              "expected": "08057800",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "multidefend.defend_time.min_d1": {
+      "declaration": {
+        "group": "multidefend_advanced",
+        "label": "Hard nodes: shortest defend time",
+        "unit": "s",
+        "type": "int",
+        "stock": 120,
+        "min": 1,
+        "max": 32767,
+        "scope": "Low end of the random station defend time on the hardest nodes; wins over the main knob; stock 120 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fdd5982a4fce6847",
+      "drives": [
+        {
+          "row": "multidefend.defend_time.min_d1",
+          "scale": 1,
+          "integer": true,
+          "stock": 120,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13682,
+              "expected": "08067800",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "multidefend.defend_time.max_d1": {
+      "declaration": {
+        "group": "multidefend_advanced",
+        "label": "Hard nodes: longest defend time",
+        "unit": "s",
+        "type": "int",
+        "stock": 240,
+        "min": 1,
+        "max": 32767,
+        "scope": "High end of the random station defend time on the hardest nodes; wins over the main knob; stock 240 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fdd5982a4fce6847",
+      "drives": [
+        {
+          "row": "multidefend.defend_time.max_d1",
+          "scale": 1,
+          "integer": true,
+          "stock": 240,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 13650,
+              "expected": "0806f000",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "hijack.payload_health": {
+      "declaration": {
+        "group": "hijack",
+        "label": "Payload health",
+        "unit": "HP",
+        "type": "int",
+        "stock": 10000,
+        "min": 1,
+        "max": 32767,
+        "scope": "Health of the Hijack payload (Steel Path scales it); stock 10000 health",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fb346b59e2b7687a",
+      "drives": [
+        {
+          "row": "hijack.payload_health",
+          "scale": 1,
+          "integer": true,
+          "stock": 10000,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 31691,
+              "expected": "08051027",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "hijack.payload_health.goal_mission": {
+      "declaration": {
+        "group": "hijack",
+        "label": "Goal missions: payload health",
+        "unit": "HP",
+        "type": "int",
+        "stock": 3000,
+        "min": 1,
+        "max": 32767,
+        "scope": "Health of the Hijack payload on goal missions; wins over Payload health there; stock 3000 health",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fb346b59e2b7687a",
+      "drives": [
+        {
+          "row": "hijack.payload_health.goal_mission",
+          "scale": 1,
+          "integer": true,
+          "stock": 3000,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 24037,
+              "expected": "0812b80b",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "lantern.min_score": {
+      "declaration": {
+        "group": "lantern",
+        "label": "Score to win",
+        "unit": "s",
+        "type": "int",
+        "stock": 300,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds a Lantern run must last before extraction opens; less fails; stock 300 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "caec63d8e739b693",
+      "drives": [
+        {
+          "row": "lantern.min_score",
+          "scale": 1,
+          "integer": true,
+          "stock": 300,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 33938,
+              "expected": "08022c01",
+              "register": 2,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 39859,
+              "expected": "08022c01",
+              "register": 2,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "lantern.extraction_limit": {
+      "declaration": {
+        "group": "lantern",
+        "label": "Time to reach extraction",
+        "unit": "s",
+        "type": "int",
+        "stock": 180,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds to reach extraction once it opens in Lantern; stock 180 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "caec63d8e739b693",
+      "drives": [
+        {
+          "row": "lantern.extraction_limit",
+          "scale": 1,
+          "integer": true,
+          "stock": 180,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 34414,
+              "expected": "0803b400",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 34458,
+              "expected": "0805b400",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "lantern.boss_spawn_time": {
+      "declaration": {
+        "group": "lantern",
+        "label": "Boss arrives after",
+        "unit": "s",
+        "type": "int",
+        "stock": 900,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds into a Lantern run before the boss spawns; stock 900 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "caec63d8e739b693",
+      "drives": [
+        {
+          "row": "lantern.boss_spawn_time",
+          "scale": 1,
+          "integer": true,
+          "stock": 900,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 33382,
+              "expected": "08038403",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "loopdefend.phase_duration": {
+      "declaration": {
+        "group": "loopdefend",
+        "label": "Time per phase",
+        "unit": "s",
+        "type": "int",
+        "stock": 150,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defend timer of each Mirror Defense phase; stock 150 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "4c2f0f786e4a8e58",
+      "drives": [
+        {
+          "row": "loopdefend.phase_duration",
+          "scale": 1,
+          "integer": true,
+          "stock": 150,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 63170,
+              "expected": "08039600",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 73491,
+              "expected": "08089600",
+              "register": 8,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "loopdefend.phase_duration_jade": {
+      "declaration": {
+        "group": "loopdefend",
+        "label": "Jade: time per phase",
+        "unit": "s",
+        "type": "int",
+        "stock": 60,
+        "min": 1,
+        "max": 32767,
+        "scope": "Defend timer of each phase when the Jade level override is active; stock 60 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "4c2f0f786e4a8e58",
+      "drives": [
+        {
+          "row": "loopdefend.phase_duration_jade",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 63290,
+              "expected": "08033c00",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 73611,
+              "expected": "08083c00",
+              "register": 8,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "mobiledefense.time_per_terminal": {
+      "declaration": {
+        "group": "mobiledefense",
+        "label": "Time per terminal",
+        "unit": "s",
+        "type": "int",
+        "stock": 80,
+        "min": 1,
+        "max": 10922,
+        "scope": "Defense time of each Mobile Defense terminal, all node levels (total time = 3 x this, split over the terminals); stock 80 s (60 on easy nodes)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "a807aae359ffc1eb",
+      "insert_before": "mobiledefense.max_enemies.p1",
+      "drives": [
+        {
+          "row": "mobiledefense.total_time.maximum",
+          "scale": 3,
+          "integer": true,
+          "stock": 240,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 21642,
+              "expected": "0812f000",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "mobiledefense.total_time.minimum",
+          "scale": 3,
+          "integer": true,
+          "stock": 180,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 21638,
+              "expected": "0811b400",
+              "register": 17,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "mobiledefense.console_count": {
+      "declaration": {
+        "group": "mobiledefense",
+        "label": "Terminals per mission",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 0,
+        "max": 1000,
+        "scope": "Terminals to defend in Mobile Defense (fewer when the tile has fewer); stock 3 terminals",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "a807aae359ffc1eb",
+      "drives": [
+        {
+          "row": "mobiledefense.console_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 7825,
+              "expected": "0000000000000840",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "mobiledefense.total_time.maximum": {
+      "declaration": {
+        "group": "mobiledefense_advanced",
+        "label": "Hard nodes: total terminal time",
+        "unit": "s",
+        "type": "int",
+        "stock": 240,
+        "min": 1,
+        "max": 32767,
+        "scope": "Total terminal defense time on the hardest Mobile Defense nodes, split over the terminals; stock 240 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "a807aae359ffc1eb",
+      "drives": [
+        {
+          "row": "mobiledefense.total_time.maximum",
+          "scale": 1,
+          "integer": true,
+          "stock": 240,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 21642,
+              "expected": "0812f000",
+              "register": 18,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "mobiledefense.total_time.minimum": {
+      "declaration": {
+        "group": "mobiledefense_advanced",
+        "label": "Easy nodes: total terminal time",
+        "unit": "s",
+        "type": "int",
+        "stock": 180,
+        "min": 1,
+        "max": 32767,
+        "scope": "Total terminal defense time on the easiest Mobile Defense nodes, split over the terminals; stock 180 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "a807aae359ffc1eb",
+      "drives": [
+        {
+          "row": "mobiledefense.total_time.minimum",
+          "scale": 1,
+          "integer": true,
+          "stock": 180,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 21638,
+              "expected": "0811b400",
+              "register": 17,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "netracell.power_required.base": {
+      "declaration": {
+        "group": "netracell",
+        "label": "Power required",
+        "unit": "",
+        "type": "int",
+        "stock": 200,
+        "min": 1,
+        "max": 32767,
+        "scope": "Power to charge a Netracell with 1 player; stock 200 power",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "0c498e078835f9fe",
+      "drives": [
+        {
+          "row": "netracell.power_required.base",
+          "scale": 1,
+          "integer": true,
+          "stock": 200,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 58853,
+              "expected": "082bc800",
+              "register": 43,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "netracell.power_required.per_extra_player": {
+      "declaration": {
+        "group": "netracell",
+        "label": "Power per extra player",
+        "unit": "",
+        "type": "int",
+        "stock": 100,
+        "min": 0,
+        "max": 10000,
+        "scope": "Extra Netracell power needed per additional player (up to 3); stock 100 power",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "0c498e078835f9fe",
+      "drives": [
+        {
+          "row": "netracell.power_required.per_extra_player",
+          "scale": 1,
+          "integer": true,
+          "stock": 100,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 38665,
+              "expected": "0000000000005940",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "orphix.sortie_rounds": {
+      "declaration": {
+        "group": "orphix",
+        "label": "Sortie: rounds to finish",
+        "unit": "",
+        "type": "int",
+        "stock": 12,
+        "min": 1,
+        "max": 32767,
+        "scope": "Orphix Venom rounds in Sorties (the single reward comes at the last round); stock 12 rounds",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "721710696afea305",
+      "drives": [
+        {
+          "row": "orphix.sortie_rounds",
+          "scale": 1,
+          "integer": true,
+          "stock": 12,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 26116,
+              "expected": "08020c00",
+              "register": 2,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 26128,
+              "expected": "08010c00",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "purgatory.spawn_interval": {
+      "declaration": {
+        "group": "purgatory",
+        "label": "Time between spawns",
+        "unit": "s",
+        "type": "int",
+        "stock": 5,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds between Purgatory spawn batches (sets the random range to this value); a ticked Advanced row wins; stock 5 s (random 3 to 5)",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "6fa60841c9e0f207",
+      "insert_before": "purgatory.reward_kill_threshold.t1",
+      "drives": [
+        {
+          "row": "purgatory.spawn_interval.max",
+          "scale": 1,
+          "integer": true,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 44940,
+              "expected": "08220500",
+              "register": 34,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        },
+        {
+          "row": "purgatory.spawn_interval.min",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 44936,
+              "expected": "08210300",
+              "register": 33,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "purgatory.initial_time": {
+      "declaration": {
+        "group": "purgatory",
+        "label": "Starting time",
+        "unit": "s",
+        "type": "int",
+        "stock": 60,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds on the Purgatory timer at the start; stock 60 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "6fa60841c9e0f207",
+      "drives": [
+        {
+          "row": "purgatory.initial_time",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 25643,
+              "expected": "08013c00",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "purgatory.pickup_time_bonus": {
+      "declaration": {
+        "group": "purgatory",
+        "label": "Time per pickup",
+        "unit": "s",
+        "type": "float",
+        "stock": 5,
+        "min": 0,
+        "max": 1000,
+        "scope": "Seconds a time pickup adds in Purgatory; stock 5 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "6fa60841c9e0f207",
+      "drives": [
+        {
+          "row": "purgatory.pickup_time_bonus",
+          "scale": 1,
+          "integer": false,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 3898,
+              "expected": "0000000000001440",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "purgatory.enemy_cap": {
+      "declaration": {
+        "group": "purgatory",
+        "label": "Max enemies at once",
+        "unit": "",
+        "type": "int",
+        "stock": 10,
+        "min": 1,
+        "max": 32767,
+        "scope": "Purgatory enemies alive at once (Protea quest stages lower it); stock 10 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "6fa60841c9e0f207",
+      "drives": [
+        {
+          "row": "purgatory.enemy_cap",
+          "scale": 1,
+          "integer": true,
+          "stock": 10,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 44956,
+              "expected": "08230a00",
+              "register": 35,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "purgatory.spawn_interval.min": {
+      "declaration": {
+        "group": "purgatory_advanced",
+        "label": "Shortest time between spawns",
+        "unit": "s",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Low end of the random time between Purgatory spawn batches; wins over the main knob; stock 3 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "6fa60841c9e0f207",
+      "drives": [
+        {
+          "row": "purgatory.spawn_interval.min",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 44936,
+              "expected": "08210300",
+              "register": 33,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "purgatory.spawn_interval.max": {
+      "declaration": {
+        "group": "purgatory_advanced",
+        "label": "Longest time between spawns",
+        "unit": "s",
+        "type": "int",
+        "stock": 5,
+        "min": 1,
+        "max": 32767,
+        "scope": "High end of the random time between Purgatory spawn batches; wins over the main knob; stock 5 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "6fa60841c9e0f207",
+      "drives": [
+        {
+          "row": "purgatory.spawn_interval.max",
+          "scale": 1,
+          "integer": true,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 44940,
+              "expected": "08220500",
+              "register": 34,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "purge.max_enemy_count": {
+      "declaration": {
+        "group": "purge",
+        "label": "Enemies to kill",
+        "unit": "",
+        "type": "int",
+        "stock": 50,
+        "min": 1,
+        "max": 32767,
+        "scope": "Enemy population to kill in a Purge mission; stock 50 enemies",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "ae99f8ae6c2eb271",
+      "drives": [
+        {
+          "row": "purge.max_enemy_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 50,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 3061,
+              "expected": "08063200",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "pursuit.phase_timer": {
+      "declaration": {
+        "group": "pursuit",
+        "label": "Defend-ship phase time",
+        "unit": "s",
+        "type": "int",
+        "stock": 60,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds of the defend-the-ship phase in Pursuit; it succeeds at 0; stock 60 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "a6e6445b96dde942",
+      "drives": [
+        {
+          "row": "pursuit.phase_timer",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 4509,
+              "expected": "08083c00",
+              "register": 8,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sentientmd.defend_time": {
+      "declaration": {
+        "group": "sentientmd",
+        "label": "Defend time per area",
+        "unit": "s",
+        "type": "int",
+        "stock": 120,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds to defend the drone in each Sentient Defense area; stock 120 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1f41c5821d2c5240",
+      "drives": [
+        {
+          "row": "sentientmd.defend_time",
+          "scale": 1,
+          "integer": true,
+          "stock": 120,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 8243,
+              "expected": "080f7800",
+              "register": 15,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sentientmd.area_count": {
+      "declaration": {
+        "group": "sentientmd",
+        "label": "Areas to complete",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Areas to complete in Sentient Mobile Defense; stock 3 areas",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "1f41c5821d2c5240",
+      "drives": [
+        {
+          "row": "sentientmd.area_count",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 4655,
+              "expected": "0000000000000840",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 5551,
+              "expected": "08040300",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 5971,
+              "expected": "08030300",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 5975,
+              "expected": "08040300",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "survival.duviri_fixed_length": {
+      "declaration": {
+        "group": "survival",
+        "label": "Duviri: Survival length",
+        "unit": "s",
+        "type": "int",
+        "stock": 300,
+        "min": 1,
+        "max": 32767,
+        "scope": "Length of endless Duviri Survival (missions flagged EndlessDuviri, The Circuit); stock 300 s",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "f10a043e7f825db2",
+      "drives": [
+        {
+          "row": "survival.duviri_fixed_length",
+          "scale": 1,
+          "integer": true,
+          "stock": 300,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 75499,
+              "expected": "08042c01",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "void_flood.fractures_per_round.normal": {
+      "declaration": {
+        "group": "void_flood",
+        "label": "Fractures per round",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Void fractures opened per round in Void Flood (not Duviri); stock 3 fractures",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fc711ff621a75552",
+      "insert_before": "void_flood.fill_timer.timeToFillMax",
+      "drives": [
+        {
+          "row": "void_flood.fractures_per_round.normal",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 102969,
+              "expected": "08040300",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "void_flood.fractures_per_round.duviri": {
+      "declaration": {
+        "group": "void_flood",
+        "label": "Duviri: fractures per round",
+        "unit": "",
+        "type": "int",
+        "stock": 5,
+        "min": 1,
+        "max": 32767,
+        "scope": "Void fractures opened per round in Duviri Void Flood; stock 5 fractures",
+        "lane": "literal",
+        "applies": "next_mission"
+      },
+      "module": "fc711ff621a75552",
+      "drives": [
+        {
+          "row": "void_flood.fractures_per_round.duviri",
+          "scale": 1,
+          "integer": true,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 81749,
+              "expected": "08010500",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 87160,
+              "expected": "08010500",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
