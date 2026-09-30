@@ -13,10 +13,20 @@
       "stock_size": 61951,
       "stock_sha256": "036522b0202ab810737f23c765e45050cb02f87b10f9c293932b3be8da24f85f"
     },
+    "0f1c3a74c7c91fab": {
+      "file": "Lotus_Scripts_Modes_InfestedCapture.lua_B",
+      "stock_size": 65775,
+      "stock_sha256": "2dfc64ff77d4b1a364662d41ceb9db54ee9f21f00a4880fe757bc6b68ea36c92"
+    },
     "1002fa2aeb0ef437": {
       "file": "Lotus_Scripts_CaptureNew.lua_B",
       "stock_size": 47266,
       "stock_sha256": "4e1469f2aa8b228d4e650543a2ec153c196abecc24d8b9d2f365323f43ca7ff7"
+    },
+    "14fb4ffa54cf4d4c": {
+      "file": "Lotus_Types_Enemies_SimpleBossScaling.lua_B",
+      "stock_size": 829,
+      "stock_sha256": "d25bedd1593e20b7948c1f07c0f75f6852653fca47d39e8d87153e7c6f16c208"
     },
     "1a1354d153712f9d": {
       "file": "Lotus_Scripts_WaveDefend.lua_B",
@@ -27,6 +37,11 @@
       "file": "Lotus_Scripts_Modes_SentientMobileDefense.lua_B",
       "stock_size": 8904,
       "stock_sha256": "dbd1025e7f8cd2ea7547b2d6659597bd3dca744ba91b451e615e145fb456d416"
+    },
+    "2162d41996f9f942": {
+      "file": "Lotus_Scripts_Modes_RaceMission.lua_B",
+      "stock_size": 15392,
+      "stock_sha256": "0b670e59ed55f21064aa5390c3f7d662b2a4f0fdb19dbf3b2fa15b0bc08ab53d"
     },
     "2c6c686109fb50ec": {
       "file": "Lotus_Scripts_Arbitration.lua_B",
@@ -48,10 +63,20 @@
       "stock_size": 88905,
       "stock_sha256": "377f28ee2af3f9fd21a20c6a0b27c73aa90509730b7ba4658414028eb68e1fd2"
     },
+    "5b59e2968c1ec7bf": {
+      "file": "Lotus_Scripts_Modes_GasCitySabotage.lua_B",
+      "stock_size": 27666,
+      "stock_sha256": "64f1281d3c81ec76e5051406172c23bbbab29d62d51697ad2666744628c13e08"
+    },
     "6ea7658224d2d3c3": {
       "file": "Lotus_Types_Gameplay_DevilTower_LiteGameModes_CoHNemesis.lua_B",
       "stock_size": 7712,
       "stock_sha256": "7fac41544e4dd806309f151019d0f5c4cdec6ff583b279a467ed59424e7610ce"
+    },
+    "6f52bba63392f5fa": {
+      "file": "Lotus_Scripts_BossAmbulasArena.lua_B",
+      "stock_size": 35105,
+      "stock_sha256": "a4b476330246ca513a2eb8b5dfc3f476130b3e3c14fadc3a75cd586c50a83470"
     },
     "6fa60841c9e0f207": {
       "file": "Lotus_Scripts_Modes_Purgatory.lua_B",
@@ -63,15 +88,35 @@
       "stock_size": 41200,
       "stock_sha256": "724df33e2300a8cd81c39c2fc9cae201c7c53d7705ee21a45937c63239e21739"
     },
+    "7e0adf2d83f7a086": {
+      "file": "Lotus_Scripts_Sabotage.lua_B",
+      "stock_size": 11139,
+      "stock_sha256": "0f1e3d2d0a2becb2a4cc662981e7d0595d391cd466573c551f5fd9cd913f7190"
+    },
     "8a0b0819de60df01": {
       "file": "Lotus_Scripts_InfestedMicroplanet_Encounters_DynamicAreaDefense.lua_B",
       "stock_size": 11486,
       "stock_sha256": "322d5e174ac81d86dfdff92fced2cde6a2748d9929698409381c13de936153f2"
     },
+    "8dac738d9290da96": {
+      "file": "Lotus_Scripts_Libs_HardModeBossUtil.lua_B",
+      "stock_size": 4619,
+      "stock_sha256": "2218391e18b77db92150d2f024ef318ba1553edeb494e39d9099f53fbf087c43"
+    },
     "9d034c7661ec61bf": {
       "file": "Lotus_Scripts_Modes_ArchWingMissionScript.lua_B",
       "stock_size": 19040,
       "stock_sha256": "33bc6f058cc5692494923a76842ae6d7bea4d80357414e464738f0b98567da8b"
+    },
+    "9ddf18235b5c4abb": {
+      "file": "Lotus_Scripts_BossKelaArena.lua_B",
+      "stock_size": 16877,
+      "stock_sha256": "2b39f531ad194a78d054b30a2674b5e387ab1b9eea48aefe12776ff49be09a50"
+    },
+    "a0cea91cc0ac3b31": {
+      "file": "Lotus_Scripts_SabotageOrokin.lua_B",
+      "stock_size": 30707,
+      "stock_sha256": "51228e84f40269dd2ede7026076abdc326cdaef510d396a4ce4d47dba2f48883"
     },
     "a6e6445b96dde942": {
       "file": "Lotus_Scripts_Modes_ArchwingPursuitMode.lua_B",
@@ -82,6 +127,11 @@
       "file": "Lotus_Scripts_Levels_1999Defense.lua_B",
       "stock_size": 29829,
       "stock_sha256": "4d067b25c1bdc426826226431ac1fe4dfd4647dfede24bac7f4289b09f89c4ea"
+    },
+    "a7d46fb5b6bca6d7": {
+      "file": "Lotus_Scripts_DarkSectors_DarkSectors.lua_B",
+      "stock_size": 61759,
+      "stock_sha256": "5ea543e500d508d2a4431d72a1500099a51f6a54690e39f39c2966d00b73e118"
     },
     "a807aae359ffc1eb": {
       "file": "Lotus_Scripts_MobileDefense.lua_B",
@@ -107,6 +157,26 @@
       "file": "Lotus_Scripts_Modes_HalloweenLanternEndless.lua_B",
       "stock_size": 46502,
       "stock_sha256": "1e5a6e3919a93d78521e2e2f59501dcc06dfa55b0673190450542dc00b3875e2"
+    },
+    "d3b1322792d45f0e": {
+      "file": "Lotus_Scripts_SabotageModular.lua_B",
+      "stock_size": 45718,
+      "stock_sha256": "97eaa77546b6152dbed926348e3f2d493df343e19a4a855812fe095efdcc988a"
+    },
+    "ddc55fa44c7a2531": {
+      "file": "Lotus_Scripts_SabotageForest.lua_B",
+      "stock_size": 8998,
+      "stock_sha256": "1c890aef543f03eafda6647352432a97fc0e648283e1a9aa5a833499d31cf6c4"
+    },
+    "e3288fa4e8afbc06": {
+      "file": "Lotus_Scripts_ExtractionTimer.lua_B",
+      "stock_size": 19325,
+      "stock_sha256": "634857104d2306d4b800370d2875a698202483f83fc01b6e9586cb88b093d67c"
+    },
+    "ea590b792c6a689a": {
+      "file": "Lotus_Scripts_Rescue.lua_B",
+      "stock_size": 46923,
+      "stock_sha256": "2a768c7f6faa32c8e567b0e256fddc2427023040a78f03be41c3f4bc09cdce33"
     },
     "eacd4629273a9981": {
       "file": "Lotus_Scripts_Modes_EntratiSwarmMission.lua_B",
@@ -147,8 +217,16 @@
   "groups": [
     {
       "aliases": [
-        "Elite Alert",
-        "Arbitration"
+        "All missions",
+        "Game rules"
+      ],
+      "id": "gamerules",
+      "label": "All Missions (Game Rules)",
+      "order": 20
+    },
+    {
+      "aliases": [
+        "Elite Alert"
       ],
       "id": "arbitration_advanced",
       "label": "Arbitration: advanced",
@@ -177,6 +255,63 @@
     },
     {
       "aliases": [
+        "Boss",
+        "MT_ASSASSINATION",
+        "Iliad",
+        "Fossa",
+        "Titania",
+        "Tolstoj",
+        "Psamathe",
+        "Exta",
+        "Merrow",
+        "Naamah",
+        "Oro",
+        "Tethys",
+        "Hades",
+        "Themisto",
+        "Magnacidium",
+        "Exequias",
+        "Effervo",
+        "The Ropalolyst",
+        "Assassinate",
+        "Assassinate: H-09 Tank",
+        "War"
+      ],
+      "id": "assassination",
+      "label": "Assassination",
+      "order": 70
+    },
+    {
+      "aliases": [
+        "Boss",
+        "MT_ASSASSINATION",
+        "Iliad",
+        "Fossa",
+        "Titania",
+        "Tolstoj",
+        "Psamathe",
+        "Exta",
+        "Merrow",
+        "Naamah",
+        "Oro",
+        "Tethys",
+        "Hades",
+        "Themisto",
+        "Magnacidium",
+        "Exequias",
+        "Effervo",
+        "The Ropalolyst",
+        "Assassinate",
+        "Assassinate: H-09 Tank",
+        "War",
+        "Assassination"
+      ],
+      "id": "assassination_advanced",
+      "label": "Assassination: advanced",
+      "order": 75
+    },
+    {
+      "aliases": [
         "Bounty",
         "Free Roam",
         "MT_LANDSCAPE",
@@ -184,7 +319,7 @@
       ],
       "id": "control_area_deimos",
       "label": "Control Area (Cambion Drift)",
-      "order": 100
+      "order": 110
     },
     {
       "aliases": [
@@ -196,7 +331,7 @@
       ],
       "id": "control_area_plains",
       "label": "Control Area (Plains)",
-      "order": 120
+      "order": 130
     },
     {
       "aliases": [
@@ -208,7 +343,7 @@
       ],
       "id": "wf1999def",
       "label": "Defense (1999)",
-      "order": 150
+      "order": 160
     },
     {
       "aliases": [
@@ -222,7 +357,7 @@
       ],
       "id": "coh_excavation",
       "label": "Descendia: Excavation",
-      "order": 170
+      "order": 180
     },
     {
       "aliases": [
@@ -236,7 +371,7 @@
       ],
       "id": "coh_nemesis",
       "label": "Descendia: Nemesis",
-      "order": 190
+      "order": 200
     },
     {
       "aliases": [
@@ -244,23 +379,6 @@
       ],
       "id": "entrati_swarm",
       "label": "Entrati Swarm",
-      "order": 220
-    },
-    {
-      "aliases": [
-        "Excavator",
-        "MT_EXCAVATE",
-        "Hieracon",
-        "Tikal",
-        "Cholistan",
-        "Kiliken",
-        "Augustus",
-        "Valefor",
-        "Everest",
-        "Despina"
-      ],
-      "id": "excavation",
-      "label": "Excavation",
       "order": 230
     },
     {
@@ -269,7 +387,7 @@
       ],
       "id": "multidefend",
       "label": "Hack-Station Defense",
-      "order": 270
+      "order": 290
     },
     {
       "aliases": [
@@ -280,7 +398,25 @@
       ],
       "id": "hijack",
       "label": "Hijack",
-      "order": 280
+      "order": 300
+    },
+    {
+      "aliases": [
+        "Legacyte",
+        "Kalymos",
+        "Descendia",
+        "1999",
+        "MT_ENDLESS_CAPTURE",
+        "MT_DESCENT",
+        "The Descendia",
+        "Descend",
+        "Descend from Marie's Sanctuary",
+        "Descend from Lyon's Sanctuary",
+        "Roathe's Oblivion"
+      ],
+      "id": "infested_capture",
+      "label": "Legacyte Harvest",
+      "order": 340
     },
     {
       "aliases": [
@@ -289,7 +425,7 @@
       ],
       "id": "netracell",
       "label": "Netracell",
-      "order": 370
+      "order": 390
     },
     {
       "aliases": [
@@ -297,7 +433,7 @@
       ],
       "id": "purge",
       "label": "Purge",
-      "order": 400
+      "order": 420
     },
     {
       "aliases": [
@@ -306,10 +442,99 @@
       ],
       "id": "pursuit",
       "label": "Pursuit",
-      "order": 410
+      "order": 430
+    },
+    {
+      "aliases": [
+        "MT_RESCUE",
+        "Monolith",
+        "Linea",
+        "Caloris",
+        "Metis",
+        "Nuovo",
+        "Pacific",
+        "Brugia",
+        "Naga",
+        "Orias",
+        "Zeipel",
+        "Anthe",
+        "Martialis",
+        "Regna",
+        "Numa",
+        "Caliban",
+        "Garus",
+        "Triton"
+      ],
+      "id": "rescue",
+      "label": "Rescue",
+      "order": 450
+    },
+    {
+      "aliases": [
+        "Archwing",
+        "MT_RACE",
+        "Kepler"
+      ],
+      "id": "rush",
+      "label": "Rush",
+      "order": 460
+    },
+    {
+      "aliases": [
+        "Elite Onslaught"
+      ],
+      "id": "onslaught",
+      "label": "Sanctuary Onslaught",
+      "order": 480
+    },
+    {
+      "aliases": [
+        "Elite Onslaught",
+        "Sanctuary Onslaught"
+      ],
+      "id": "onslaught_advanced",
+      "label": "Sanctuary Onslaught: advanced",
+      "order": 485
     }
   ],
   "values": {
+    "gamerules.extraction_countdown_endless": {
+      "declaration": {
+        "group": "gamerules",
+        "label": "Extraction timer (endless)",
+        "unit": "s",
+        "type": "int",
+        "stock": 60,
+        "min": 1,
+        "max": 32767,
+        "scope": "Countdown after the first player reaches extraction in an endless mission.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "All missions"
+        ],
+        "row": "Extraction (endless)"
+      },
+      "module": "e3288fa4e8afbc06",
+      "drives": [
+        {
+          "row": "gamerules.extraction_countdown_endless",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 6448,
+              "expected": "08103c00",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
     "arbitration.resurrection_score_cap": {
       "declaration": {
         "group": "arbitration_advanced",
@@ -692,6 +917,283 @@
         }
       ]
     },
+    "assassination.kela_health.p2": {
+      "declaration": {
+        "group": "assassination",
+        "label": "Kela De Thaym health (duo)",
+        "unit": "x",
+        "type": "float",
+        "stock": 2,
+        "min": 0.01,
+        "max": 100,
+        "scope": "Multiplier on Kela De Thaym health with 2 players.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Assassination",
+          "Enemies",
+          "Kela De Thaym health"
+        ],
+        "row": "Duo"
+      },
+      "module": "9ddf18235b5c4abb",
+      "drives": [
+        {
+          "row": "assassination.kela_health.p2",
+          "scale": 1,
+          "integer": false,
+          "stock": 2,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 11637,
+              "expected": "0000000000000040",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "assassination.kela_health.p3": {
+      "declaration": {
+        "group": "assassination",
+        "label": "Kela De Thaym health (trio)",
+        "unit": "x",
+        "type": "float",
+        "stock": 3,
+        "min": 0.01,
+        "max": 100,
+        "scope": "Multiplier on Kela De Thaym health with 3 players.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Assassination",
+          "Enemies",
+          "Kela De Thaym health"
+        ],
+        "row": "Trio"
+      },
+      "module": "9ddf18235b5c4abb",
+      "drives": [
+        {
+          "row": "assassination.kela_health.p3",
+          "scale": 1,
+          "integer": false,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 11646,
+              "expected": "0000000000000840",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "assassination.kela_health.p4": {
+      "declaration": {
+        "group": "assassination",
+        "label": "Kela De Thaym health (squad)",
+        "unit": "x",
+        "type": "float",
+        "stock": 4,
+        "min": 0.01,
+        "max": 100,
+        "scope": "Multiplier on Kela De Thaym health with 4 players or more.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Assassination",
+          "Enemies",
+          "Kela De Thaym health"
+        ],
+        "row": "Squad"
+      },
+      "module": "9ddf18235b5c4abb",
+      "drives": [
+        {
+          "row": "assassination.kela_health.p4",
+          "scale": 1,
+          "integer": false,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 11655,
+              "expected": "0000000000001040",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "assassination.boss_level_bonus": {
+      "declaration": {
+        "group": "assassination",
+        "label": "Boss level bonus",
+        "unit": "",
+        "type": "int",
+        "stock": 5,
+        "min": 0,
+        "max": 1000,
+        "scope": "Levels added to the node maximum for most star-chart bosses (the native use of the value is not confirmed live).",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Assassination",
+          "Enemies"
+        ],
+        "row": "Boss level bonus"
+      },
+      "module": "14fb4ffa54cf4d4c",
+      "drives": [
+        {
+          "row": "assassination.boss_level_bonus",
+          "scale": 1,
+          "integer": true,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 649,
+              "expected": "0000000000001440",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "assassination.hard_mode_level_base": {
+      "declaration": {
+        "group": "assassination_advanced",
+        "label": "Hard-mode boss level",
+        "unit": "",
+        "type": "int",
+        "stock": 350,
+        "min": 1,
+        "max": 9999,
+        "scope": "Boss level in the hard-mode boss variant before the per-player bonus.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Assassination",
+          "Advanced"
+        ],
+        "row": "Hard-mode boss level"
+      },
+      "module": "8dac738d9290da96",
+      "drives": [
+        {
+          "row": "assassination.hard_mode_level_base",
+          "scale": 1,
+          "integer": true,
+          "stock": 350,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 692,
+              "expected": "08015e01",
+              "register": 1,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "assassination.hard_mode_level_per_player": {
+      "declaration": {
+        "group": "assassination_advanced",
+        "label": "Hard-mode level per player",
+        "unit": "",
+        "type": "int",
+        "stock": 25,
+        "min": 0,
+        "max": 1000,
+        "scope": "Boss levels added per player in the hard-mode boss variant.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Assassination",
+          "Advanced"
+        ],
+        "row": "Hard-mode level per player"
+      },
+      "module": "8dac738d9290da96",
+      "drives": [
+        {
+          "row": "assassination.hard_mode_level_per_player",
+          "scale": 1,
+          "integer": true,
+          "stock": 25,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 750,
+              "expected": "0000000000003940",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "assassination.ambulas_level_per_player": {
+      "declaration": {
+        "group": "assassination_advanced",
+        "label": "Ambulas level per player",
+        "unit": "",
+        "type": "int",
+        "stock": 4,
+        "min": 0,
+        "max": 1000,
+        "scope": "Levels added to Ambulas units for each extra player.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Assassination",
+          "Advanced"
+        ],
+        "row": "Ambulas level per player"
+      },
+      "module": "6f52bba63392f5fa",
+      "drives": [
+        {
+          "row": "assassination.ambulas_level_per_player",
+          "scale": 1,
+          "integer": true,
+          "stock": 4,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 4693,
+              "expected": "0000000000001040",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "number_constant",
+              "offset": 5338,
+              "expected": "0000000000001040",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
     "capture.bleedout_timer.grace": {
       "declaration": {
         "group": "capture",
@@ -971,7 +1473,7 @@
         "row": "Delay before first wave"
       },
       "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "insert_before": "defense.waves_to_finish",
       "drives": [
         {
           "row": "defense.first_wave_delay",
@@ -1010,7 +1512,7 @@
         "row": "Time between waves"
       },
       "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "insert_before": "defense.waves_to_finish",
       "drives": [
         {
           "row": "defense.inter_wave_sleep",
@@ -1045,12 +1547,12 @@
         "path": [
           "Defense",
           "Objectives",
-          "Waves to finish"
+          "Special-mission waves"
         ],
         "row": "Alert missions"
       },
       "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "insert_before": "defense.max_enemies.p1",
       "drives": [
         {
           "row": "defense.special_mission_default_waves",
@@ -1197,12 +1699,12 @@
         "path": [
           "Defense",
           "Objectives",
-          "Waves to finish"
+          "Special-mission waves"
         ],
         "row": "Nightmare"
       },
       "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "insert_before": "defense.max_enemies.p1",
       "drives": [
         {
           "row": "defense.nightmare_wave_count",
@@ -1349,12 +1851,12 @@
         "path": [
           "Defense",
           "Objectives",
-          "Waves to finish"
+          "Special-mission waves"
         ],
         "row": "Duviri"
       },
       "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "insert_before": "defense.max_enemies.p1",
       "drives": [
         {
           "row": "defense.duviri_wave_count",
@@ -1501,12 +2003,12 @@
         "path": [
           "Defense",
           "Objectives",
-          "Waves to finish"
+          "Special-mission waves"
         ],
         "row": "Descendia"
       },
       "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
+      "insert_before": "defense.max_enemies.p1",
       "drives": [
         {
           "row": "defense.circle_wave_count",
@@ -1631,690 +2133,6 @@
               "offset": 76239,
               "expected": "080e0100",
               "register": 14,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.max_enemies.p1": {
-      "declaration": {
-        "group": "defense",
-        "label": "Max enemies at once (solo)",
-        "unit": "",
-        "type": "int",
-        "stock": 10,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once with 1 player, regular and Infested, all levels. A number you type replaces the whole range; the variants below override it.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once"
-        ],
-        "row": "Solo",
-        "default_label": "7-10"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p1",
-          "scale": 1,
-          "integer": true,
-          "stock": 10,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91987,
-              "expected": "081d0a00",
-              "register": 29,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_min.p1",
-          "scale": 1,
-          "integer": true,
-          "stock": 7,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91955,
-              "expected": "081c0700",
-              "register": 28,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p1",
-          "scale": 1,
-          "integer": true,
-          "stock": 10,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92051,
-              "expected": "081f0a00",
-              "register": 31,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.min.p1",
-          "scale": 1,
-          "integer": true,
-          "stock": 7,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92019,
-              "expected": "081e0700",
-              "register": 30,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.max_enemies.p2": {
-      "declaration": {
-        "group": "defense",
-        "label": "Max enemies at once (duo)",
-        "unit": "",
-        "type": "int",
-        "stock": 20,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once with 2 players, regular and Infested, all levels. A number you type replaces the whole range; the variants below override it.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once"
-        ],
-        "row": "Duo",
-        "default_label": "13-20"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p2",
-          "scale": 1,
-          "integer": true,
-          "stock": 20,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91991,
-              "expected": "081e1400",
-              "register": 30,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_min.p2",
-          "scale": 1,
-          "integer": true,
-          "stock": 13,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91959,
-              "expected": "081d0d00",
-              "register": 29,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p2",
-          "scale": 1,
-          "integer": true,
-          "stock": 20,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92055,
-              "expected": "08201400",
-              "register": 32,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.min.p2",
-          "scale": 1,
-          "integer": true,
-          "stock": 13,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92023,
-              "expected": "081f0d00",
-              "register": 31,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.max_enemies.p3": {
-      "declaration": {
-        "group": "defense",
-        "label": "Max enemies at once (trio)",
-        "unit": "",
-        "type": "int",
-        "stock": 26,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once with 3 players, regular and Infested, all levels. A number you type replaces the whole range; the variants below override it.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once"
-        ],
-        "row": "Trio",
-        "default_label": "22-26"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p3",
-          "scale": 1,
-          "integer": true,
-          "stock": 26,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91995,
-              "expected": "081f1a00",
-              "register": 31,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_min.p3",
-          "scale": 1,
-          "integer": true,
-          "stock": 22,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91963,
-              "expected": "081e1600",
-              "register": 30,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p3",
-          "scale": 1,
-          "integer": true,
-          "stock": 26,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92059,
-              "expected": "08211a00",
-              "register": 33,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.min.p3",
-          "scale": 1,
-          "integer": true,
-          "stock": 22,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92027,
-              "expected": "08201600",
-              "register": 32,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.max_enemies.p4": {
-      "declaration": {
-        "group": "defense",
-        "label": "Max enemies at once (squad)",
-        "unit": "",
-        "type": "int",
-        "stock": 29,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once with 4 players, regular and Infested, all levels. A number you type replaces the whole range; the variants below override it.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once"
-        ],
-        "row": "Squad",
-        "default_label": "25-29"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p4",
-          "scale": 1,
-          "integer": true,
-          "stock": 29,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91999,
-              "expected": "08201d00",
-              "register": 32,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_min.p4",
-          "scale": 1,
-          "integer": true,
-          "stock": 25,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91967,
-              "expected": "081f1900",
-              "register": 31,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p4",
-          "scale": 1,
-          "integer": true,
-          "stock": 29,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92063,
-              "expected": "08221d00",
-              "register": 34,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        },
-        {
-          "row": "defense.simultaneous_enemies_infested.min.p4",
-          "scale": 1,
-          "integer": true,
-          "stock": 25,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92031,
-              "expected": "08211900",
-              "register": 33,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_max.p1": {
-      "declaration": {
-        "group": "defense",
-        "label": "Level 30+: max enemies (solo)",
-        "unit": "",
-        "type": "int",
-        "stock": 10,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 1 player, regular enemies. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Level 30 and up"
-        ],
-        "row": "Solo"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p1",
-          "scale": 1,
-          "integer": true,
-          "stock": 10,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91987,
-              "expected": "081d0a00",
-              "register": 29,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_max.p2": {
-      "declaration": {
-        "group": "defense",
-        "label": "Level 30+: max enemies (duo)",
-        "unit": "",
-        "type": "int",
-        "stock": 20,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 2 players, regular enemies. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Level 30 and up"
-        ],
-        "row": "Duo"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p2",
-          "scale": 1,
-          "integer": true,
-          "stock": 20,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91991,
-              "expected": "081e1400",
-              "register": 30,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_max.p3": {
-      "declaration": {
-        "group": "defense",
-        "label": "Level 30+: max enemies (trio)",
-        "unit": "",
-        "type": "int",
-        "stock": 26,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 3 players, regular enemies. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Level 30 and up"
-        ],
-        "row": "Trio"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p3",
-          "scale": 1,
-          "integer": true,
-          "stock": 26,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91995,
-              "expected": "081f1a00",
-              "register": 31,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_max.p4": {
-      "declaration": {
-        "group": "defense",
-        "label": "Level 30+: max enemies (squad)",
-        "unit": "",
-        "type": "int",
-        "stock": 29,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 4 players, regular enemies. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Level 30 and up"
-        ],
-        "row": "Squad"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_max.p4",
-          "scale": 1,
-          "integer": true,
-          "stock": 29,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 91999,
-              "expected": "08201d00",
-              "register": 32,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_infested.max.p1": {
-      "declaration": {
-        "group": "defense",
-        "label": "Infested: max enemies (solo)",
-        "unit": "",
-        "type": "int",
-        "stock": 10,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 1 player, Infested. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Infested, level 30 and up"
-        ],
-        "row": "Solo"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p1",
-          "scale": 1,
-          "integer": true,
-          "stock": 10,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92051,
-              "expected": "081f0a00",
-              "register": 31,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_infested.max.p2": {
-      "declaration": {
-        "group": "defense",
-        "label": "Infested: max enemies (duo)",
-        "unit": "",
-        "type": "int",
-        "stock": 20,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 2 players, Infested. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Infested, level 30 and up"
-        ],
-        "row": "Duo"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p2",
-          "scale": 1,
-          "integer": true,
-          "stock": 20,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92055,
-              "expected": "08201400",
-              "register": 32,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_infested.max.p3": {
-      "declaration": {
-        "group": "defense",
-        "label": "Infested: max enemies (trio)",
-        "unit": "",
-        "type": "int",
-        "stock": 26,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 3 players, Infested. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Infested, level 30 and up"
-        ],
-        "row": "Trio"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p3",
-          "scale": 1,
-          "integer": true,
-          "stock": 26,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92059,
-              "expected": "08211a00",
-              "register": 33,
-              "numerator": 1,
-              "denominator": 1
-            }
-          ]
-        }
-      ]
-    },
-    "defense.simultaneous_enemies_infested.max.p4": {
-      "declaration": {
-        "group": "defense",
-        "label": "Infested: max enemies (squad)",
-        "unit": "",
-        "type": "int",
-        "stock": 29,
-        "min": 1,
-        "max": 32767,
-        "scope": "Defense enemies alive at once at enemy level 30 and above with 4 players, Infested. Overrides the value above for this case.",
-        "lane": "literal",
-        "applies": "next_mission",
-        "path": [
-          "Defense",
-          "Enemies",
-          "Max enemies at once",
-          "Infested, level 30 and up"
-        ],
-        "row": "Squad"
-      },
-      "module": "1a1354d153712f9d",
-      "insert_before": "defense.simultaneous_enemies_duviri.max.p1",
-      "drives": [
-        {
-          "row": "defense.simultaneous_enemies_infested.max.p4",
-          "scale": 1,
-          "integer": true,
-          "stock": 29,
-          "sites": [
-            {
-              "kind": "loadn",
-              "offset": 92063,
-              "expected": "08221d00",
-              "register": 34,
               "numerator": 1,
               "denominator": 1
             }
@@ -4122,6 +3940,7 @@
         "default_label": "60-140 s"
       },
       "module": "f7444e3c621ff018",
+      "insert_before": "excavation.excavators_to_finish",
       "drives": [
         {
           "row": "excavation.dig_duration",
@@ -4887,6 +4706,158 @@
         }
       ]
     },
+    "infested_capture.required_captures.high_scaling": {
+      "declaration": {
+        "group": "infested_capture",
+        "label": "High scaling: captures",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Legacytes to capture in the high-scaling Legacyte Harvest variant.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Legacyte Harvest",
+          "Captures to finish"
+        ],
+        "row": "High scaling"
+      },
+      "module": "0f1c3a74c7c91fab",
+      "drives": [
+        {
+          "row": "infested_capture.required_captures.high_scaling",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 48393,
+              "expected": "08030300",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "infested_capture.required_captures.mutated": {
+      "declaration": {
+        "group": "infested_capture",
+        "label": "Mutated enemies: captures",
+        "unit": "",
+        "type": "int",
+        "stock": 3,
+        "min": 1,
+        "max": 32767,
+        "scope": "Legacytes to capture in the mutated-enemies Legacyte Harvest variant.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Legacyte Harvest",
+          "Captures to finish"
+        ],
+        "row": "Mutated enemies"
+      },
+      "module": "0f1c3a74c7c91fab",
+      "drives": [
+        {
+          "row": "infested_capture.required_captures.mutated",
+          "scale": 1,
+          "integer": true,
+          "stock": 3,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 48457,
+              "expected": "08030300",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "infested_capture.required_captures.double": {
+      "declaration": {
+        "group": "infested_capture",
+        "label": "Double trouble: captures",
+        "unit": "",
+        "type": "int",
+        "stock": 6,
+        "min": 1,
+        "max": 32767,
+        "scope": "Legacytes to capture in the double-trouble Legacyte Harvest variant.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Legacyte Harvest",
+          "Captures to finish"
+        ],
+        "row": "Double trouble"
+      },
+      "module": "0f1c3a74c7c91fab",
+      "drives": [
+        {
+          "row": "infested_capture.required_captures.double",
+          "scale": 1,
+          "integer": true,
+          "stock": 6,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 48493,
+              "expected": "08030600",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "infested_capture.required_captures.descendia": {
+      "declaration": {
+        "group": "infested_capture",
+        "label": "Descendia: captures",
+        "unit": "",
+        "type": "int",
+        "stock": 1,
+        "min": 1,
+        "max": 32767,
+        "scope": "Legacytes to capture on a Descendia Legacyte Harvest floor.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Legacyte Harvest",
+          "Captures to finish"
+        ],
+        "row": "Descendia"
+      },
+      "module": "0f1c3a74c7c91fab",
+      "drives": [
+        {
+          "row": "infested_capture.required_captures.descendia",
+          "scale": 1,
+          "integer": true,
+          "stock": 1,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 48617,
+              "expected": "08030100",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
     "loopdefend.phase_duration": {
       "declaration": {
         "group": "loopdefend",
@@ -4906,7 +4877,7 @@
         "row": "Time per phase"
       },
       "module": "4c2f0f786e4a8e58",
-      "insert_before": "loopdefend.max_enemies.p1",
+      "insert_before": "loopdefend.phases_to_finish",
       "drives": [
         {
           "row": "loopdefend.phase_duration",
@@ -4953,7 +4924,7 @@
         "row": "Jade: time per phase"
       },
       "module": "4c2f0f786e4a8e58",
-      "insert_before": "loopdefend.max_enemies.p1",
+      "insert_before": "loopdefend.phases_to_finish",
       "drives": [
         {
           "row": "loopdefend.phase_duration_jade",
@@ -5708,6 +5679,653 @@
         }
       ]
     },
+    "rescue.hostage_timer.easy": {
+      "declaration": {
+        "group": "rescue",
+        "label": "Hostage timer (easy nodes)",
+        "unit": "s",
+        "type": "int",
+        "stock": 90,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds before the hostage dies on the easiest Rescue nodes, harder nodes blend toward the hard-node timer.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Rescue",
+          "Hostage timer"
+        ],
+        "row": "Easiest nodes"
+      },
+      "module": "ea590b792c6a689a",
+      "drives": [
+        {
+          "row": "rescue.hostage_timer.easy",
+          "scale": 1,
+          "integer": true,
+          "stock": 90,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 7108,
+              "expected": "08065a00",
+              "register": 6,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rescue.hostage_timer.hard": {
+      "declaration": {
+        "group": "rescue",
+        "label": "Hostage timer (hard nodes)",
+        "unit": "s",
+        "type": "int",
+        "stock": 60,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds before the hostage dies on the hardest Rescue nodes (Moon and fortress tiles add 20 percent).",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Rescue",
+          "Hostage timer"
+        ],
+        "row": "Hardest nodes"
+      },
+      "module": "ea590b792c6a689a",
+      "drives": [
+        {
+          "row": "rescue.hostage_timer.hard",
+          "scale": 1,
+          "integer": true,
+          "stock": 60,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 7112,
+              "expected": "08073c00",
+              "register": 7,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "rush.pace_speed": {
+      "declaration": {
+        "group": "rush",
+        "label": "Pace speed",
+        "unit": "m/s",
+        "type": "float",
+        "stock": 10.9,
+        "min": 0.1,
+        "max": 1000,
+        "scope": "Expected flight speed that sets the Rush timer (map path length divided by this speed plus the node difficulty).",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Rush"
+        ],
+        "row": "Pace speed"
+      },
+      "module": "2162d41996f9f942",
+      "drives": [
+        {
+          "row": "rush.pace_speed",
+          "scale": 1,
+          "integer": false,
+          "stock": 10.9,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 9139,
+              "expected": "cdcccccccccc2540",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.reactor_extract_timer": {
+      "declaration": {
+        "group": "sabotage",
+        "label": "Ship escape timer",
+        "unit": "s",
+        "type": "int",
+        "stock": 300,
+        "min": 1,
+        "max": 32767,
+        "scope": "Escape countdown after the reactor is destroyed on Corpus and Grineer ships.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Timers"
+        ],
+        "row": "Ship escape timer"
+      },
+      "module": "d3b1322792d45f0e",
+      "insert_before": "sabotage.gascity_hack_time",
+      "drives": [
+        {
+          "row": "sabotage.reactor_extract_timer",
+          "scale": 1,
+          "integer": true,
+          "stock": 300,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 30358,
+              "expected": "08032c01",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.orokin_charge_time": {
+      "declaration": {
+        "group": "sabotage",
+        "label": "Orokin: portal charge time",
+        "unit": "s",
+        "type": "int",
+        "stock": 40,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds to charge each half of the portal power in Orokin Sabotage.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Timers"
+        ],
+        "row": "Orokin: charge time"
+      },
+      "module": "a0cea91cc0ac3b31",
+      "drives": [
+        {
+          "row": "sabotage.orokin_charge_time",
+          "scale": 1,
+          "integer": true,
+          "stock": 40,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 29527,
+              "expected": "08052800",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.forest_defend_time": {
+      "declaration": {
+        "group": "sabotage",
+        "label": "Forest: injector defend time",
+        "unit": "s",
+        "type": "int",
+        "stock": 150,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds to defend each injector in Grineer Forest Sabotage.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Timers"
+        ],
+        "row": "Forest: injector time"
+      },
+      "module": "ddc55fa44c7a2531",
+      "drives": [
+        {
+          "row": "sabotage.forest_defend_time",
+          "scale": 1,
+          "integer": true,
+          "stock": 150,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 8430,
+              "expected": "08009600",
+              "register": 0,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.trenchrun_timer": {
+      "declaration": {
+        "group": "sabotage",
+        "label": "Archwing: time limit",
+        "unit": "s",
+        "type": "int",
+        "stock": 240,
+        "min": 1,
+        "max": 32767,
+        "scope": "Time limit of the Archwing trench-run Sabotage.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Timers"
+        ],
+        "row": "Archwing: time limit"
+      },
+      "module": "7e0adf2d83f7a086",
+      "drives": [
+        {
+          "row": "sabotage.trenchrun_timer",
+          "scale": 1,
+          "integer": true,
+          "stock": 240,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 10049,
+              "expected": "0804f000",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.trenchrun_enemy_cap": {
+      "declaration": {
+        "group": "sabotage",
+        "label": "Archwing: enemies",
+        "unit": "",
+        "type": "int",
+        "stock": 50,
+        "min": 1,
+        "max": 32767,
+        "scope": "Enemy population of the Archwing trench-run Sabotage.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Enemies"
+        ],
+        "row": "Archwing: enemies"
+      },
+      "module": "7e0adf2d83f7a086",
+      "drives": [
+        {
+          "row": "sabotage.trenchrun_enemy_cap",
+          "scale": 1,
+          "integer": true,
+          "stock": 50,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 9941,
+              "expected": "08033200",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.gascity_meltdown_scale.easy": {
+      "declaration": {
+        "group": "sabotage_advanced",
+        "label": "Gas City: easy-node factor",
+        "unit": "x",
+        "type": "float",
+        "stock": 1.8,
+        "min": 0.01,
+        "max": 100,
+        "scope": "Multiplier on the Gas City meltdown time on the easiest nodes.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Advanced",
+          "Gas City meltdown factor"
+        ],
+        "row": "Easiest nodes"
+      },
+      "module": "5b59e2968c1ec7bf",
+      "insert_before": "sabotage.random_extraction_timer",
+      "drives": [
+        {
+          "row": "sabotage.gascity_meltdown_scale.easy",
+          "scale": 1,
+          "integer": false,
+          "stock": 1.8,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 8845,
+              "expected": "cdccccccccccfc3f",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.gascity_meltdown_scale.hard": {
+      "declaration": {
+        "group": "sabotage_advanced",
+        "label": "Gas City: hard-node factor",
+        "unit": "x",
+        "type": "float",
+        "stock": 1.2,
+        "min": 0.01,
+        "max": 100,
+        "scope": "Multiplier on the Gas City meltdown time on the hardest nodes.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Advanced",
+          "Gas City meltdown factor"
+        ],
+        "row": "Hardest nodes"
+      },
+      "module": "5b59e2968c1ec7bf",
+      "insert_before": "sabotage.random_extraction_timer",
+      "drives": [
+        {
+          "row": "sabotage.gascity_meltdown_scale.hard",
+          "scale": 1,
+          "integer": false,
+          "stock": 1.2,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 8854,
+              "expected": "333333333333f33f",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "onslaught.zone_time": {
+      "declaration": {
+        "group": "onslaught",
+        "label": "Zone time",
+        "unit": "s",
+        "type": "int",
+        "stock": 150,
+        "min": 1,
+        "max": 32767,
+        "scope": "Seconds in each Sanctuary Onslaught zone before the conduit opens (normal and Elite).",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sanctuary Onslaught",
+          "Timers"
+        ],
+        "row": "Zone time"
+      },
+      "module": "a7d46fb5b6bca6d7",
+      "drives": [
+        {
+          "row": "onslaught.zone_time",
+          "scale": 1,
+          "integer": true,
+          "stock": 150,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 32401,
+              "expected": "08109600",
+              "register": 16,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 12988,
+              "expected": "08009600",
+              "register": 0,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 6669,
+              "expected": "08049600",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "onslaught.efficiency_per_kill": {
+      "declaration": {
+        "group": "onslaught",
+        "label": "Efficiency per kill",
+        "unit": "",
+        "type": "int",
+        "stock": 1,
+        "min": 1,
+        "max": 32767,
+        "scope": "Efficiency units gained per normal kill in Sanctuary Onslaught.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sanctuary Onslaught",
+          "Objectives",
+          "Efficiency gained"
+        ],
+        "row": "Normal kill"
+      },
+      "module": "a7d46fb5b6bca6d7",
+      "drives": [
+        {
+          "row": "onslaught.efficiency_per_kill",
+          "scale": 1,
+          "integer": true,
+          "stock": 1,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 18762,
+              "expected": "08040100",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "onslaught.efficiency_per_special_kill": {
+      "declaration": {
+        "group": "onslaught",
+        "label": "Efficiency per special kill",
+        "unit": "",
+        "type": "int",
+        "stock": 5,
+        "min": 1,
+        "max": 32767,
+        "scope": "Efficiency units gained per special enemy kill in Sanctuary Onslaught.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sanctuary Onslaught",
+          "Objectives",
+          "Efficiency gained"
+        ],
+        "row": "Special kill"
+      },
+      "module": "a7d46fb5b6bca6d7",
+      "drives": [
+        {
+          "row": "onslaught.efficiency_per_special_kill",
+          "scale": 1,
+          "integer": true,
+          "stock": 5,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 18534,
+              "expected": "08040500",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "onslaught.efficiency_per_pickup": {
+      "declaration": {
+        "group": "onslaught",
+        "label": "Efficiency per time pickup",
+        "unit": "",
+        "type": "int",
+        "stock": 30,
+        "min": 1,
+        "max": 32767,
+        "scope": "Efficiency units gained per time pickup in Sanctuary Onslaught.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sanctuary Onslaught",
+          "Objectives",
+          "Efficiency gained"
+        ],
+        "row": "Time pickup"
+      },
+      "module": "a7d46fb5b6bca6d7",
+      "drives": [
+        {
+          "row": "onslaught.efficiency_per_pickup",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 50135,
+              "expected": "08021e00",
+              "register": 2,
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "onslaught.zones_per_reward": {
+      "declaration": {
+        "group": "onslaught",
+        "label": "Zones per reward",
+        "unit": "",
+        "type": "int",
+        "stock": 2,
+        "min": 1,
+        "max": 100,
+        "scope": "Sanctuary Onslaught zones per reward rotation.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sanctuary Onslaught",
+          "Rewards / drops"
+        ],
+        "row": "Zones per reward"
+      },
+      "module": "a7d46fb5b6bca6d7",
+      "drives": [
+        {
+          "row": "onslaught.zones_per_reward",
+          "scale": 1,
+          "integer": true,
+          "stock": 2,
+          "sites": [
+            {
+              "kind": "number_constant",
+              "offset": 20452,
+              "expected": "0000000000000040",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "onslaught.efficiency_max": {
+      "declaration": {
+        "group": "onslaught_advanced",
+        "label": "Efficiency for 100%",
+        "unit": "",
+        "type": "int",
+        "stock": 300,
+        "min": 1,
+        "max": 32767,
+        "scope": "Efficiency units that make 100 percent in Sanctuary Onslaught, kills and pickups add units and time drains them.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sanctuary Onslaught",
+          "Advanced"
+        ],
+        "row": "Efficiency for 100%"
+      },
+      "module": "a7d46fb5b6bca6d7",
+      "drives": [
+        {
+          "row": "onslaught.efficiency_max",
+          "scale": 1,
+          "integer": true,
+          "stock": 300,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 17338,
+              "expected": "08052c01",
+              "register": 5,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "number_constant",
+              "offset": 17707,
+              "expected": "0000000000c07240",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "number_constant",
+              "offset": 7001,
+              "expected": "0000000000c07240",
+              "constant_gate": "K_CONSTANT_EXCLUSIVE_V1",
+              "numerator": 1,
+              "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
     "survival.duviri_fixed_length": {
       "declaration": {
         "group": "survival",
@@ -5767,6 +6385,7 @@
         "quick": "Void Flood: fractures per round"
       },
       "module": "fc711ff621a75552",
+      "insert_before": "void_flood.tanks_to_finish",
       "drives": [
         {
           "row": "void_flood.fractures_per_round.normal",

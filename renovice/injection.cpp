@@ -12,6 +12,7 @@
 #include "caster_diagnostic_budget.hpp"
 #include "injected_interrupt_budget.hpp"
 #include "lua_call_retirement_core.hpp"
+#include "lua_call_environment_core.hpp"
 #include "vm_stack_write.hpp"
 #include "vm_api_frame.hpp"
 #include "vm_memory_evidence.hpp"
@@ -9784,6 +9785,10 @@ struct LuaCallBeforeLeafContext
 	luau_TValue* candidate_arguments = nullptr;
 	luau_TValue* candidate_upvalues = nullptr;
 	const char* trace_registry_key = nullptr;
+	// Contract R10: the called closure's environment table (fifth callback
+	// argument), or nil. Prepared by dispatch_lua_call_phase; the leaf only
+	// copies it into the argument slot.
+	luau_TValue environment{};
 	bool trace_requested = false;
 	bool trace_available = false;
 	bool invoked = false;
@@ -10085,7 +10090,8 @@ void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
 		context->invoked = true;
 		++context->invoked_count;
 
-		luau_TValue callback_arguments[4]{};
+		luau_TValue callback_arguments[
+			renovice::lua_call_environment::before_callback_argument_count]{};
 		callback_arguments[0].type = LUAU_NUMBER;
 		callback_arguments[0].value.as_float =
 			static_cast<float>(context->prototype);
@@ -10094,11 +10100,17 @@ void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
 		callback_arguments[2] = *luau_restorestack(
 			state, upvalues_table_offset);
 		callback_arguments[3] = lua_call_before_leaf_trace(state, context);
+		// R10: appended; a callback with four parameters ignores it.
+		callback_arguments[
+			renovice::lua_call_environment::environment_argument_index] =
+			context->environment;
 
 		context->stage = LuaCallBeforeLeafStage::invoke_provider;
 		const auto callback_base_offset = luau_savestack(state, state->outtop);
 		if (!lua_call_before_leaf_push_value(state, callback)) return;
-		for (std::size_t argument = 0; argument != 4; ++argument)
+		for (std::size_t argument = 0; argument !=
+				renovice::lua_call_environment::before_callback_argument_count;
+			++argument)
 		{
 			if (!lua_call_before_leaf_push_value(
 					state, callback_arguments[argument])) return;
@@ -10108,7 +10120,8 @@ void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
 		// the exact retire sentinels are interpreted (R3 form, S5 retire-all
 		// alone, or R3 then retire-all); every other value is ignored as
 		// before, so callbacks that return nothing are unchanged.
-		context->callback_status = protected_call(state, 4, 2, 0);
+		static_assert(renovice::lua_call_environment::before_callback_argument_count == 5);
+		context->callback_status = protected_call(state, 5, 2, 0);
 		if (context->callback_status != 0
 			&& state->outtop > luau_restorestack(state, callback_base_offset))
 		{
@@ -10305,6 +10318,26 @@ bool dispatch_lua_call_phase(
 	context.candidate_upvalues = candidate_upvalues.data();
 	context.trace_registry_key = diagnostic_trace_registry_key.c_str();
 	context.trace_requested = trace_requested;
+	// Contract R10: the callee environment (per-instance identity; level and
+	// encounter parameters are its globals). The GC header tag is read only
+	// after a readable-pointer probe; anything else is passed as nil.
+	context.environment.type = LUAU_NIL;
+	{
+		const void* const environment = call.closure->env;
+		const bool readable = environment != nullptr
+			&& !diagnostics::bad_read_ptr(environment, sizeof(std::uint8_t));
+		const std::uint32_t tag = readable
+			? static_cast<std::uint32_t>(*static_cast<const std::uint8_t*>(environment))
+			: 0u;
+		if (renovice::lua_call_environment::classify(environment != nullptr,
+				readable, readable && is_table(static_cast<int>(tag)))
+			== renovice::lua_call_environment::Decision::table)
+		{
+			context.environment.value.as_uintptr =
+				reinterpret_cast<std::uintptr_t>(environment);
+			context.environment.type = tag;
+		}
+	}
 
 	ScopedVmApiFrame frame_capacity(state);
 	ScopedInjectedInterruptBudget interrupt_budget(state->interrupt_count);

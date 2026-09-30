@@ -132,7 +132,8 @@ Require (Before $detour 'const auto target_root = inspect_target_root_entry(stat
 Require (Before $detour 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);' 'note_lua_call_instance_settled(settled_root);') 'the published environment is recorded only after a normal root return'
 
 $leaf = Get-Region $injection '// BEGIN LUA_CALL_BEFORE_PROTECTED_LEAF' '// END LUA_CALL_BEFORE_PROTECTED_LEAF' 'luaCalls.before leaf'
-Require ($leaf.Contains('protected_call(state, 4, 2, 0)') -and -not $leaf.Contains('protected_call(state, 4, 0, 0)') -and -not $leaf.Contains('protected_call(state, 4, 1, 0)')) 'signal: two callback results are read (nil-padded; R3 form, S5 retire-all alone or second)'
+# R10 (2026-09-30): five arguments (the callee environment is appended); the two results are unchanged.
+Require ($leaf.Contains('protected_call(state, 5, 2, 0)') -and -not $leaf.Contains('protected_call(state, 5, 0, 0)') -and -not $leaf.Contains('protected_call(state, 5, 1, 0)')) 'signal: two callback results are read (nil-padded; R3 form, S5 retire-all alone or second)'
 Require (Before $leaf 'context->callback_status == 0' 'lua_call_before_leaf_retire_signal(*(state->outtop - 2))') 'signal: only a successful callback can signal'
 Require ($leaf.Contains('combine_lua_call_retire_results(') -and $leaf.Contains('lua_call_before_leaf_retire_signal(*(state->outtop - 1))')) 'S5 signal: first and second results are classified and combined by the unit-tested rule'
 Require (Before $leaf 'lua_call_before_leaf_retire_signal(*(state->outtop - 1))' 'state->outtop = luau_restorestack(state, callback_base_offset);') 'signal: the results are read before the stack is restored'

@@ -18,7 +18,8 @@
 > `hooks.luaCalls[prototype].before` for an exact prototype in the
 > body-keyed target module. The host rejects missing or duplicate prototype
 > matches before committing the addon generation. The callback receives
-> `(prototype, arguments, upvalues, hostTrace)`. In V62, a successful `before` callback may
+> `(prototype, arguments, upvalues, hostTrace, environment)`; the fifth argument (contract R10, 2026-09-30) is the called
+> closure's environment table, borrowed for the call, nil when unavailable. In V62, a successful `before` callback may
 > replace an argument only with a finite number when the original is a number,
 > or a boolean when the original is a boolean. Referenced table/object upvalues stay live, and the host copies back
 > only same-type finite number or boolean upvalues. GC identity replacement is

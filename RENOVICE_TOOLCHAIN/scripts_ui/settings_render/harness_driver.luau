@@ -899,7 +899,8 @@ end
 -- page path, older layout) with the Back-route message, closing pages with
 -- Confirm, Back (Exit) and Close. Every host call must be the planned one.
 -- ---------------------------------------------------------------------------
-local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0, r9 = 0 }
+local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0, r9 = 0,
+    r10 = 0 }
 if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
     local messages = {}
     rawset(UTIL, "ShowMessage", function(message) messages[#messages + 1] = tostring(message) end)
@@ -1051,10 +1052,27 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
             element.mChanged = true
         end
     end
+    -- R10: a long page (Quick settings: 14 entries = 28 rows) shows 14 rows at a time; a switch below them has no widget
+    -- until the stock scroll bar brings its row into view, exactly as the player scrolls.
+    local function reveal(instance, element)
+        local target = listOf(instance)
+        if target == nil or element == nil or element.Checkbox ~= nil or target.mScrollBar == nil then return end
+        local rows, index = target:GetHowManyElements(), nil
+        local position = 0
+        target:RunForAllElements(function(row)
+            position = position + 1
+            if row == element then index = position end
+        end)
+        if index == nil or rows <= 14 then return end
+        local first = math.max(0, math.min(index - 1, rows - 14))
+        step("reveal row " .. index, function() target.mScrollBar:SetValue(first / (rows - 14)) end)
+        tick(instance, 2)
+    end
     local function click(instance, prefix, value, context)
         local element = elementBy(instance, function(row)
             return row.mType == LOTUS_UTILITIES.CHECKBOX and type(row.mLabel) == "string" and string.sub(row.mLabel, 1, #prefix) == prefix
         end)
+        reveal(instance, element)
         harnessCheck(element ~= nil and element.Checkbox ~= nil, context .. ": switch '" .. prefix .. "' has its stock widget", "r7-edit")
         if element == nil or element.Checkbox == nil then return end
         step(context .. " focus", function() listOf(instance).mOnFocusedCallback(element) end)
@@ -1176,6 +1194,25 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
             r7Report.r9 = 1
         end
     end
+
+    -- h) R10: Defense -> Objectives -> Waves to finish, a MissionInfo count (addon lane, int, stepper) whose default is
+    --    shown as "Endless"; 3 is typed and applied with Confirm, then every level shows the change.
+    local defense = missions and pressLabel(missions, "Defense", "r10", 3)
+    local objectives = defense and pressLabel(defense, "Objectives", "r10", 4)
+    if objectives ~= nil then
+        expectLabel(objectives, "Waves to finish", "Waves to finish: Endless (default)", "r10 Objectives before the edit")
+        local waves = pressLabel(objectives, "Waves to finish", "r10", 5)
+        if waves ~= nil then
+            setCount(waves, 3)
+            closeR7(waves, "Confirm", 5, objectives, "r10 waves to finish")
+            expectLabel(objectives, "Waves to finish", "Waves to finish: 3", "r10 Objectives after the edit")
+            closeR7(objectives, "Exit", 4, defense, "r10 Objectives page")
+            expectLabel(defense, "Objectives", "Objectives: 1 changed", "r10 Defense after the edit")
+            closeR7(defense, "Confirm", 3, missions, "r10 Defense page")
+            expectLabel(missions, "Defense", "Defense: 1 changed", "r10 Missions after the edit")
+            r7Report.r10 = 1
+        end
+    end
     if missions ~= nil then closeR7(missions, "Close", 2, root, "Missions page") end
 
     -- e) Frost (no path): Back with an invalid value shows the stock message; an edit; Reset all.
@@ -1211,7 +1248,7 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
 end
 print("R7REPORT\tcalls=" .. r7Report.calls .. " returns=" .. r7Report.returns .. " refreshed=" .. r7Report.refreshed
     .. " inplace=" .. r7Report.inplace .. " messages=" .. r7Report.messages .. " max_depth=" .. r7Report.maxDepth
-    .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches .. " r9=" .. r7Report.r9)
+    .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches .. " r9=" .. r7Report.r9 .. " r10=" .. r7Report.r10)
 
 for index = 1, #HARNESS.errors do
     print("ERROR\t" .. HARNESS.errors[index])

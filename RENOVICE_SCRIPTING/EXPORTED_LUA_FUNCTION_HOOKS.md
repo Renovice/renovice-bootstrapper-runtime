@@ -11,7 +11,11 @@
 > boundary and permits bounded scalar argument edits. Lua `after` declarations
 > fail closed until exact return/yield/error/cleanup retirement exists. The
 > optional host-owned diagnostic trace closure follows the existing
-> `(prototype, arguments, upvalues)` values.
+> `(prototype, arguments, upvalues)` values. Contract R10 (2026-09-30) appends a
+> fifth argument, the called closure's environment table (nil when unavailable):
+> `before(prototype, arguments, upvalues, trace, environment)`. Level and
+> encounter script parameters are globals of that table (see
+> `RESEARCH/LUA_CALL_ENVIRONMENT_R10_2026-09-30/README.md`).
 
 Target addons already support additive Lua wrappers around exported functions
 such as `ActivateAbility`. This path uses the target module's exact closure

@@ -1,5 +1,16 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 Contract R10: callee environment for `luaCalls.before` + the R10 Missions package — staged as one combined set (not deployed)
+
+Branch `feat/settings-r10-param-env-2026-09-30` from `c2909f2` (the R9 merge). Generic; no mission or ability rule in shared code. **This entry supersedes `combined-r7-r8` for installation.**
+
+- **Primitive.** `luaCalls[P].before(prototype, arguments, upvalues, trace, environment)`: the fifth argument is the called closure's environment table (the per-instance identity the R3 ledger already uses), prepared by the dispatch (nil default, readable-pointer probe before the header read, `lua_call_environment_core.hpp` rule) and only copied by the raw leaf. Appended, so four-parameter callbacks are unchanged; R3/R4 retirement and the S2 prefilter are untouched.
+- **Why.** Level and encounter parameters are globals of the calling instance (PG-1). The generator's new `SCRIPT_PARAM_GLOBAL_AT_ENTRY` template reads and writes them as hashed fields of that table (Interception score and round timer, Spy alarm, Exterminate kill count, Gas City, Sabotage extraction, Deepmines hold time).
+- **Gates.** New `verify_lua_call_environment.ps1` (U44 fixture, CONST-ID hash-class proof `S:scoreGoal` → `H:3a44eae1`, plain-Luau harness, unit checks, source pins); render gate 1c on the real R10 package with the walk Missions → Defense → Objectives → Waves to finish → 3; 38 build-listed gates PASS.
+- **Build.** Main DLL `86408429caa72943820f2047964f10118cdb7ef69cab26ac9f3da419742071be` (5,903,872 B), 0 warnings, 0 errors; bridge `5635b1e2…` unchanged.
+
+**Deployment and every live check are pending.** Install set, rollback (the installed R9 set `39853b5f…`) and the live test: `work/staging/combined-r10/README.md`. [Record](../RESEARCH/LUA_CALL_ENVIRONMENT_R10_2026-09-30/README.md).
+
 ## 2026-09-30 Settings R7 + live literals R8 merged (contract R9) — staged as one combined set (not deployed)
 
 Branch `feat/settings-r7-r8-merged-2026-09-30` = R7 `6227cc0` + R8 `0b95779` (both from `b5a120b`: R5 fixes and REPLACEMENT_SETTINGS_V1). Generic; no mission or ability rule in shared code. **This entry supersedes the two staged R7 and R8 sets below for installation.**

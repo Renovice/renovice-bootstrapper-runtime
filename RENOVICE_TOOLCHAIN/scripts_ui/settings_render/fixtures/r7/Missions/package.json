@@ -2,7 +2,7 @@
   "description": "RENOVICE mission editor output for client build 2026.09.28.13.06. Script-literal values (literals.json) need the LIVE_LITERALS_V1 bootstrapper; older DLLs ignore that file and keep those values stock. CustomScripts/Settings/Missions.json holds the chosen values.",
   "members": {
     "Missions.targets.addon.lua_B": {
-      "label": "Mission values: 23 sections",
+      "label": "Mission values: 30 sections",
       "settings": {
         "values": {
           "capture.target_health_player_mult.p1": {
@@ -140,6 +140,45 @@
             "scope": "Door progress at which navigation bridge trigger 3 fires (Colonist Door Defense). Its exact effect is not confirmed in the game code.",
             "stock": 0.77,
             "type": "float",
+            "unit": ""
+          },
+          "control_area_nokko.hold_time": {
+            "applies": "next_mission",
+            "group": "control_area_nokko",
+            "label": "Hold-zone time",
+            "lane": "addon",
+            "max": 3600,
+            "min": 1,
+            "path": [
+              "Control Area",
+              "Deepmines (below Fortuna)",
+              "Timers"
+            ],
+            "quick": "Control Area (Deepmines): hold time",
+            "row": "Hold-zone time",
+            "scope": "Seconds to hold the zone in Deepmines Control Area bounties below Fortuna.",
+            "stock": 90,
+            "stock_check": "none",
+            "type": "int",
+            "unit": "s"
+          },
+          "control_area_nokko.bonus_threshold": {
+            "applies": "next_mission",
+            "group": "control_area_nokko_advanced",
+            "label": "Bonus control threshold",
+            "lane": "addon",
+            "max": 100,
+            "min": 0,
+            "path": [
+              "Control Area",
+              "Deepmines (below Fortuna)",
+              "Advanced"
+            ],
+            "row": "Bonus control threshold",
+            "scope": "Control level the Deepmines bonus objective requires.",
+            "stock": 50,
+            "stock_check": "none",
+            "type": "int",
             "unit": ""
           },
           "defection.max_enemies.p1": {
@@ -370,6 +409,405 @@
             "type": "int",
             "unit": ""
           },
+          "defense.waves_to_finish": {
+            "applies": "next_mission",
+            "default_label": "Endless",
+            "group": "defense",
+            "label": "Waves to finish",
+            "lane": "addon",
+            "max": 1000,
+            "min": 0,
+            "path": [
+              "Defense",
+              "Objectives"
+            ],
+            "quick": "Defense: waves to finish",
+            "row": "Waves to finish",
+            "scope": "Waves on normal Defense nodes, the mission ends after the last wave instead of offering rotations. Alerts, sorties and other special missions keep their own count.",
+            "stock": 0,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.max_enemies.p1": {
+            "applies": "live_next_read",
+            "default_label": "7-10",
+            "group": "defense",
+            "label": "Max enemies at once (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Solo",
+            "scope": "Defense enemies alive at once with 1 player, regular and Infested, all levels. Depends on enemy level (fewer below level 30); the variants below override it.",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.max_enemies.p2": {
+            "applies": "live_next_read",
+            "default_label": "13-20",
+            "group": "defense",
+            "label": "Max enemies at once (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Duo",
+            "scope": "Defense enemies alive at once with 2 players, regular and Infested, all levels. Depends on enemy level (fewer below level 30); the variants below override it.",
+            "stock": 20,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.max_enemies.p3": {
+            "applies": "live_next_read",
+            "default_label": "22-26",
+            "group": "defense",
+            "label": "Max enemies at once (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Trio",
+            "scope": "Defense enemies alive at once with 3 players, regular and Infested, all levels. Depends on enemy level (fewer below level 30); the variants below override it.",
+            "stock": 26,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.max_enemies.p4": {
+            "applies": "live_next_read",
+            "default_label": "25-29",
+            "group": "defense",
+            "label": "Max enemies at once (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Squad",
+            "scope": "Defense enemies alive at once with 4 players, regular and Infested, all levels. Depends on enemy level (fewer below level 30); the variants below override it.",
+            "stock": 29,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_max.p1": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Level 30+: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Level 30 and up"
+            ],
+            "row": "Solo",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 1 player, regular enemies. Overrides the value above for this case.",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_max.p2": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Level 30+: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Level 30 and up"
+            ],
+            "row": "Duo",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 2 players, regular enemies. Overrides the value above for this case.",
+            "stock": 20,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_max.p3": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Level 30+: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Level 30 and up"
+            ],
+            "row": "Trio",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 3 players, regular enemies. Overrides the value above for this case.",
+            "stock": 26,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_max.p4": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Level 30+: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Level 30 and up"
+            ],
+            "row": "Squad",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 4 players, regular enemies. Overrides the value above for this case.",
+            "stock": 29,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_min.p1": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Low level: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Solo",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 1 player, regular enemies. Overrides the value above for this case.",
+            "stock": 7,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_min.p2": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Low level: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Duo",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 2 players, regular enemies. Overrides the value above for this case.",
+            "stock": 13,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_min.p3": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Low level: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Trio",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 3 players, regular enemies. Overrides the value above for this case.",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_min.p4": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Low level: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Squad",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 4 players, regular enemies. Overrides the value above for this case.",
+            "stock": 25,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.max.p1": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, level 30 and up"
+            ],
+            "row": "Solo",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 1 player, Infested. Overrides the value above for this case.",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.max.p2": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, level 30 and up"
+            ],
+            "row": "Duo",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 2 players, Infested. Overrides the value above for this case.",
+            "stock": 20,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.max.p3": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, level 30 and up"
+            ],
+            "row": "Trio",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 3 players, Infested. Overrides the value above for this case.",
+            "stock": 26,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.max.p4": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, level 30 and up"
+            ],
+            "row": "Squad",
+            "scope": "Defense enemies alive at once at enemy level 30 and above with 4 players, Infested. Overrides the value above for this case.",
+            "stock": 29,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.min.p1": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested low level: max (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, lowest levels"
+            ],
+            "row": "Solo",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 1 player, Infested. Overrides the value above for this case.",
+            "stock": 7,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.min.p2": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested low level: max (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, lowest levels"
+            ],
+            "row": "Duo",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 2 players, Infested. Overrides the value above for this case.",
+            "stock": 13,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.min.p3": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested low level: max (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, lowest levels"
+            ],
+            "row": "Trio",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 3 players, Infested. Overrides the value above for this case.",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_infested.min.p4": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Infested low level: max (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Infested, lowest levels"
+            ],
+            "row": "Squad",
+            "scope": "Defense enemies alive at once at the lowest enemy levels with 4 players, Infested. Overrides the value above for this case.",
+            "stock": 25,
+            "type": "int",
+            "unit": ""
+          },
           "defense.simultaneous_enemies_duviri.max.p1": {
             "applies": "live_next_read",
             "group": "defense",
@@ -439,6 +877,82 @@
             "row": "Squad",
             "scope": "Duviri Defense enemies alive at once at enemy level 30+ (The Circuit: all levels) with 4 players. Fewer below enemy level 30; Steel Path uses the squad value.",
             "stock": 35,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_duviri.min.p1": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri low level: max (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Duviri: max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Solo",
+            "scope": "Duviri Defense enemies alive at once at the lowest enemy levels with 1 player.",
+            "stock": 9,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_duviri.min.p2": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri low level: max (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Duviri: max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Duo",
+            "scope": "Duviri Defense enemies alive at once at the lowest enemy levels with 2 players.",
+            "stock": 16,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_duviri.min.p3": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri low level: max (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Duviri: max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Trio",
+            "scope": "Duviri Defense enemies alive at once at the lowest enemy levels with 3 players.",
+            "stock": 26,
+            "type": "int",
+            "unit": ""
+          },
+          "defense.simultaneous_enemies_duviri.min.p4": {
+            "applies": "live_next_read",
+            "group": "defense",
+            "label": "Duviri low level: max (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Defense",
+              "Enemies",
+              "Duviri: max enemies at once",
+              "Lowest levels"
+            ],
+            "row": "Squad",
+            "scope": "Duviri Defense enemies alive at once at the lowest enemy levels with 4 players.",
+            "stock": 30,
             "type": "int",
             "unit": ""
           },
@@ -1830,6 +2344,24 @@
             "type": "float",
             "unit": ""
           },
+          "excavation.excavators_to_finish": {
+            "applies": "next_mission",
+            "default_label": "Endless",
+            "group": "excavation",
+            "label": "Excavators to finish",
+            "lane": "addon",
+            "max": 1000,
+            "min": 0,
+            "path": [
+              "Excavation",
+              "Objectives"
+            ],
+            "row": "Excavators to finish",
+            "scope": "Excavators on normal Excavation nodes, the cryotic goal becomes 100 per excavator. Alerts, sorties and other special missions keep their own count.",
+            "stock": 0,
+            "type": "int",
+            "unit": ""
+          },
           "escalation.keys_per_players.p1": {
             "applies": "live_next_read",
             "group": "escalation",
@@ -1901,6 +2433,45 @@
             "stock": 5,
             "type": "int",
             "unit": ""
+          },
+          "exterminate.kills_scale": {
+            "applies": "next_mission",
+            "default_label": "x1 (formula)",
+            "group": "exterminate",
+            "label": "Kills needed",
+            "lane": "addon",
+            "max": 10,
+            "min": 0.1,
+            "path": [
+              "Exterminate",
+              "Objectives"
+            ],
+            "quick": "Exterminate: kills needed",
+            "row": "Kills needed",
+            "scope": "Multiplies the Exterminate kill count, the base is about one kill per 15 m of map path times faction and difficulty factors.",
+            "stock": 1,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
+          },
+          "exterminate.archwing_kill_mult": {
+            "applies": "next_mission",
+            "default_label": "0.5-0.8x",
+            "group": "exterminate_advanced",
+            "label": "Archwing kill factor",
+            "lane": "addon",
+            "max": 10,
+            "min": 0.01,
+            "path": [
+              "Exterminate",
+              "Advanced"
+            ],
+            "row": "Archwing kill factor",
+            "scope": "Extra factor on the Exterminate kill count on Archwing maps (higher on three space maps). A number you type applies on every Archwing map.",
+            "stock": 0.5,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
           },
           "faceoff.defense_escort.initial_defense_time": {
             "applies": "live_next_read",
@@ -2957,6 +3528,81 @@
             "type": "int",
             "unit": ""
           },
+          "interception.round_end_timer": {
+            "applies": "next_mission",
+            "group": "interception",
+            "label": "Time between rounds",
+            "lane": "addon",
+            "max": 3600,
+            "min": 1,
+            "path": [
+              "Interception",
+              "Timers"
+            ],
+            "row": "Time between rounds",
+            "scope": "Seconds between Interception rounds.",
+            "stock": 15,
+            "stock_check": "none",
+            "type": "int",
+            "unit": "s"
+          },
+          "interception.score_goal_scale": {
+            "applies": "next_mission",
+            "default_label": "x1 (map value)",
+            "group": "interception",
+            "label": "Score to win a round",
+            "lane": "addon",
+            "max": 20,
+            "min": 0.05,
+            "path": [
+              "Interception",
+              "Objectives"
+            ],
+            "quick": "Interception: score to win",
+            "row": "Score to win",
+            "scope": "Multiplies the score needed to win each Interception round, the map sets the base (1450 on most maps).",
+            "stock": 1,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
+          },
+          "interception.rounds_to_finish": {
+            "applies": "next_mission",
+            "default_label": "Endless",
+            "group": "interception",
+            "label": "Rounds to finish",
+            "lane": "addon",
+            "max": 1000,
+            "min": 0,
+            "path": [
+              "Interception",
+              "Objectives"
+            ],
+            "row": "Rounds to finish",
+            "scope": "Rounds on normal Interception nodes, the mission ends after the last round. Alerts, sorties and other special missions keep their own count.",
+            "stock": 0,
+            "type": "int",
+            "unit": ""
+          },
+          "interception.scoring_speed": {
+            "applies": "next_mission",
+            "default_label": "x1 (map value)",
+            "group": "interception_advanced",
+            "label": "Scoring speed",
+            "lane": "addon",
+            "max": 20,
+            "min": 0.05,
+            "path": [
+              "Interception",
+              "Advanced"
+            ],
+            "row": "Scoring speed",
+            "scope": "Multiplies how fast held towers add score in Interception, the map sets the base.",
+            "stock": 1,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
+          },
           "lantern.tier_up_interval": {
             "applies": "live_next_read",
             "group": "lantern",
@@ -3206,6 +3852,24 @@
             "stock": 0.3,
             "type": "float",
             "unit": "x"
+          },
+          "loopdefend.phases_to_finish": {
+            "applies": "next_mission",
+            "default_label": "Endless",
+            "group": "loopdefend",
+            "label": "Phases to finish",
+            "lane": "addon",
+            "max": 1000,
+            "min": 0,
+            "path": [
+              "Mirror Defense",
+              "Objectives"
+            ],
+            "row": "Phases to finish",
+            "scope": "Phases on normal Mirror Defense nodes, the mission ends after the last phase. Alerts, sorties and other special missions keep their own count.",
+            "stock": 0,
+            "type": "int",
+            "unit": ""
           },
           "loopdefend.max_enemies.p1": {
             "applies": "live_next_read",
@@ -4928,6 +5592,80 @@
             "type": "int",
             "unit": "x"
           },
+          "sabotage.gascity_hack_time": {
+            "applies": "next_mission",
+            "group": "sabotage",
+            "label": "Gas City: meltdown time",
+            "lane": "addon",
+            "max": 3600,
+            "min": 1,
+            "path": [
+              "Sabotage",
+              "Timers"
+            ],
+            "row": "Gas City: meltdown time",
+            "scope": "Base time of the Gas City meltdown countdown, node difficulty stretches it by 20 to 80 percent.",
+            "stock": 10,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "s"
+          },
+          "sabotage.random_extraction_timer": {
+            "applies": "next_mission",
+            "group": "sabotage_advanced",
+            "label": "Surprise extraction timer",
+            "lane": "addon",
+            "max": 3600,
+            "min": 1,
+            "path": [
+              "Sabotage",
+              "Advanced"
+            ],
+            "row": "Surprise extraction",
+            "scope": "Countdown of the occasional timed extraction after the reactor is destroyed (about 1 in 3 missions above level 10).",
+            "stock": 300,
+            "stock_check": "none",
+            "type": "int",
+            "unit": "s"
+          },
+          "spy.vault_alarm_scale": {
+            "applies": "next_mission",
+            "default_label": "x1 (30-120 s)",
+            "group": "spy",
+            "label": "Vault alarm time",
+            "lane": "addon",
+            "max": 20,
+            "min": 0.05,
+            "path": [
+              "Spy",
+              "Timers"
+            ],
+            "quick": "Spy: vault alarm time",
+            "row": "Alarm time",
+            "scope": "Multiplies the countdown after a Spy vault alarm, each vault has its own base of 30 to 120 seconds.",
+            "stock": 1,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
+          },
+          "spy.vaults_required": {
+            "applies": "next_mission",
+            "default_label": "Game rule",
+            "group": "spy_advanced",
+            "label": "Vaults required",
+            "lane": "addon",
+            "max": 5,
+            "min": 0,
+            "path": [
+              "Spy",
+              "Advanced"
+            ],
+            "row": "Vaults required",
+            "scope": "Vaults to hack on normal Spy nodes, losing more vaults than allowed fails the mission (success rule not traced). Its exact effect is not confirmed in the game code.",
+            "stock": 0,
+            "type": "int",
+            "unit": ""
+          },
           "survival.reward_interval": {
             "applies": "live_next_read",
             "group": "survival",
@@ -4962,6 +5700,24 @@
             "stock": 600,
             "type": "float",
             "unit": "s"
+          },
+          "survival.fixed_length_minutes": {
+            "applies": "next_mission",
+            "default_label": "Endless",
+            "group": "survival",
+            "label": "Fixed length",
+            "lane": "addon",
+            "max": 60,
+            "min": 0,
+            "path": [
+              "Survival",
+              "Timers"
+            ],
+            "row": "Fixed length",
+            "scope": "Turns normal Survival into a fixed-length mission of this many minutes with one reward at the end. At most 60 minutes; alerts, sorties and other special missions keep their own length.",
+            "stock": 0,
+            "type": "int",
+            "unit": "min"
           },
           "survival.capsule_initial_time": {
             "applies": "live_next_read",
@@ -5421,6 +6177,287 @@
             "type": "int",
             "unit": ""
           },
+          "void_armageddon.wave_time": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Wave time",
+            "lane": "addon",
+            "max": 32767,
+            "min": 0.5,
+            "path": [
+              "Void Armageddon",
+              "Timers"
+            ],
+            "quick": "Void Armageddon: wave time",
+            "row": "Wave time",
+            "scope": "Length of each Void Armageddon wave.",
+            "stock": 60,
+            "type": "float",
+            "unit": "s"
+          },
+          "void_armageddon.pre_wave_time": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Time before a wave",
+            "lane": "addon",
+            "max": 32767,
+            "min": 0.5,
+            "path": [
+              "Void Armageddon",
+              "Timers"
+            ],
+            "row": "Time before a wave",
+            "scope": "Warning time before each Void Armageddon wave starts.",
+            "stock": 20,
+            "type": "float",
+            "unit": "s"
+          },
+          "void_armageddon.post_wave_time": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Time after a wave",
+            "lane": "addon",
+            "max": 32767,
+            "min": 0.5,
+            "path": [
+              "Void Armageddon",
+              "Timers"
+            ],
+            "row": "Time after a wave",
+            "scope": "Pause after each Void Armageddon wave ends.",
+            "stock": 5,
+            "type": "float",
+            "unit": "s"
+          },
+          "void_armageddon.prepare_time": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Prepare time",
+            "lane": "addon",
+            "max": 32767,
+            "min": 0.5,
+            "path": [
+              "Void Armageddon",
+              "Timers"
+            ],
+            "row": "Round prepare time",
+            "scope": "Pause before the first wave of a Void Armageddon round.",
+            "stock": 5,
+            "type": "float",
+            "unit": "s"
+          },
+          "void_armageddon.round_complete_time": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Time between rounds",
+            "lane": "addon",
+            "max": 32767,
+            "min": 0.5,
+            "path": [
+              "Void Armageddon",
+              "Timers"
+            ],
+            "row": "Time between rounds",
+            "scope": "Pause between Void Armageddon rounds.",
+            "stock": 15,
+            "type": "float",
+            "unit": "s"
+          },
+          "void_armageddon.waves_per_round": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Waves per round",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Objectives"
+            ],
+            "row": "Waves per round",
+            "scope": "Waves in one Void Armageddon round.",
+            "stock": 3,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.kills_per_wave.p1": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Kills per wave (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Objectives",
+              "Kills per wave"
+            ],
+            "row": "Solo",
+            "scope": "Kills needed to clear a Void Armageddon wave with 1 player, the Circle variant doubles it.",
+            "stock": 30,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.kills_per_wave.p2": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Kills per wave (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Objectives",
+              "Kills per wave"
+            ],
+            "row": "Duo",
+            "scope": "Kills needed to clear a Void Armageddon wave with 2 players, the Circle variant doubles it.",
+            "stock": 40,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.kills_per_wave.p3": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Kills per wave (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Objectives",
+              "Kills per wave"
+            ],
+            "row": "Trio",
+            "scope": "Kills needed to clear a Void Armageddon wave with 3 players, the Circle variant doubles it.",
+            "stock": 50,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.kills_per_wave.p4": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Kills per wave (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Objectives",
+              "Kills per wave"
+            ],
+            "row": "Squad",
+            "scope": "Kills needed to clear a Void Armageddon wave with 4 players, the Circle variant doubles it.",
+            "stock": 60,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.max_enemies.p1": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Max enemies at once (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Solo",
+            "scope": "Void Armageddon enemies alive at once with 1 player, halved during the angel phase.",
+            "stock": 12,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.max_enemies.p2": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Max enemies at once (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Duo",
+            "scope": "Void Armageddon enemies alive at once with 2 players, halved during the angel phase.",
+            "stock": 14,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.max_enemies.p3": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Max enemies at once (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Trio",
+            "scope": "Void Armageddon enemies alive at once with 3 players, halved during the angel phase.",
+            "stock": 16,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.max_enemies.p4": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Max enemies at once (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Squad",
+            "scope": "Void Armageddon enemies alive at once with 4 players, halved during the angel phase.",
+            "stock": 18,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.reward_interval": {
+            "applies": "live_next_read",
+            "group": "void_armageddon",
+            "label": "Rounds per reward",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Void Armageddon",
+              "Rewards / drops"
+            ],
+            "row": "Rounds per reward",
+            "scope": "Void Armageddon rounds between rewards.",
+            "stock": 1,
+            "type": "int",
+            "unit": ""
+          },
+          "void_armageddon.angel_channel_time": {
+            "applies": "live_next_read",
+            "group": "void_armageddon_advanced",
+            "label": "Angel channel time",
+            "lane": "addon",
+            "max": 32767,
+            "min": 0.5,
+            "path": [
+              "Void Armageddon",
+              "Advanced"
+            ],
+            "row": "Angel channel time",
+            "scope": "Seconds an angel channels before it resolves in Void Armageddon.",
+            "stock": 30,
+            "type": "float",
+            "unit": "s"
+          },
           "void_cascade.pillar_duration": {
             "applies": "live_next_read",
             "group": "void_cascade",
@@ -5438,6 +6475,24 @@
             "stock": 90,
             "type": "int",
             "unit": "s"
+          },
+          "void_cascade.exolizers_to_finish": {
+            "applies": "next_mission",
+            "default_label": "Endless",
+            "group": "void_cascade",
+            "label": "Exolizers to finish",
+            "lane": "addon",
+            "max": 1000,
+            "min": 0,
+            "path": [
+              "Void Cascade",
+              "Objectives"
+            ],
+            "row": "Exolizers to finish",
+            "scope": "Exolizers to defend on normal Void Cascade nodes. Alerts, sorties and other special missions keep their own count.",
+            "stock": 0,
+            "type": "int",
+            "unit": ""
           },
           "void_cascade.circle_fixed_length.p1": {
             "applies": "live_next_read",
@@ -5562,6 +6617,24 @@
             "type": "float",
             "unit": "s"
           },
+          "void_flood.tanks_to_finish": {
+            "applies": "next_mission",
+            "default_label": "Endless",
+            "group": "void_flood",
+            "label": "Tanks to finish",
+            "lane": "addon",
+            "max": 1000,
+            "min": 0,
+            "path": [
+              "Void Flood",
+              "Objectives"
+            ],
+            "row": "Tanks to finish",
+            "scope": "Tanks to fill on normal Void Flood nodes. Alerts, sorties and other special missions keep their own count.",
+            "stock": 0,
+            "type": "int",
+            "unit": ""
+          },
           "void_flood.fill_timer.curveScaleV": {
             "applies": "live_next_read",
             "group": "void_flood_advanced",
@@ -5680,7 +6753,7 @@
         ],
         "id": "capture",
         "label": "Capture",
-        "order": 70
+        "order": 80
       },
       {
         "aliases": [
@@ -5688,7 +6761,7 @@
         ],
         "id": "sentientcapture",
         "label": "Sentient Swarm Capture",
-        "order": 80
+        "order": 90
       },
       {
         "aliases": [
@@ -5696,7 +6769,32 @@
         ],
         "id": "colonistdoor_advanced",
         "label": "Colonist Door: advanced",
-        "order": 95
+        "order": 105
+      },
+      {
+        "aliases": [
+          "Bounty",
+          "Free Roam",
+          "Nokko",
+          "Fortuna",
+          "Deepmines"
+        ],
+        "id": "control_area_nokko",
+        "label": "Control Area (Deepmines)",
+        "order": 120
+      },
+      {
+        "aliases": [
+          "Bounty",
+          "Free Roam",
+          "Nokko",
+          "Fortuna",
+          "Deepmines",
+          "Control Area (Deepmines)"
+        ],
+        "id": "control_area_nokko_advanced",
+        "label": "Control Area (Deepmines): advanced",
+        "order": 125
       },
       {
         "aliases": [
@@ -5707,7 +6805,7 @@
         ],
         "id": "defection",
         "label": "Defection",
-        "order": 130
+        "order": 140
       },
       {
         "aliases": [
@@ -5751,7 +6849,7 @@
         ],
         "id": "defense",
         "label": "Defense",
-        "order": 140
+        "order": 150
       },
       {
         "aliases": [
@@ -5765,7 +6863,7 @@
         ],
         "id": "coh_destroy_targets",
         "label": "Descendia: Destroy Targets",
-        "order": 160
+        "order": 170
       },
       {
         "aliases": [
@@ -5782,7 +6880,7 @@
         ],
         "id": "shrine",
         "label": "Descendia: Shrine Defense",
-        "order": 200
+        "order": 210
       },
       {
         "aliases": [
@@ -5800,7 +6898,7 @@
         ],
         "id": "disruption",
         "label": "Disruption",
-        "order": 210
+        "order": 220
       },
       {
         "aliases": [
@@ -5819,7 +6917,7 @@
         ],
         "id": "disruption_advanced",
         "label": "Disruption: advanced",
-        "order": 215
+        "order": 225
       },
       {
         "aliases": [
@@ -5828,7 +6926,24 @@
         ],
         "id": "entrati_swarm_advanced",
         "label": "Entrati Swarm: advanced",
-        "order": 225
+        "order": 235
+      },
+      {
+        "aliases": [
+          "Excavator",
+          "MT_EXCAVATE",
+          "Hieracon",
+          "Tikal",
+          "Cholistan",
+          "Kiliken",
+          "Augustus",
+          "Valefor",
+          "Everest",
+          "Despina"
+        ],
+        "id": "excavation",
+        "label": "Excavation",
+        "order": 240
       },
       {
         "aliases": [
@@ -5841,7 +6956,86 @@
         ],
         "id": "escalation",
         "label": "Exterminate (1999 Escalation)",
-        "order": 240
+        "order": 250
+      },
+      {
+        "aliases": [
+          "MT_EXTERMINATION",
+          "Roche",
+          "M Prime",
+          "Puck",
+          "Carpo",
+          "E Gate",
+          "Pallas",
+          "Ultor",
+          "Saxis",
+          "Adaro",
+          "Telesto",
+          "Armaros",
+          "Baal",
+          "Narcissus",
+          "Pantheon",
+          "Halako Perimeter",
+          "E Prime",
+          "Plato",
+          "Sycorax",
+          "Acheron",
+          "Teshub",
+          "Oxomoco",
+          "Hellas",
+          "Neso",
+          "Phlegyas",
+          "Nex",
+          "Dakata",
+          "Exterminate: Scaldra",
+          "Exterminate: Techrot",
+          "Mariana",
+          "Montes",
+          "Syrtis"
+        ],
+        "id": "exterminate",
+        "label": "Exterminate",
+        "order": 260
+      },
+      {
+        "aliases": [
+          "MT_EXTERMINATION",
+          "Roche",
+          "M Prime",
+          "Puck",
+          "Carpo",
+          "E Gate",
+          "Pallas",
+          "Ultor",
+          "Saxis",
+          "Adaro",
+          "Telesto",
+          "Armaros",
+          "Baal",
+          "Narcissus",
+          "Pantheon",
+          "Halako Perimeter",
+          "E Prime",
+          "Plato",
+          "Sycorax",
+          "Acheron",
+          "Teshub",
+          "Oxomoco",
+          "Hellas",
+          "Neso",
+          "Phlegyas",
+          "Nex",
+          "Dakata",
+          "Exterminate: Scaldra",
+          "Exterminate: Techrot",
+          "Mariana",
+          "Montes",
+          "Syrtis",
+          "Exterminate"
+        ],
+        "id": "exterminate_advanced",
+        "label": "Exterminate: advanced",
+        "order": 265
       },
       {
         "aliases": [
@@ -5853,7 +7047,7 @@
         ],
         "id": "faceoff",
         "label": "Faceoff",
-        "order": 250
+        "order": 270
       },
       {
         "aliases": [
@@ -5866,7 +7060,7 @@
         ],
         "id": "faceoff_advanced",
         "label": "Faceoff: advanced",
-        "order": 255
+        "order": 275
       },
       {
         "aliases": [
@@ -5875,7 +7069,7 @@
         ],
         "id": "fivefates",
         "label": "Five Fates (Cetus)",
-        "order": 260
+        "order": 280
       },
       {
         "aliases": [
@@ -5884,7 +7078,7 @@
         ],
         "id": "infested_salvage",
         "label": "Infested Salvage",
-        "order": 290
+        "order": 310
       },
       {
         "aliases": [
@@ -5894,7 +7088,52 @@
         ],
         "id": "infested_salvage_advanced",
         "label": "Infested Salvage: advanced",
-        "order": 295
+        "order": 315
+      },
+      {
+        "aliases": [
+          "MT_TERRITORY",
+          "Alator",
+          "Cinxia",
+          "Xini",
+          "Rhea",
+          "Berehynia",
+          "Ose",
+          "Odin",
+          "Cytherean",
+          "Callisto",
+          "Mithra",
+          "Cerberus",
+          "Umbriel",
+          "Gaia",
+          "Caelus"
+        ],
+        "id": "interception",
+        "label": "Interception",
+        "order": 320
+      },
+      {
+        "aliases": [
+          "MT_TERRITORY",
+          "Alator",
+          "Cinxia",
+          "Xini",
+          "Rhea",
+          "Berehynia",
+          "Ose",
+          "Odin",
+          "Cytherean",
+          "Callisto",
+          "Mithra",
+          "Cerberus",
+          "Umbriel",
+          "Gaia",
+          "Caelus",
+          "Interception"
+        ],
+        "id": "interception_advanced",
+        "label": "Interception: advanced",
+        "order": 325
       },
       {
         "aliases": [
@@ -5902,7 +7141,7 @@
         ],
         "id": "lantern",
         "label": "Lantern",
-        "order": 310
+        "order": 330
       },
       {
         "aliases": [
@@ -5911,7 +7150,7 @@
         ],
         "id": "lantern_advanced",
         "label": "Lantern: advanced",
-        "order": 315
+        "order": 335
       },
       {
         "aliases": [
@@ -5921,7 +7160,7 @@
         ],
         "id": "loopdefend",
         "label": "Mirror Defense",
-        "order": 340
+        "order": 360
       },
       {
         "aliases": [
@@ -5932,7 +7171,7 @@
         ],
         "id": "loopdefend_advanced",
         "label": "Mirror Defense: advanced",
-        "order": 345
+        "order": 365
       },
       {
         "aliases": [
@@ -5963,7 +7202,7 @@
         ],
         "id": "mobiledefense",
         "label": "Mobile Defense",
-        "order": 350
+        "order": 370
       },
       {
         "aliases": [
@@ -5971,7 +7210,7 @@
         ],
         "id": "sentientmd",
         "label": "Sentient Mobile Defense",
-        "order": 360
+        "order": 380
       },
       {
         "aliases": [
@@ -5980,7 +7219,7 @@
         ],
         "id": "orphix",
         "label": "Orphix Venom",
-        "order": 380
+        "order": 400
       },
       {
         "aliases": [
@@ -5990,13 +7229,13 @@
         ],
         "id": "orphix_advanced",
         "label": "Orphix Venom: advanced",
-        "order": 385
+        "order": 405
       },
       {
         "aliases": [],
         "id": "purgatory",
         "label": "Purgatory",
-        "order": 390
+        "order": 410
       },
       {
         "aliases": [
@@ -6004,7 +7243,7 @@
         ],
         "id": "purgatory_advanced",
         "label": "Purgatory: advanced",
-        "order": 395
+        "order": 415
       },
       {
         "aliases": [
@@ -6013,7 +7252,117 @@
         ],
         "id": "purge_advanced",
         "label": "Purge: advanced",
-        "order": 405
+        "order": 425
+      },
+      {
+        "aliases": [
+          "Gas City",
+          "Orokin",
+          "Forest",
+          "MT_SABOTAGE",
+          "Thebe",
+          "Ares",
+          "Thon",
+          "Ker",
+          "Rusalka",
+          "Enceladus",
+          "Kokabiel",
+          "Terminus",
+          "Stribog",
+          "Marduk",
+          "Cypress",
+          "Sao",
+          "Ishtar",
+          "Gradivus",
+          "Formido",
+          "Cervantes",
+          "Calypso",
+          "Adrastea",
+          "Galilea",
+          "Desdemona"
+        ],
+        "id": "sabotage",
+        "label": "Sabotage",
+        "order": 470
+      },
+      {
+        "aliases": [
+          "Gas City",
+          "Orokin",
+          "Forest",
+          "MT_SABOTAGE",
+          "Thebe",
+          "Ares",
+          "Thon",
+          "Ker",
+          "Rusalka",
+          "Enceladus",
+          "Kokabiel",
+          "Terminus",
+          "Stribog",
+          "Marduk",
+          "Cypress",
+          "Sao",
+          "Ishtar",
+          "Gradivus",
+          "Formido",
+          "Cervantes",
+          "Calypso",
+          "Adrastea",
+          "Galilea",
+          "Desdemona",
+          "Sabotage"
+        ],
+        "id": "sabotage_advanced",
+        "label": "Sabotage: advanced",
+        "order": 475
+      },
+      {
+        "aliases": [
+          "MT_INTEL",
+          "Shklovsky",
+          "Oceanum",
+          "Bode",
+          "Kelpie",
+          "Valac",
+          "Suisei",
+          "Pavlov",
+          "Arval",
+          "Unda",
+          "Dione",
+          "Pago",
+          "Cambria",
+          "Nereid",
+          "Rosalind",
+          "Amalthea"
+        ],
+        "id": "spy",
+        "label": "Spy",
+        "order": 500
+      },
+      {
+        "aliases": [
+          "MT_INTEL",
+          "Shklovsky",
+          "Oceanum",
+          "Bode",
+          "Kelpie",
+          "Valac",
+          "Suisei",
+          "Pavlov",
+          "Arval",
+          "Unda",
+          "Dione",
+          "Pago",
+          "Cambria",
+          "Nereid",
+          "Rosalind",
+          "Amalthea",
+          "Spy"
+        ],
+        "id": "spy_advanced",
+        "label": "Spy: advanced",
+        "order": 505
       },
       {
         "aliases": [
@@ -6054,7 +7403,7 @@
         ],
         "id": "survival",
         "label": "Survival",
-        "order": 460
+        "order": 510
       },
       {
         "aliases": [
@@ -6096,7 +7445,28 @@
         ],
         "id": "survival_advanced",
         "label": "Survival: advanced",
-        "order": 465
+        "order": 515
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "MT_ARMAGEDDON",
+          "Oro Works"
+        ],
+        "id": "void_armageddon",
+        "label": "Void Armageddon",
+        "order": 530
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "MT_ARMAGEDDON",
+          "Oro Works",
+          "Void Armageddon"
+        ],
+        "id": "void_armageddon_advanced",
+        "label": "Void Armageddon: advanced",
+        "order": 535
       },
       {
         "aliases": [
@@ -6107,7 +7477,7 @@
         ],
         "id": "void_cascade",
         "label": "Void Cascade",
-        "order": 480
+        "order": 540
       },
       {
         "aliases": [
@@ -6117,7 +7487,7 @@
         ],
         "id": "void_flood",
         "label": "Void Flood",
-        "order": 490
+        "order": 550
       },
       {
         "aliases": [
@@ -6128,7 +7498,7 @@
         ],
         "id": "void_flood_advanced",
         "label": "Void Flood: advanced",
-        "order": 495
+        "order": 555
       }
     ]
   }

@@ -24,6 +24,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\diagnostics\verify_engine_damage_codec.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_multi_target_addon.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_lua_call_retirement.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_lua_call_environment.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_lua_call_raw_protection.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_script_packages.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1")

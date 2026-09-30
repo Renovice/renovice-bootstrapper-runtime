@@ -345,21 +345,32 @@ $plan = @(
     "STAGE`tactive:missions/survival.reward_interval`tbool`tfalse`tclick",
     "STAGE`tstored:missions/survival.reward_interval`ttext`t45`trestage",
     "STAGE`tactive:missions/survival.reward_interval`tbool`ttrue`tclick",
+    # R10: the Quick settings page holds 14 entries (6 new: Deepmines hold time, Defense waves to finish, Exterminate
+    # kills needed, Interception score to win, Spy vault alarm time, Void Armageddon wave time); its completion restages
+    # every switch in page order.
     "STAGE`tactive:missions/control_area_deimos.duration`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/control_area_nokko.hold_time`tbool`tfalse`trestage",
     "STAGE`tactive:missions/control_area_plains.duration`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/defense.waves_to_finish`tbool`tfalse`trestage",
     "STAGE`tactive:missions/excavation.dig_time`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/exterminate.kills_scale`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/interception.score_goal_scale`tbool`tfalse`trestage",
     "STAGE`tactive:missions/mobiledefense.time_per_terminal`tbool`tfalse`trestage",
     "STAGE`tactive:missions/orphix.spawn_interval`tbool`tfalse`trestage",
+    "STAGE`tactive:missions/spy.vault_alarm_scale`tbool`tfalse`trestage",
     "STAGE`tactive:missions/survival.reward_interval`tbool`ttrue`trestage",
+    "STAGE`tactive:missions/void_armageddon.wave_time`tbool`tfalse`trestage",
     "STAGE`tactive:missions/void_cascade.pillar_duration`tbool`tfalse`trestage",
     "STAGE`tactive:missions/void_flood.fractures_per_round.normal`tbool`ttrue`trestage",
     "STAGE`tvalue:missions/loopdefend.max_enemies.p4`tnumber`t40`trestage",
     "STAGE`tvalue:missions/survival.reward_interval`ttext`t60`trestage",
     "ACT`treset:Missions/value:survival.reward_interval",
     "STAGE`tvalue:missions/survival.capsule_interval`ttext`t60`trestage",
-    "ACT`tresetall:Missions/node:26.0.0",
+    "ACT`tresetall:Missions/node:35.0.0",
     # R9 (merged R7 + R8): Mobile Defense -> Timers -> Time per terminal, a live literal (stepper), typed 20.
     "STAGE`tvalue:missions/mobiledefense.time_per_terminal`tnumber`t20`trestage",
+    # R10: Defense -> Objectives -> Waves to finish (a MissionInfo count, addon lane, stepper), typed 3.
+    "STAGE`tvalue:missions/defense.waves_to_finish`tnumber`t3`trestage",
     "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t250`trestage",
     "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t60`trestage",
     "ACT`tresetall:Frost"
@@ -367,21 +378,30 @@ $plan = @(
 )
 $tapeExpect = @(
     "EXPECTROW`t3`tquick:Missions`topen:qval:Missions/survival.reward_interval`tSurvival: 45 s",
-    "EXPECTROW`t13`tnode:Missions/19.1.0`topen:val:Missions/loopdefend.max_enemies.p4`tSquad: 40",
-    "EXPECTROW`t13`tpkg:Missions`topen:node:Missions/19`tMirror Defense: 1 changed",
-    "EXPECTROW`t15`tnode:Missions/26.0`topen:val:Missions/survival.reward_interval`tTime between rewards: 300 s (default)",
-    "EXPECTROW`t17`tnode:Missions/26.0.0`topen:val:Missions/survival.capsule_interval`tTime between capsules: 90 s (default)",
-    "EXPECTROW`t0`tnode:Missions/20.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 60-80 s (default)",
+    # R10 page ids: the Missions package lists 39 mission types (R10 adds Assassination, Rush, Sabotage, Sanctuary
+    # Onslaught, Void Armageddon and the Interception, Spy and Legacyte Harvest pages).
+    "EXPECTROW`t19`tnode:Missions/23.2.0`topen:val:Missions/loopdefend.max_enemies.p4`tSquad: 40",
+    "EXPECTROW`t19`tpkg:Missions`topen:node:Missions/23`tMirror Defense: 1 changed",
+    "EXPECTROW`t21`tnode:Missions/35.0`topen:val:Missions/survival.reward_interval`tTime between rewards: 300 s (default)",
+    "EXPECTROW`t23`tnode:Missions/35.0.0`topen:val:Missions/survival.capsule_interval`tTime between capsules: 90 s (default)",
+    "EXPECTROW`t0`tnode:Missions/24.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 60-80 s (default)",
     "EXPECTROW`t0`tquick:Missions`topen:qval:Missions/mobiledefense.time_per_terminal`tMobile Defense: 20 s",
-    "EXPECTROW`t18`tnode:Missions/20.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 20 s",
-    "EXPECTROW`t18`tpkg:Missions`topen:node:Missions/20`tMobile Defense: 1 changed",
-    "EXPECTROW`t20`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 60x",
-    "EXPECTROW`t21`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 50x (default)",
+    "EXPECTROW`t24`tnode:Missions/24.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 20 s",
+    "EXPECTROW`t24`tpkg:Missions`topen:node:Missions/24`tMobile Defense: 1 changed",
+    # R10: the Defense waves-to-finish walk.
+    "EXPECTROW`t0`tnode:Missions/9.1`topen:val:Missions/defense.waves_to_finish`tWaves to finish: Endless (default)",
+    "EXPECTROW`t0`tquick:Missions`topen:qval:Missions/defense.waves_to_finish`tDefense: Endless (default)",
+    "EXPECTROW`t25`tnode:Missions/9.1`topen:val:Missions/defense.waves_to_finish`tWaves to finish: 3",
+    "EXPECTROW`t25`tnode:Missions/9`topen:node:Missions/9.1`tObjectives: 1 changed",
+    "EXPECTROW`t25`tpkg:Missions`topen:node:Missions/9`tDefense: 1 changed",
+    "EXPECTROW`t27`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 60x",
+    "EXPECTROW`t28`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 50x (default)",
     "EXPECTFILE`tMissions`tloopdefend.max_enemies.p4`tenabled=1`tvalue=40",
     "EXPECTFILE`tMissions`tsurvival.reward_interval`tenabled=0`tvalue=300",
     "EXPECTFILE`tMissions`tsurvival.capsule_interval`tenabled=0`tvalue=90",
     "EXPECTFILE`tFrost`tice_wave.bonus_per_cold_stack`tenabled=0`tvalue=50",
     "EXPECTFILE`tMissions`tmobiledefense.time_per_terminal`tenabled=1`tvalue=20",
+    "EXPECTFILE`tMissions`tdefense.waves_to_finish`tenabled=1`tvalue=3",
     # R9: the written file resolves to the LIVE_LITERALS_V1 plans (and, with the stock corpus, synthesizes): the master
     # sets both total-time rows to 20 x 3 = 60 s (20 s per terminal on every node); Void Flood 4 from the shipped file.
     "EXPECTPLAN`tMissions`ta807aae359ffc1eb`tvalues=mobiledefense.time_per_terminal`trows=mobiledefense.total_time.maximum=60,mobiledefense.total_time.minimum=60`tpatches=2",
@@ -445,6 +465,7 @@ Require ([int]$r7Report['inplace'] -eq 2) "R7: 'Reset all to defaults' re-reads 
 Require ([int]$r7Report['messages'] -eq 1 -and (Get-Category $r7 'r7-validate') -eq 0) "R7: Back with an out-of-range value shows the row's stock message (Frost 250)"
 Require ([int]$r7Report['switches'] -eq 0 -and (Get-Category $r7 'r7-switch') -eq 0) "R7: no page the player opens holds a package, member, 'Use stock values', section or Custom switch"
 Require ([int]$r7Report['r9'] -eq 1) "R9: Missions -> Mobile Defense -> Timers -> Time per terminal (live literal, range default '60-80 s (default)') opens a stepper, 20 is typed and applied, and the rows read 'Time per terminal: 20 s', 'Timers: 1 changed', 'Mobile Defense: 1 changed'"
+Require ([int]$r7Report['r10'] -eq 1) "R10: Missions -> Defense -> Objectives -> Waves to finish ('Endless (default)', a MissionInfo count) opens a stepper, 3 is typed and applied, and the rows read 'Waves to finish: 3', 'Objectives: 1 changed', 'Defense: 1 changed'; the values file holds { enabled: true, value: 3 }"
 
 # 2. Negative control R3: the installed bridge 739d8177 on the same page
 # reproduces the live R4 defects.
