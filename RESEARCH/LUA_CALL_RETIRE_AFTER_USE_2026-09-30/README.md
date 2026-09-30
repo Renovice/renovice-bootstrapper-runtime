@@ -151,3 +151,8 @@ probe `live-test-retire/OpenWF/CustomScripts/Inject/RetireProbe.targets.addon.lu
 ## Live check (pending; the user runs it)
 
 See the handoff entry in `RENOVICE_SCRIPTING/CURRENT_BOOTSTRAPPER_STATE.md` and `work/staging/editor-phase2-3/README.md`.
+
+## Follow-up
+
+R4 (2026-09-30): retire-all, dormant re-arm after F9/apply and the armed-prototype prefilter. See
+[LUA_CALL_RETIRE_R4_2026-09-30](../LUA_CALL_RETIRE_R4_2026-09-30/README.md). This record is unchanged evidence for R3.

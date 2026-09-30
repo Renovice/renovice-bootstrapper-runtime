@@ -102,9 +102,10 @@ return {
 has not been implemented.
 
 A `luaCalls[P].before` callback may return the exact string
-`"RENOVICE_RETIRE"` to stop being dispatched for the current module instance.
-See "Retire after use" below. Any other return value, including none, is
-ignored, as before.
+`"RENOVICE_RETIRE"` to stop being dispatched for the current module instance,
+or `"RENOVICE_RETIRE_ALL"` (optional, R4) to retire every hook of the addon for
+that instance. See "Retire after use" below. Any other return value, including
+none, is ignored, as before.
 
 ## Multi-target addons (several modules, one Scripts row)
 
@@ -447,6 +448,50 @@ instance).
 Re-arming is always safe: your callback sees the new instance's table, binds
 it, and returns the sentinel again.
 
+**Re-arm after F9 or SCRIPT SETTINGS (R4, dormant until the module runs).**
+Module identities are kept for the whole session, so a module that ran in an
+earlier mission is still known after the next F9 or settings apply. Its hooks
+therefore do not re-arm immediately. When the new generation replaces an
+earlier one for the same module and VM, every retirable hook declared only by
+addons that have already returned a sentinel for that module starts
+**dormant**. A dormant hook holds no claim and does not keep the interrupt
+observer open. It is armed again, before any of its code runs, by the first
+natural VM-execute entry whose Lua call chain (the entered function and up to
+seven callers) contains one of the module's functions other than its root.
+For a mission this is the next engine callback or coroutine resume of the
+running mission. Mid-mission F9 therefore still re-applies newly ticked values
+within one tick. A module that is not running never wakes up and costs nothing.
+
+- An addon that has never returned a sentinel keeps the R3 behaviour: its hooks
+  start armed after every F9. A hook that is shared with such an addon also
+  starts armed.
+- Limit: a module whose functions run only from other modules' frames (a
+  library called Lua-to-Lua, never entered from C) is woken at its next root
+  entry instead. Do not retire from such hooks if a mid-mission F9 must apply
+  immediately.
+
+**Retire every hook of the addon at once (R4, optional).** A hook that finds
+nothing to do for this instance (for example, no value enabled for this
+mission type) can retire all of the addon's hooks for the instance, including
+hooks that have not been called yet:
+
+```lua
+return "RENOVICE_RETIRE", "RENOVICE_RETIRE_ALL"   -- preferred: R3 runtimes read a plain retire
+-- or
+return "RENOVICE_RETIRE_ALL"                     -- R4 only; ignored (armed) by older runtimes
+```
+
+- It has the same scope and rules as `"RENOVICE_RETIRE"`: this generation,
+  module, VM, addon set and instance. The calling prototype must itself be a
+  retirable (top-level) prototype, otherwise the signal is ignored entirely.
+  Every other retirable hook of the signalling addon is served for the instance.
+  Nested prototypes and prototypes beyond the 64th stay armed.
+- With several addons on the same module, a hook that is also declared by an
+  addon that did not return retire-all in that dispatch stays armed. As for
+  `"RENOVICE_RETIRE"`, nothing retires unless every callback that ran in that
+  dispatch returned a sentinel.
+- A new instance, F9 or rebind re-arms everything exactly as above.
+
 **Requirements (fail closed).**
 
 - Only a prototype whose closures the module **root** creates directly (a
@@ -467,19 +512,24 @@ it, and returns the sentinel again.
 - At most 64 declared prototypes per module can retire; later ones stay armed.
 
 **Cost.** While every declared `luaCalls.before` prototype in the game is
-retired, the interrupt observer returns after one atomic load (about 1 ns per
-Lua call in the gate micro-benchmark), exactly as if no hook were declared. If
-another prototype still keeps the observer open, a call to a retired prototype
-is rejected in the claim check before any VM-stack write, Lua entry,
-allocation or formatting (about 3 ns for the check itself, after the existing
-instruction decode and owner lookup that every call pays while the observer is
-open).
+retired or dormant, the interrupt observer returns after one atomic load (about
+1 ns per Lua call in the gate micro-benchmark), exactly as if no hook were
+declared. If another prototype still keeps the observer open, every Lua call
+first passes the R4 armed-prototype prefilter: the callee's prototype is looked
+up in a small lock-free set of armed prototypes, and a call that is not a
+candidate returns before any `IsBadReadPtr` probe, snapshot lease or owner
+search (about 3.5 ns in the gate benchmark, against 100 to 315 ns for the
+pre-R4 path). Calls to an armed prototype, and any frame the prefilter cannot
+prove, take the full validated path unchanged.
 
 **Log.** With `Diagnostics` on, each state change writes one line:
 `RENOVICE LUACALL_RETIRE event=retire key=... prototype=67 slot_dispatches=N dispatches_total=M instance=K ... outcome=retired`
 (or `served-still-armed` when another instance still needs the hook), and one
 `event=rearm ... outcome=root-entry-new-instance` line when a new instance
-re-opens a retired prototype. An ignored signal (`ignored-prototype-not-root-child`,
+re-opens a retired prototype. R4 adds `event=retire-all` for the retire-all
+signal, `event=wake ... outcome=execution-evidence-dormant-rearmed
+evidence_proto=...` when a dormant module wakes, and `untracked_dormant=0x...`
+on every line. An ignored signal (`ignored-prototype-not-root-child`,
 `ignored-superseded-generation-or-binding`, `ignored-cross-vm`, ...) is reported
 once per prototype. With `Diagnostics=false` nothing is formatted or written.
 

@@ -399,6 +399,20 @@ struct TargetExecutionSnapshot
 		std::shared_ptr<LuaCallRetireLedger> lua_before_retire;
 		std::uint64_t lua_before_admitted = 0;
 		bool lua_before_unretirable_admitted = false;
+		// R4. Parallel to `addons`: the slots (bit i = lua_before_prototypes[i],
+		// i < 64) each addon declares (S5 exclusive scope, S4 awareness).
+		std::vector<std::uint64_t> lua_before_addon_slots;
+		// S2: every published prototype address of a declared slot; `slot` is
+		// the index into lua_before_prototypes (>= 64: never retirable).
+		struct SlotPrototype
+		{
+			std::uintptr_t address = 0;
+			std::size_t slot = 0;
+		};
+		std::vector<SlotPrototype> lua_before_slot_prototypes;
+		// S4: sorted non-root prototype addresses of this (key, VM)'s published
+		// identities; execution evidence for a dormant ledger.
+		std::vector<std::uintptr_t> lua_before_module_prototypes;
 	};
 	std::vector<Providers> providers;
 };
@@ -594,6 +608,14 @@ std::atomic_bool lua_before_provider_fast_gate = false;
 // order: generation_mutex -> lua_call_retire_mutex.
 std::mutex lua_call_retire_mutex;
 std::vector<std::shared_ptr<LuaCallRetireLedger>> lua_call_retire_ledgers;
+// R4 S2: prototype addresses of every armed luaCalls.before slot, checked by
+// the interrupt observer before any probe. S4: non-root prototype addresses of
+// modules whose ledger is dormant, checked at VM-execute entry while
+// lua_call_dormant_watch is set. Both are rebuilt with the fast gate, under
+// lua_call_retire_mutex; readers are lock-free (LuaCallAddressSet).
+LuaCallAddressSet lua_before_armed_prototypes;
+LuaCallAddressSet lua_call_dormant_prototypes;
+std::atomic_bool lua_call_dormant_watch = false;
 std::atomic_bool scripts_ui_enabled = false;
 // Preserved for negative-evidence archaeology only. Live testing disproved the
 // cached module-export attachment model; keep its code available but prevent it
@@ -2958,13 +2980,23 @@ bool target_root_return_retry_spent(
 		&& identity.root_return_retry_generation == generation;
 }
 
+std::shared_ptr<LuaCallRetireLedger> registered_lua_call_retire_ledger_locked(
+	std::uint64_t target_key,
+	const void* global_state) noexcept;
+
 // Retire-after-use for luaCalls.before (2026-09-30). Computes, per provider,
 // which declared prototypes are admitted (present in a published execution
 // identity) and which are direct children of the module root, then binds the
 // provider to its retirement ledger. A ledger is reused only for the exact
 // same generation, key, VM, prototype set, root-child set and provider
-// binding set; anything else creates a fresh, fully armed ledger. Also
-// publishes the root prototypes whose entry re-arms a ledger.
+// binding set; anything else creates a fresh ledger. Also publishes the root
+// prototypes whose entry re-arms a ledger.
+// R4: records each addon's declared slots (S5 scope), the published address
+// of every declared slot (S2 armed set) and the module's non-root prototype
+// addresses (S4 execution evidence). A fresh ledger that replaces an earlier
+// ledger of the same (key, VM) inherits its retire-aware addon names and
+// starts dormant for the slots only those addons declare (S4); every other
+// fresh ledger starts fully armed (R3).
 void bind_lua_call_retire_ledgers_locked(TargetExecutionSnapshot& snapshot)
 {
 	std::vector<std::shared_ptr<LuaCallRetireLedger>> bound;
@@ -2974,7 +3006,36 @@ void bind_lua_call_retire_ledgers_locked(TargetExecutionSnapshot& snapshot)
 		provider.lua_before_retire.reset();
 		provider.lua_before_admitted = 0;
 		provider.lua_before_unretirable_admitted = false;
+		provider.lua_before_addon_slots.assign(provider.addons.size(), 0);
+		provider.lua_before_slot_prototypes.clear();
+		provider.lua_before_module_prototypes.clear();
 		if (provider.lua_before_prototypes.empty()) continue;
+		for (std::size_t addon_index = 0; addon_index != provider.addons.size(); ++addon_index)
+		{
+			const auto& record = provider.addons[addon_index];
+			const auto source = std::find_if(
+				active_target_addons.begin(), active_target_addons.end(),
+				[&](const TargetAddonRecord& addon)
+				{
+					return addon.target_key == provider.key
+						&& addon.global_state == provider.vm
+						&& addon.addon.registry_key == record.registry_key;
+				});
+			if (source == active_target_addons.end()) continue;
+			for (const auto& request : source->lua_call_requests)
+			{
+				if (!request.before) continue;
+				const auto found = std::lower_bound(
+					provider.lua_before_prototypes.begin(),
+					provider.lua_before_prototypes.end(), request.prototype);
+				if (found == provider.lua_before_prototypes.end() || *found != request.prototype)
+					continue;
+				const auto index = static_cast<std::size_t>(
+					found - provider.lua_before_prototypes.begin());
+				if (index < lua_call_retire_max_prototypes)
+					provider.lua_before_addon_slots[addon_index] |= 1ull << index;
+			}
+		}
 		std::uint64_t root_children = 0;
 		for (const auto& identity : snapshot.identities)
 		{
@@ -2986,6 +3047,8 @@ void bind_lua_call_retire_ledgers_locked(TargetExecutionSnapshot& snapshot)
 			const auto root = reinterpret_cast<std::uintptr_t>(identity.root_proto);
 			for (const auto& prototype : identity.prototypes)
 			{
+				if (prototype.address != 0 && prototype.address != root)
+					provider.lua_before_module_prototypes.push_back(prototype.address);
 				const auto found = std::lower_bound(
 					provider.lua_before_prototypes.begin(),
 					provider.lua_before_prototypes.end(), prototype.bytecode_id);
@@ -2996,6 +3059,7 @@ void bind_lua_call_retire_ledgers_locked(TargetExecutionSnapshot& snapshot)
 				}
 				const auto index = static_cast<std::size_t>(
 					found - provider.lua_before_prototypes.begin());
+				provider.lua_before_slot_prototypes.push_back({prototype.address, index});
 				if (index >= lua_call_retire_max_prototypes)
 				{
 					provider.lua_before_unretirable_admitted = true;
@@ -3018,6 +3082,28 @@ void bind_lua_call_retire_ledgers_locked(TargetExecutionSnapshot& snapshot)
 					identity.global_state, identity.root_proto});
 			}
 		}
+		std::sort(provider.lua_before_module_prototypes.begin(),
+			provider.lua_before_module_prototypes.end());
+		provider.lua_before_module_prototypes.erase(std::unique(
+			provider.lua_before_module_prototypes.begin(),
+			provider.lua_before_module_prototypes.end()),
+			provider.lua_before_module_prototypes.end());
+		// A root prototype recorded by another identity of the same module is
+		// still a root: its entry is a new instance, never evidence.
+		for (const auto& identity : snapshot.identities)
+		{
+			if (identity.target_key != provider.key || identity.global_state != provider.vm)
+				continue;
+			const auto root = std::lower_bound(
+				provider.lua_before_module_prototypes.begin(),
+				provider.lua_before_module_prototypes.end(),
+				reinterpret_cast<std::uintptr_t>(identity.root_proto));
+			if (root != provider.lua_before_module_prototypes.end()
+				&& *root == reinterpret_cast<std::uintptr_t>(identity.root_proto))
+			{
+				provider.lua_before_module_prototypes.erase(root);
+			}
+		}
 		std::vector<std::string_view> registry_keys;
 		registry_keys.reserve(provider.addons.size());
 		for (const auto& addon : provider.addons)
@@ -3032,11 +3118,33 @@ void bind_lua_call_retire_ledgers_locked(TargetExecutionSnapshot& snapshot)
 					provider.vm, provider.lua_before_prototypes, root_children,
 					binding);
 			});
-		provider.lua_before_retire = reuse != lua_call_retire_ledgers.end()
-			? *reuse
-			: std::make_shared<LuaCallRetireLedger>(snapshot.generation,
-				provider.key, provider.vm, provider.lua_before_prototypes,
-				root_children, binding);
+		if (reuse != lua_call_retire_ledgers.end())
+		{
+			provider.lua_before_retire = *reuse;
+		}
+		else
+		{
+			// S4: the registered ledger this one replaces (same key and VM).
+			const auto predecessor = registered_lua_call_retire_ledger_locked(
+				provider.key, provider.vm);
+			std::uint64_t dormant = 0;
+			if (predecessor != nullptr && !predecessor->aware_addons().empty())
+			{
+				std::vector<bool> aware(provider.addons.size(), false);
+				for (std::size_t index = 0; index != provider.addons.size(); ++index)
+					aware[index] = predecessor->addon_aware(provider.addons[index].name);
+				const auto slots = (std::min)(
+					provider.lua_before_prototypes.size(), lua_call_retire_max_prototypes);
+				const std::uint64_t all = slots >= 64 ? ~0ull : ((1ull << slots) - 1ull);
+				dormant = lua_call_retire_dormant_mask(root_children & all,
+					provider.lua_before_addon_slots, aware);
+			}
+			provider.lua_before_retire = std::make_shared<LuaCallRetireLedger>(
+				snapshot.generation, provider.key, provider.vm,
+				provider.lua_before_prototypes, root_children, binding, dormant);
+			if (predecessor != nullptr)
+				provider.lua_before_retire->inherit_aware_addons(predecessor->aware_addons());
+		}
 		bound.push_back(provider.lua_before_retire);
 	}
 	// Ledgers not bound here belong to a previous generation or binding set:
@@ -3049,11 +3157,18 @@ void bind_lua_call_retire_ledgers_locked(TargetExecutionSnapshot& snapshot)
 // published providers is armed. Serialised by lua_call_retire_mutex and
 // always recomputed from the currently published snapshot, so the last
 // store reflects the latest publication and the latest ledger state.
+// R4: rebuilds, before the gate store, the S2 armed-prototype set (every
+// published address of an armed or never-retirable declared slot) and the S4
+// dormant-wake set (non-root prototypes of modules whose ledger is dormant).
+// Allocation-free.
 void refresh_lua_before_provider_fast_gate_locked() noexcept
 {
 	const auto snapshot = published_target_execution_snapshot.load(
 		std::memory_order_acquire);
 	bool armed = false;
+	bool dormant = false;
+	lua_before_armed_prototypes.begin();
+	lua_call_dormant_prototypes.begin();
 	if (snapshot != nullptr)
 	{
 		for (const auto& provider : snapshot->providers)
@@ -3064,11 +3179,38 @@ void refresh_lua_before_provider_fast_gate_locked() noexcept
 					provider.lua_before_unretirable_admitted))
 			{
 				armed = true;
-				break;
+			}
+			for (const auto& slot : provider.lua_before_slot_prototypes)
+			{
+				if (slot.slot >= lua_call_retire_max_prototypes
+					|| ((retired >> slot.slot) & 1ull) == 0)
+				{
+					lua_before_armed_prototypes.insert(slot.address);
+				}
+			}
+			if (provider.lua_before_retire != nullptr
+				&& provider.lua_before_retire->dormant_hint())
+			{
+				dormant = true;
+				for (const auto address : provider.lua_before_module_prototypes)
+					lua_call_dormant_prototypes.insert(address);
 			}
 		}
 	}
+	lua_call_dormant_prototypes.commit();
+	lua_before_armed_prototypes.commit();
+	lua_call_dormant_watch.store(dormant, std::memory_order_release);
 	lua_before_provider_fast_gate.store(armed, std::memory_order_release);
+}
+
+// Fail-open companion of every catch block on the retirement path: the S2
+// prefilter then answers "maybe" for every call (the pre-R4 path), the S4
+// watch takes its validated slow path for every entry, and the gate opens.
+void open_lua_before_fast_paths() noexcept
+{
+	lua_before_armed_prototypes.disable();
+	lua_call_dormant_prototypes.disable();
+	lua_before_provider_fast_gate.store(true, std::memory_order_release);
 }
 
 void refresh_lua_before_provider_fast_gate() noexcept
@@ -3081,7 +3223,7 @@ void refresh_lua_before_provider_fast_gate() noexcept
 	catch (...)
 	{
 		// Fail open for dispatch (never lose a hook): keep the gate armed.
-		lua_before_provider_fast_gate.store(true, std::memory_order_release);
+		open_lua_before_fast_paths();
 	}
 }
 
@@ -3104,7 +3246,8 @@ void log_lua_call_retire_event(
 	std::int32_t prototype,
 	std::uint64_t instance_serial,
 	const void* environment,
-	const char* outcome) noexcept
+	const char* outcome,
+	const void* evidence_prototype = nullptr) noexcept
 {
 	try
 	{
@@ -3126,7 +3269,9 @@ void log_lua_call_retire_event(
 			<< " retired_mask=0x" << std::hex << view.retired << std::dec
 			<< " pending_instances=" << view.pending_instances
 			<< " untracked_pending=0x" << std::hex << view.untracked_pending << std::dec
+			<< " untracked_dormant=0x" << std::hex << view.untracked_dormant << std::dec
 			<< " overflow=" << (view.overflow ? 1 : 0);
+		if (evidence_prototype != nullptr) line << " evidence_proto=" << evidence_prototype;
 		config::diagnostic_log(line.str(), config::DiagnosticsMode::errors);
 	}
 	catch (...)
@@ -3176,7 +3321,7 @@ void note_lua_call_instance_entry(
 	catch (...)
 	{
 		// Keep dispatching (fail closed for retirement).
-		lua_before_provider_fast_gate.store(true, std::memory_order_release);
+		open_lua_before_fast_paths();
 	}
 }
 
@@ -3196,20 +3341,26 @@ void note_lua_call_instance_settled(const TargetRootEntry& entry) noexcept
 	}
 	catch (...)
 	{
-		lua_before_provider_fast_gate.store(true, std::memory_order_release);
+		open_lua_before_fast_paths();
 	}
 }
 
 // A committed luaCalls.before dispatch in which every invoked provider
-// returned lua_call_retire_sentinel. `snapshot` is the exact snapshot the
-// dispatch ran under (its generation lease is still held). Fails closed: only
-// the currently registered ledger of the same VM can retire, so a dispatch
-// from a superseded generation or binding, another VM or an unknown provider
-// changes nothing. The called closure's environment names the instance.
+// returned a retire sentinel. `snapshot` is the exact snapshot the dispatch
+// ran under (its generation lease is still held). Fails closed: only the
+// currently registered ledger of the same VM can retire, so a dispatch from a
+// superseded generation or binding, another VM or an unknown provider changes
+// nothing. The called closure's environment names the instance.
+// R4: `signal_addons` / `retire_all_addons` hold bit i for provider addon i
+// (i < 64) that returned a sentinel / "RENOVICE_RETIRE_ALL". Signalling addons
+// become retire-aware for this (key, VM) (S4). With retire-all, the slots
+// declared only by retire-all addons are served too (S5).
 void retire_lua_call_slot(
 	luau_State* state,
 	const TargetLuaCall& call,
-	const TargetExecutionSnapshot* snapshot) noexcept
+	const TargetExecutionSnapshot* snapshot,
+	std::uint64_t signal_addons,
+	std::uint64_t retire_all_addons) noexcept
 {
 	if (state == nullptr || snapshot == nullptr || call.closure == nullptr
 		|| !call.callsite.exact)
@@ -3218,18 +3369,22 @@ void retire_lua_call_slot(
 	}
 	try
 	{
-		std::shared_ptr<LuaCallRetireLedger> ledger;
-		for (const auto& provider : snapshot->providers)
+		const TargetExecutionSnapshot::Providers* provider = nullptr;
+		for (const auto& entry : snapshot->providers)
 		{
-			if (provider.key == call.callsite.target_key
-				&& provider.vm == state->global_state)
+			if (entry.key == call.callsite.target_key
+				&& entry.vm == state->global_state)
 			{
-				ledger = provider.lua_before_retire;
+				provider = &entry;
 				break;
 			}
 		}
-		if (ledger == nullptr) return;
+		if (provider == nullptr || provider->lua_before_retire == nullptr) return;
+		const auto& ledger = provider->lua_before_retire;
 		const void* const environment = call.closure->env;
+		const std::uint64_t exclusive = retire_all_addons == 0 ? 0
+			: lua_call_retire_all_exclusive_mask(
+				provider->lua_before_addon_slots, retire_all_addons);
 		const char* rejected = nullptr;
 		LuaCallRetireOutcome outcome = LuaCallRetireOutcome::no_change;
 		std::uint64_t serial = 0;
@@ -3243,7 +3398,14 @@ void retire_lua_call_slot(
 			else if (ledger->vm() != state->global_state) rejected = "ignored-cross-vm";
 			else
 			{
-				outcome = ledger->on_signal(call.callsite.prototype, environment, serial);
+				outcome = retire_all_addons != 0
+					? ledger->on_signal_all(call.callsite.prototype, environment, exclusive, serial)
+					: ledger->on_signal(call.callsite.prototype, environment, serial);
+				for (std::size_t index = 0; index != provider->addons.size() && index < 64; ++index)
+				{
+					if (((signal_addons >> index) & 1ull) != 0)
+						ledger->note_aware_addon(provider->addons[index].name);
+				}
 				refresh_lua_before_provider_fast_gate_locked();
 			}
 			// Ignored signals repeat on every dispatch: report each reason once
@@ -3268,8 +3430,9 @@ void retire_lua_call_slot(
 		{
 		case LuaCallRetireOutcome::retired:
 		case LuaCallRetireOutcome::served:
-			log_lua_call_retire_event("retire", view, call.callsite.prototype,
-				serial, environment, lua_call_retire_outcome_label(outcome));
+			log_lua_call_retire_event(retire_all_addons != 0 ? "retire-all" : "retire",
+				view, call.callsite.prototype, serial, environment,
+				lua_call_retire_outcome_label(outcome));
 			break;
 		case LuaCallRetireOutcome::no_change:
 			break;
@@ -9650,9 +9813,12 @@ struct LuaCallBeforeLeafContext
 	bool invoked = false;
 	bool completed = false;
 	// Retire-after-use: providers whose before ran, and how many of them
-	// returned lua_call_retire_sentinel.
+	// returned a retire sentinel (R3 or S5 form). R4: bit i is set for
+	// provider i (< 64) that signalled / signalled retire-all.
 	std::size_t invoked_count = 0;
 	std::size_t retire_signals = 0;
+	std::uint64_t signal_addons = 0;
+	std::uint64_t retire_all_addons = 0;
 	LuaCallBeforeLeafStage stage = LuaCallBeforeLeafStage::none;
 	std::size_t failure_index = 0;
 	int callback_status = 0;
@@ -9662,19 +9828,30 @@ struct LuaCallBeforeLeafContext
 static_assert(std::is_trivially_copyable_v<LuaCallBeforeLeafContext>);
 
 // Exact retire signal: a DE string whose bytes are lua_call_retire_sentinel
-// including its terminator. Scalar reads only; callable inside the raw leaf.
-bool lua_call_before_leaf_is_retire_signal(const luau_TValue& value) noexcept
+// or (R4 S5) lua_call_retire_all_sentinel, including the terminator. The R3
+// length is read first; only a string whose byte 15 is '_' reads the four
+// further bytes, so an R3 sentinel at the end of a page still classifies.
+// Scalar reads only; callable inside the raw leaf.
+LuaCallRetireSignal lua_call_before_leaf_retire_signal(const luau_TValue& value) noexcept
 {
 	if ((value.type != LUAU_STRING && value.type != deployed_string_tag)
 		|| value.value.as_uintptr == 0
 		|| value.value.as_uintptr > (std::numeric_limits<std::uintptr_t>::max)() - 0x18
-			- lua_call_retire_sentinel_length - 1)
+			- lua_call_retire_all_sentinel_length - 1)
 	{
-		return false;
+		return LuaCallRetireSignal::none;
 	}
 	const char* const text = reinterpret_cast<const char*>(value.value.as_uintptr + 0x18);
-	return !diagnostics::bad_read_ptr(text, lua_call_retire_sentinel_length + 1)
-		&& is_lua_call_retire_sentinel_bytes(text);
+	if (diagnostics::bad_read_ptr(text, lua_call_retire_sentinel_length + 1))
+		return LuaCallRetireSignal::none;
+	if (is_lua_call_retire_sentinel_bytes(text)) return LuaCallRetireSignal::retire;
+	if (text[lua_call_retire_sentinel_length] != '_'
+		|| diagnostics::bad_read_ptr(text, lua_call_retire_all_sentinel_length + 1))
+	{
+		return LuaCallRetireSignal::none;
+	}
+	return is_lua_call_retire_all_sentinel_bytes(text)
+		? LuaCallRetireSignal::retire_all : LuaCallRetireSignal::none;
 }
 
 // BEGIN LUA_CALL_BEFORE_PROTECTED_LEAF
@@ -9951,10 +10128,11 @@ void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
 					state, callback_arguments[argument])) return;
 		}
 		state->interrupt_count = 0;
-		// One result: nil unless the callback returns a value. Only the exact
-		// retire sentinel is interpreted; every other value is ignored as
+		// Two results, nil-padded: nil unless the callback returns values. Only
+		// the exact retire sentinels are interpreted (R3 form, S5 retire-all
+		// alone, or R3 then retire-all); every other value is ignored as
 		// before, so callbacks that return nothing are unchanged.
-		context->callback_status = protected_call(state, 4, 1, 0);
+		context->callback_status = protected_call(state, 4, 2, 0);
 		if (context->callback_status != 0
 			&& state->outtop > luau_restorestack(state, callback_base_offset))
 		{
@@ -9963,10 +10141,21 @@ void lua_call_before_protected_leaf(luau_State* state, void* raw_context)
 				context->error_text, sizeof(context->error_text));
 		}
 		if (context->callback_status == 0
-			&& state->outtop == luau_restorestack(state, callback_base_offset) + 1
-			&& lua_call_before_leaf_is_retire_signal(*(state->outtop - 1)))
+			&& state->outtop == luau_restorestack(state, callback_base_offset) + 2)
 		{
-			++context->retire_signals;
+			const auto signal = combine_lua_call_retire_results(
+				lua_call_before_leaf_retire_signal(*(state->outtop - 2)),
+				lua_call_before_leaf_retire_signal(*(state->outtop - 1)));
+			if (signal != LuaCallRetireSignal::none)
+			{
+				++context->retire_signals;
+				if (index < 64)
+				{
+					context->signal_addons |= 1ull << index;
+					if (signal == LuaCallRetireSignal::retire_all)
+						context->retire_all_addons |= 1ull << index;
+				}
+			}
 		}
 		state->outtop = luau_restorestack(state, callback_base_offset);
 		if (context->callback_status != 0) return;
@@ -10313,7 +10502,8 @@ bool dispatch_lua_call_phase(
 	if (context.retire_signals != 0
 		&& context.retire_signals == context.invoked_count)
 	{
-		retire_lua_call_slot(state, call, providers.execution.snapshot.get());
+		retire_lua_call_slot(state, call, providers.execution.snapshot.get(),
+			context.signal_addons, context.retire_all_addons);
 	}
 	return true;
 }
@@ -15251,6 +15441,16 @@ std::uint32_t de_luau_interrupt_increment_detour(luau_State* state)
 		{
 			return;
 		}
+		// R4 S2: armed-prototype prefilter. A proven miss (not a CALL, no Lua
+		// closure, or a callee prototype in no armed slot) returns before any
+		// IsBadReadPtr probe, lease or owner search. A candidate or an unproven
+		// frame shape continues through the unchanged, fully validated path.
+		if (lua_call_prefilter_skips(lua_call_before_prefilter<luau_State, luau_Closure>(
+				state, game_version >= GV(44, 0, 0),
+				[](int tag) { return is_function(tag); }, lua_before_armed_prototypes)))
+		{
+			return;
+		}
 		std::uint32_t raw_instruction = 0;
 		if (!exact_current_lua_instruction(state, raw_instruction)) return;
 		DeLuaCallInstruction decoded;
@@ -15326,6 +15526,64 @@ std::uint32_t de_luau_interrupt_increment_detour(luau_State* state)
 			trace_lua_call_before_reject(state, call);
 		}
 	});
+}
+
+// S4 execution evidence. Called at every natural VM-execute entry, before the
+// naked stock execute, while lua_call_dormant_watch is set (otherwise one
+// atomic load). The allocation-free chain check reads no memory the entering
+// interpreter does not own; only a possible match takes the lease and the
+// exact per-provider lookup. Wakes every dormant ledger of this VM whose
+// module owns the matched non-root prototype. No Lua, no VM write; the lease
+// and the mutex are released before the stock execute.
+void note_lua_call_dormant_execution(luau_State* state) noexcept
+{
+	if (!lua_call_dormant_watch.load(std::memory_order_acquire)
+		|| state == nullptr || state->global_state == nullptr)
+	{
+		return;
+	}
+	const auto prototype = lua_call_dormant_wake_candidate<luau_State, luau_Closure>(
+		state, [](int tag) { return is_function(tag); }, lua_call_dormant_prototypes);
+	if (prototype == 0) return;
+	try
+	{
+		auto execution = acquire_target_execution_snapshot();
+		if (!execution) return;
+		std::array<LuaCallRetireView, 4> views{};
+		std::size_t woken = 0;
+		{
+			std::lock_guard retire_lock(lua_call_retire_mutex);
+			bool changed = false;
+			for (const auto& provider : execution.snapshot->providers)
+			{
+				if (provider.vm != state->global_state || provider.lua_before_retire == nullptr
+					|| !provider.lua_before_retire->dormant_hint()
+					|| !std::binary_search(provider.lua_before_module_prototypes.begin(),
+						provider.lua_before_module_prototypes.end(), prototype))
+				{
+					continue;
+				}
+				const bool registered = std::find(lua_call_retire_ledgers.begin(),
+					lua_call_retire_ledgers.end(), provider.lua_before_retire)
+					!= lua_call_retire_ledgers.end();
+				if (!registered || !provider.lua_before_retire->wake()) continue;
+				changed = true;
+				if (woken < views.size()) views[woken] = provider.lua_before_retire->view(-1);
+				++woken;
+			}
+			if (changed) refresh_lua_before_provider_fast_gate_locked();
+		}
+		if (woken == 0 || config::diagnostics_mode() == config::DiagnosticsMode::off) return;
+		for (std::size_t index = 0; index != (std::min)(woken, views.size()); ++index)
+		{
+			log_lua_call_retire_event("wake", views[index], -1, 0, nullptr,
+				"execution-evidence-dormant-rearmed", reinterpret_cast<const void*>(prototype));
+		}
+	}
+	catch (...)
+	{
+		open_lua_before_fast_paths();
+	}
 }
 
 // Generic target-root instance binding (2026-09-29). Observes the natural
@@ -15611,6 +15869,9 @@ void vm_execute_detour(luau_State* state)
 {
 	const auto pause_root = inspect_pause_vm_root_execution(state);
 	const auto target_root = inspect_target_root_entry(state);
+	// R4 S4: execution evidence wakes a dormant retirement ledger before the
+	// stock execute (lease and mutex released on return).
+	note_lua_call_dormant_execution(state);
 	const bool target_observation_enabled = observe_target_addons.load(
 		std::memory_order_acquire);
 	std::uint64_t target_execution_key = 0;

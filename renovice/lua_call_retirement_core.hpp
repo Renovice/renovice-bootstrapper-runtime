@@ -27,6 +27,31 @@
 // changed provider binding set (rebind, enable/disable) or changed prototype
 // set creates or re-arms the ledger. Re-arming is always safe: the addon is
 // dispatched again and signals again.
+//
+// R4 (2026-09-30) adds three generic refinements; none names a module.
+//
+// S4 dormant re-arm. A ledger that replaces an earlier ledger of the same
+// (key, VM) starts the untracked member DORMANT for every slot declared only
+// by retire-aware addons (addons, by name, that returned a sentinel for this
+// (key, VM) in an earlier ledger). A dormant slot counts as served: it holds
+// neither a claim nor the process gate open. It is woken, never guessed, by
+// execution evidence: a natural VM-execute entry whose Lua call chain holds a
+// closure of that module (not its root; a root entry is a new instance and
+// re-arms through on_root_entry). Slots of addons that never signalled start
+// armed exactly as in R3, so pre-R3 addons are unchanged.
+//
+// S5 retire-all. A callback returns "RENOVICE_RETIRE_ALL" (alone, or as the
+// second result after "RENOVICE_RETIRE", which a pre-R4 runtime reads as a
+// plain R3 retire). Same unanimity, scope and fail-closed rules as R3; the
+// signalling prototype must be a retirable root child. It serves, for the
+// calling instance (and the untracked member, as R3 does), every retirable
+// slot declared only by addons that returned retire-all in that dispatch.
+//
+// S2 armed-prototype prefilter. LuaCallAddressSet holds the prototype
+// addresses of every armed slot. The interrupt observer checks the callee's
+// prototype against it before any IsBadReadPtr probe, snapshot lease or owner
+// search; a definite miss returns, anything else takes the unchanged,
+// fully validated path.
 
 #include <algorithm>
 #include <array>
@@ -34,8 +59,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <vector>
+
+#include "injection_core.hpp"
 
 namespace renovice::injection
 {
@@ -58,6 +86,84 @@ inline bool is_lua_call_retire_sentinel_bytes(const char* text) noexcept
 	return text != nullptr
 		&& std::memcmp(text, lua_call_retire_sentinel,
 			lua_call_retire_sentinel_length + 1) == 0;
+}
+
+// S5. "RENOVICE_RETIRE_ALL": the R3 sentinel followed by "_ALL", so byte 15
+// ('_' here, NUL in the R3 sentinel) tells the two apart after one 16-byte
+// read, and a pre-R4 runtime never mistakes it for the R3 sentinel.
+inline constexpr char lua_call_retire_all_sentinel[] = "RENOVICE_RETIRE_ALL";
+inline constexpr std::size_t lua_call_retire_all_sentinel_length =
+	sizeof(lua_call_retire_all_sentinel) - 1;
+static_assert(lua_call_retire_all_sentinel_length == lua_call_retire_sentinel_length + 4);
+
+// `text` must point at least lua_call_retire_all_sentinel_length + 1 readable
+// bytes. Exact, case-sensitive match including the terminator.
+inline bool is_lua_call_retire_all_sentinel_bytes(const char* text) noexcept
+{
+	return text != nullptr
+		&& std::memcmp(text, lua_call_retire_all_sentinel,
+			lua_call_retire_all_sentinel_length + 1) == 0;
+}
+
+enum class LuaCallRetireSignal : std::uint8_t
+{
+	none,
+	retire,      // R3: this prototype, this instance
+	retire_all,  // S5: every retirable slot of the signalling addons, this instance
+};
+
+// The callback's first two results (`first`, `second`), each already
+// classified by the caller. Accepted forms:
+//   return "RENOVICE_RETIRE"                        -> retire
+//   return "RENOVICE_RETIRE_ALL"                    -> retire_all
+//   return "RENOVICE_RETIRE", "RENOVICE_RETIRE_ALL" -> retire_all (a pre-R4
+//       runtime reads one result and sees a plain R3 retire)
+// Anything else, including a retire-all second result after any other first
+// value, is no signal.
+inline LuaCallRetireSignal combine_lua_call_retire_results(
+	LuaCallRetireSignal first,
+	LuaCallRetireSignal second) noexcept
+{
+	if (first == LuaCallRetireSignal::retire_all) return LuaCallRetireSignal::retire_all;
+	if (first != LuaCallRetireSignal::retire) return LuaCallRetireSignal::none;
+	return second == LuaCallRetireSignal::retire_all
+		? LuaCallRetireSignal::retire_all : LuaCallRetireSignal::retire;
+}
+
+// S5 scope with several addons on one (key, VM): the slots declared by the
+// addons in `retire_all_addons` (bit i = addons[i]) and by no other addon.
+// A slot shared with an addon that did not return retire-all stays armed.
+// Addons at index >= 64 cannot be in the set (fail closed).
+inline std::uint64_t lua_call_retire_all_exclusive_mask(
+	const std::vector<std::uint64_t>& addon_slots,
+	std::uint64_t retire_all_addons) noexcept
+{
+	std::uint64_t mine = 0;
+	std::uint64_t others = 0;
+	for (std::size_t index = 0; index != addon_slots.size(); ++index)
+	{
+		const bool in_set = index < 64 && ((retire_all_addons >> index) & 1ull) != 0;
+		(in_set ? mine : others) |= addon_slots[index];
+	}
+	return mine & ~others;
+}
+
+// S4 dormant start: the retirable slots declared only by retire-aware addons.
+// `aware[i]` says whether addons[i] signalled for this (key, VM) before. A
+// slot declared by any addon that never signalled starts armed (R3).
+inline std::uint64_t lua_call_retire_dormant_mask(
+	std::uint64_t retirable,
+	const std::vector<std::uint64_t>& addon_slots,
+	const std::vector<bool>& aware) noexcept
+{
+	std::uint64_t aware_slots = 0;
+	std::uint64_t unaware_slots = 0;
+	for (std::size_t index = 0; index != addon_slots.size(); ++index)
+	{
+		const bool is_aware = index < aware.size() && aware[index];
+		(is_aware ? aware_slots : unaware_slots) |= addon_slots[index];
+	}
+	return retirable & aware_slots & ~unaware_slots;
 }
 
 // FNV-1a-64 over the provider registry keys of one (key, VM). Any rebind
@@ -120,6 +226,7 @@ struct LuaCallRetireView
 	std::uint64_t binding = 0;
 	std::uint64_t retired = 0;
 	std::uint64_t untracked_pending = 0;
+	std::uint64_t untracked_dormant = 0;
 	std::uint64_t dispatches_total = 0;
 	std::uint64_t slot_dispatches = 0;
 	std::size_t pending_instances = 0;
@@ -139,13 +246,16 @@ public:
 		std::uint64_t serial = 0;
 	};
 
+	// `dormant` (S4): slots whose untracked member starts dormant instead of
+	// pending (see the header comment). 0 keeps the R3 start (fully armed).
 	LuaCallRetireLedger(
 		std::uint64_t generation,
 		std::uint64_t target_key,
 		const void* vm,
 		std::vector<std::int32_t> prototypes,
 		std::uint64_t root_children,
-		std::uint64_t binding) noexcept
+		std::uint64_t binding,
+		std::uint64_t dormant = 0) noexcept
 		: generation_(generation), target_key_(target_key), vm_(vm),
 		  prototypes_(std::move(prototypes)), binding_(binding)
 	{
@@ -156,8 +266,10 @@ public:
 		const std::uint64_t all = slots >= 64 ? ~0ull : ((1ull << slots) - 1ull);
 		retirable_ = root_children & all;
 		// Instances that existed before this ledger: one untracked member.
-		untracked_pending_ = retirable_;
+		untracked_dormant_ = retirable_ & dormant;
+		untracked_pending_ = retirable_ & ~untracked_dormant_;
 		instances_.reserve(lua_call_retire_max_instances);
+		publish();
 	}
 
 	std::uint64_t generation() const noexcept { return generation_; }
@@ -169,6 +281,43 @@ public:
 	bool overflow() const noexcept { return overflow_; }
 	std::size_t pending_instances() const noexcept { return instances_.size(); }
 	std::uint64_t untracked_pending() const noexcept { return untracked_pending_; }
+	std::uint64_t untracked_dormant() const noexcept { return untracked_dormant_; }
+	// Lock-free hint for the execution-evidence watch (S4).
+	bool dormant_hint() const noexcept
+	{
+		return dormant_hint_.load(std::memory_order_acquire);
+	}
+
+	// S4: execution evidence for the module in this ledger's VM (a VM-execute
+	// entry with one of its non-root closures on the Lua call chain). The
+	// dormant untracked slots become pending (armed) again. Caller holds the
+	// owner's mutex. Returns true when a slot changed.
+	bool wake() noexcept
+	{
+		if (untracked_dormant_ == 0) return false;
+		untracked_pending_ |= untracked_dormant_;
+		untracked_dormant_ = 0;
+		publish();
+		return true;
+	}
+
+	// S4 retire-awareness: addon names (stable across F9, unlike registry
+	// keys) that returned a sentinel for this (key, VM). Inherited by the
+	// next ledger of the same (key, VM). Caller holds the owner's mutex.
+	bool addon_aware(std::string_view name) const noexcept
+	{
+		return std::find(aware_addons_.begin(), aware_addons_.end(), name)
+			!= aware_addons_.end();
+	}
+	void note_aware_addon(std::string_view name)
+	{
+		if (!addon_aware(name)) aware_addons_.emplace_back(name);
+	}
+	void inherit_aware_addons(const std::vector<std::string>& names)
+	{
+		for (const auto& name : names) note_aware_addon(name);
+	}
+	const std::vector<std::string>& aware_addons() const noexcept { return aware_addons_; }
 
 	bool same_identity(
 		std::uint64_t generation,
@@ -244,6 +393,7 @@ public:
 		result.binding = binding_;
 		result.retired = retired_mask();
 		result.untracked_pending = untracked_pending_;
+		result.untracked_dormant = untracked_dormant_;
 		result.dispatches_total = dispatches();
 		result.slot_dispatches = prototype >= 0 ? slot_dispatches(prototype) : 0;
 		result.pending_instances = instances_.size();
@@ -346,20 +496,56 @@ public:
 		const std::uint64_t bit = 1ull << index;
 		if ((retirable_ & bit) == 0) return LuaCallRetireOutcome::not_root_child;
 		if (overflow_) return LuaCallRetireOutcome::overflow;
-		signalled_ever_ |= bit;
+		return serve(bit, environment, instance_serial_out);
+	}
+
+	// S5: a successful dispatch in which every invoked provider signalled and
+	// the addons in the set returned retire-all. `exclusive` is
+	// lua_call_retire_all_exclusive_mask for those addons. The calling
+	// prototype must itself be a retirable slot (as for R3); then the calling
+	// slot and every retirable slot in `exclusive` are served for this
+	// instance and the untracked member. Non-root-child, undeclared or
+	// beyond-64 slots in `exclusive` stay armed.
+	LuaCallRetireOutcome on_signal_all(
+		std::int32_t prototype,
+		const void* environment,
+		std::uint64_t exclusive,
+		std::uint64_t& instance_serial_out) noexcept
+	{
+		instance_serial_out = 0;
+		const int index = index_of(prototype);
+		if (index < 0 || static_cast<std::size_t>(index) >= lua_call_retire_max_prototypes)
+			return LuaCallRetireOutcome::unknown_prototype;
+		const std::uint64_t bit = 1ull << index;
+		if ((retirable_ & bit) == 0) return LuaCallRetireOutcome::not_root_child;
+		if (overflow_) return LuaCallRetireOutcome::overflow;
+		return serve((exclusive | bit) & retirable_, environment, instance_serial_out);
+	}
+
+private:
+	// R3 serving rule for a set of retirable bits: the first signal serves the
+	// untracked member (pending or dormant), and the tracked instance with this
+	// environment, if any.
+	LuaCallRetireOutcome serve(
+		std::uint64_t bits,
+		const void* environment,
+		std::uint64_t& instance_serial_out) noexcept
+	{
+		signalled_ever_ |= bits;
 		bool changed = false;
-		if ((untracked_pending_ & bit) != 0)
+		if (((untracked_pending_ | untracked_dormant_) & bits) != 0)
 		{
-			untracked_pending_ &= ~bit;
+			untracked_pending_ &= ~bits;
+			untracked_dormant_ &= ~bits;
 			changed = true;
 		}
 		for (auto& instance : instances_)
 		{
 			if (instance.environment != environment) continue;
 			instance_serial_out = instance.serial;
-			if ((instance.served & bit) == 0)
+			if ((instance.served & bits) != bits)
 			{
-				instance.served |= bit;
+				instance.served |= bits;
 				changed = true;
 			}
 			break;
@@ -368,16 +554,16 @@ public:
 		publish();
 		const auto after = retired_mask();
 		if (!changed) return LuaCallRetireOutcome::no_change;
-		return ((after & bit) != 0 && (before & bit) == 0)
+		return ((after & ~before & bits) != 0)
 			? LuaCallRetireOutcome::retired : LuaCallRetireOutcome::served;
 	}
 
-private:
 	void publish() noexcept
 	{
 		std::uint64_t mask = overflow_ ? 0 : (retirable_ & ~untracked_pending_);
 		for (const auto& instance : instances_) mask &= instance.served;
 		retired_.store(mask, std::memory_order_release);
+		dormant_hint_.store(!overflow_ && untracked_dormant_ != 0, std::memory_order_release);
 	}
 
 	std::uint64_t generation_ = 0;
@@ -387,13 +573,16 @@ private:
 	std::uint64_t binding_ = 0;
 	std::uint64_t retirable_ = 0;
 	std::uint64_t untracked_pending_ = 0;
+	std::uint64_t untracked_dormant_ = 0;
 	std::uint64_t signalled_ever_ = 0;
 	std::vector<Instance> instances_;
+	std::vector<std::string> aware_addons_;
 	std::uint64_t next_serial_ = 0;
 	bool overflow_ = false;
 	std::uint64_t ignored_reported_ = 0;
 	bool unknown_reported_ = false;
 	std::atomic<std::uint64_t> retired_{0};
+	std::atomic<bool> dormant_hint_{false};
 	std::atomic<std::uint64_t> dispatches_{0};
 	std::array<std::atomic<std::uint64_t>, lua_call_retire_max_prototypes> slot_dispatches_{};
 };
@@ -409,5 +598,205 @@ inline bool lua_call_before_slot_armed(
 	bool unretirable_admitted) noexcept
 {
 	return unretirable_admitted || (admitted & ~retired) != 0;
+}
+
+// Lock-free set of prototype addresses (S2 armed set, S4 dormant-wake set).
+// Open addressing, one writer at a time (the owner's mutex), any number of
+// readers. A reader's answer is exact only for a stable, published,
+// unsaturated table; in every other case may_contain() answers "maybe" (true),
+// which sends the caller down its unchanged, fully validated path. A "no" is
+// therefore always a proven miss. Allocation-free.
+class LuaCallAddressSet
+{
+public:
+	static constexpr std::size_t capacity = 1024;              // power of two
+	static constexpr std::size_t maximum_entries = capacity / 2;
+
+	// Reader. False only when `address` is definitely absent.
+	bool may_contain(std::uintptr_t address) const noexcept
+	{
+		const auto before = sequence_.load(std::memory_order_acquire);
+		if ((before & 1u) != 0 || before == 0) return true;   // writing / never published
+		if (disabled_.load(std::memory_order_relaxed)
+			|| saturated_.load(std::memory_order_relaxed)) return true;
+		bool found = false;
+		if (address != 0)
+		{
+			for (std::size_t probe = 0, slot = hash(address); probe != capacity;
+				++probe, slot = (slot + 1) & (capacity - 1))
+			{
+				const auto value = slots_[slot].load(std::memory_order_relaxed);
+				if (value == 0) break;
+				if (value == address) { found = true; break; }
+			}
+		}
+		std::atomic_thread_fence(std::memory_order_acquire);
+		return found || sequence_.load(std::memory_order_relaxed) != before;
+	}
+
+	// Writer protocol: begin(), insert()..., commit(). Caller holds the
+	// owner's mutex for the whole sequence.
+	void begin() noexcept
+	{
+		const auto sequence = sequence_.load(std::memory_order_relaxed);
+		sequence_.store(sequence + 1, std::memory_order_relaxed);   // odd: writing
+		std::atomic_thread_fence(std::memory_order_release);
+		for (std::size_t index = 0; index != used_count_; ++index)
+			slots_[used_[index]].store(0, std::memory_order_relaxed);
+		used_count_ = 0;
+		saturated_.store(false, std::memory_order_relaxed);
+	}
+	void insert(std::uintptr_t address) noexcept
+	{
+		if (address == 0 || saturated_.load(std::memory_order_relaxed)) return;
+		std::size_t slot = hash(address);
+		for (std::size_t probe = 0; probe != capacity;
+			++probe, slot = (slot + 1) & (capacity - 1))
+		{
+			const auto value = slots_[slot].load(std::memory_order_relaxed);
+			if (value == address) return;
+			if (value != 0) continue;
+			if (used_count_ >= maximum_entries) break;
+			slots_[slot].store(address, std::memory_order_relaxed);
+			used_[used_count_++] = static_cast<std::uint16_t>(slot);
+			return;
+		}
+		saturated_.store(true, std::memory_order_relaxed);   // fail open: "maybe" for all
+	}
+	void commit() noexcept
+	{
+		const auto sequence = sequence_.load(std::memory_order_relaxed);
+		sequence_.store(sequence + 1, std::memory_order_release);   // even: stable
+	}
+	// Sticky: every later query answers "maybe" (the pre-S2 behaviour). Any
+	// thread may call it, e.g. from a catch block that lost the mutex.
+	void disable() noexcept { disabled_.store(true, std::memory_order_release); }
+
+	std::size_t size() const noexcept { return used_count_; }         // writer side
+	bool saturated() const noexcept { return saturated_.load(std::memory_order_relaxed); }
+	bool disabled() const noexcept { return disabled_.load(std::memory_order_acquire); }
+
+private:
+	static std::size_t hash(std::uintptr_t address) noexcept
+	{
+		// Prototypes are heap objects aligned to at least 8 bytes.
+		return static_cast<std::size_t>(
+			(static_cast<std::uint64_t>(address >> 3) * 0x9E3779B97F4A7C15ull) >> 54)
+			& (capacity - 1);
+	}
+
+	std::atomic<std::uint64_t> sequence_{0};
+	std::atomic<bool> saturated_{false};
+	std::atomic<bool> disabled_{false};
+	std::array<std::atomic<std::uintptr_t>, capacity> slots_{};
+	std::array<std::uint16_t, maximum_entries> used_{};
+	std::size_t used_count_ = 0;
+};
+static_assert(LuaCallAddressSet::capacity == 1024,
+	"hash() takes the top 10 bits of the product");
+
+enum class LuaCallPrefilterVerdict : std::uint8_t
+{
+	skip_not_a_call,          // current instruction is not a DE CALL
+	skip_not_a_lua_closure,   // callee slot holds no Lua closure
+	skip_not_armed,           // callee prototype is in no armed slot
+	candidate,                // callee prototype may be armed: full path
+	undecided,                // frame shape not proven: full path
+};
+
+inline bool lua_call_prefilter_skips(LuaCallPrefilterVerdict verdict) noexcept
+{
+	return verdict != LuaCallPrefilterVerdict::candidate
+		&& verdict != LuaCallPrefilterVerdict::undecided;
+}
+
+// S2 prefilter at the DE interrupt (luaCalls.before observer), before any
+// IsBadReadPtr probe, snapshot lease or owner search. Reads only memory the
+// interpreter itself dereferences at this interrupt: the current CallInfo
+// (range-checked inside [base_ci, end_ci)), the instruction just before
+// savedpc (the same word exact_current_lua_instruction decodes), one stack
+// slot inside the current frame (range-checked inside [stack, stack_last) and
+// below ci->top), and the header of the closure that slot references (the
+// function the VM calls next). A "skip" verdict is only returned where the
+// full path would also reject; any unproven shape is `undecided`.
+// Template parameters are the runtime's luau types (or test mirrors with the
+// same member names).
+template <typename State, typename Closure, typename IsFunction>
+inline LuaCallPrefilterVerdict lua_call_before_prefilter(
+	const State* state,
+	bool u44,
+	IsFunction&& is_function,
+	const LuaCallAddressSet& armed,
+	std::uintptr_t* callee_proto = nullptr) noexcept
+{
+	if (callee_proto != nullptr) *callee_proto = 0;
+	const auto* const ci = state->ci;
+	if (ci == nullptr || state->base_ci == nullptr || state->end_ci == nullptr
+		|| ci < state->base_ci || ci >= state->end_ci)
+	{
+		return LuaCallPrefilterVerdict::undecided;
+	}
+	const auto pc = reinterpret_cast<std::uintptr_t>(ci->savedpc);
+	if (pc < 0x10000 + sizeof(std::uint32_t) || pc % sizeof(std::uint32_t) != 0)
+		return LuaCallPrefilterVerdict::undecided;
+	const auto raw = *(reinterpret_cast<const std::uint32_t*>(pc) - 1);
+	DeLuaCallInstruction decoded;
+	if (!decode_de_lua_call_instruction(raw, decoded, u44))
+		return LuaCallPrefilterVerdict::skip_not_a_call;
+	const auto* const base = ci->base;
+	const auto* const top = ci->top;
+	if (base == nullptr || top == nullptr || state->stack == nullptr
+		|| state->stack_last == nullptr || base < state->stack
+		|| top > state->stack_last || base >= top
+		|| static_cast<std::size_t>(top - base) <= decoded.register_a)
+	{
+		return LuaCallPrefilterVerdict::undecided;
+	}
+	const auto& function = base[decoded.register_a];
+	if (!is_function(static_cast<int>(function.type)) || function.value.as_uintptr == 0)
+		return LuaCallPrefilterVerdict::skip_not_a_lua_closure;
+	const auto* const closure = reinterpret_cast<const Closure*>(function.value.as_uintptr);
+	if (closure->isC) return LuaCallPrefilterVerdict::skip_not_a_lua_closure;
+	const auto proto = reinterpret_cast<std::uintptr_t>(closure->l.p);
+	if (callee_proto != nullptr) *callee_proto = proto;
+	return armed.may_contain(proto)
+		? LuaCallPrefilterVerdict::candidate : LuaCallPrefilterVerdict::skip_not_armed;
+}
+
+// S4 execution evidence at a natural VM-execute entry: the prototype of the
+// first Lua closure on the call chain (the entered frame, then up to
+// `maximum_frames - 1` callers) that the dormant-wake set may contain, else 0.
+// Same memory rules as the prefilter: CallInfo range-checked, function slots
+// range-checked inside the stack, closure headers of active frames only.
+template <typename State, typename Closure, typename IsFunction>
+inline std::uintptr_t lua_call_dormant_wake_candidate(
+	const State* state,
+	IsFunction&& is_function,
+	const LuaCallAddressSet& dormant,
+	std::size_t maximum_frames = 8) noexcept
+{
+	const auto* ci = state->ci;
+	if (ci == nullptr || state->base_ci == nullptr || state->end_ci == nullptr
+		|| ci < state->base_ci || ci >= state->end_ci
+		|| state->stack == nullptr || state->stack_last == nullptr)
+	{
+		return 0;
+	}
+	for (std::size_t depth = 0; depth != maximum_frames; ++depth, --ci)
+	{
+		const auto* const slot = ci->func;
+		if (slot != nullptr && slot >= state->stack && slot < state->stack_last
+			&& is_function(static_cast<int>(slot->type)) && slot->value.as_uintptr != 0)
+		{
+			const auto* const closure = reinterpret_cast<const Closure*>(slot->value.as_uintptr);
+			if (!closure->isC)
+			{
+				const auto proto = reinterpret_cast<std::uintptr_t>(closure->l.p);
+				if (proto != 0 && dormant.may_contain(proto)) return proto;
+			}
+		}
+		if (ci == state->base_ci) break;
+	}
+	return 0;
 }
 }

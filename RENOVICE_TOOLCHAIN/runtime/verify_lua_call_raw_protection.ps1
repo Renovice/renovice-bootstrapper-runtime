@@ -72,8 +72,8 @@ foreach ($marker in @(
     'luau_gettable(',
     'luau_settable(',
     'getfield(',
-    # One result: read only for the exact retire sentinel (2026-09-30).
-    'protected_call(state, 4, 1, 0)',
+    # Two results (R4, 2026-09-30): read only for the exact retire sentinels.
+    'protected_call(state, 4, 2, 0)',
     'context->completed = true;'
 )) {
     if (-not $leaf.Contains($marker)) {

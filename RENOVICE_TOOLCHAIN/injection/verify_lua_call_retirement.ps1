@@ -1,11 +1,14 @@
 # Deterministic gates for the generic luaCalls.before retire-after-use
-# primitive (2026-09-30). Offline only: compiles the probe fixture with the DE
-# Luau toolchain, runs the pure model self-tests and micro-benchmark, and pins
-# the runtime integration in injection.cpp. It never reads or writes a game
-# folder.
+# primitive (2026-09-30) and its R4 follow-ups (S2 armed-prototype prefilter,
+# S4 dormant re-arm, S5 retire-all). Offline only: compiles the probe fixtures
+# with the DE Luau toolchain, runs the pure model self-tests, the prefilter
+# equivalence fuzz and the micro-benchmarks, and pins the runtime integration
+# in injection.cpp. It never reads or writes a game folder.
 param(
     # Optional: copy the compiled probe here (for staging an opt-in live test).
-    [string]$EmitProbe = ""
+    [string]$EmitProbe = "",
+    # Optional: copy the compiled R4 retire-all probe here.
+    [string]$EmitRetireAllProbe = ""
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -40,6 +43,12 @@ $fixture = Join-Path $scratch 'RetireProbe.targets.addon.lua_B'
 if ($LASTEXITCODE) { throw 'LUA CALL RETIRE GATE FAIL: fixture U44 compilation failed' }
 & (Join-Path $deToolchain 'derecomp.exe') de-roundtrip $fixture
 if ($LASTEXITCODE) { throw 'LUA CALL RETIRE GATE FAIL: fixture container roundtrip failed' }
+$allSource = Copy-GateInput (Join-Path $injectionDir 'fixtures\RetireAllProbe.targets.addon.luau') $scratch
+$allFixture = Join-Path $scratch 'RetireAllProbe.targets.addon.lua_B'
+& (Join-Path $deToolchain 'derecomp.exe') recompile-u44 $allSource $allFixture
+if ($LASTEXITCODE) { throw 'LUA CALL RETIRE GATE FAIL: retire-all fixture U44 compilation failed' }
+& (Join-Path $deToolchain 'derecomp.exe') de-roundtrip $allFixture
+if ($LASTEXITCODE) { throw 'LUA CALL RETIRE GATE FAIL: retire-all fixture container roundtrip failed' }
 
 # 2. Pure model self-tests and micro-benchmark.
 $originalEnvironment = @{}
@@ -60,7 +69,7 @@ try {
     $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /Fo:$object /Fe:$binary $source 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
     $output | Write-Output
     if ($LASTEXITCODE -ne 0) { throw "LUA CALL RETIRE GATE FAIL: checker compilation failed: $LASTEXITCODE" }
-    & $binary $fixture
+    & $binary $fixture $allFixture
     if ($LASTEXITCODE -ne 0) { throw "LUA CALL RETIRE GATE FAIL: model checker failed: $LASTEXITCODE" }
 }
 finally {
@@ -123,30 +132,78 @@ Require (Before $detour 'const auto target_root = inspect_target_root_entry(stat
 Require (Before $detour 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);' 'note_lua_call_instance_settled(settled_root);') 'the published environment is recorded only after a normal root return'
 
 $leaf = Get-Region $injection '// BEGIN LUA_CALL_BEFORE_PROTECTED_LEAF' '// END LUA_CALL_BEFORE_PROTECTED_LEAF' 'luaCalls.before leaf'
-Require ($leaf.Contains('protected_call(state, 4, 1, 0)') -and -not $leaf.Contains('protected_call(state, 4, 0, 0)')) 'signal: the callback result is read (one result, nil when nothing is returned)'
-Require (Before $leaf 'context->callback_status == 0' 'lua_call_before_leaf_is_retire_signal(*(state->outtop - 1))') 'signal: only a successful callback can signal'
-Require (Before $leaf 'lua_call_before_leaf_is_retire_signal(*(state->outtop - 1))' 'state->outtop = luau_restorestack(state, callback_base_offset);') 'signal: the result is read before the stack is restored'
+Require ($leaf.Contains('protected_call(state, 4, 2, 0)') -and -not $leaf.Contains('protected_call(state, 4, 0, 0)') -and -not $leaf.Contains('protected_call(state, 4, 1, 0)')) 'signal: two callback results are read (nil-padded; R3 form, S5 retire-all alone or second)'
+Require (Before $leaf 'context->callback_status == 0' 'lua_call_before_leaf_retire_signal(*(state->outtop - 2))') 'signal: only a successful callback can signal'
+Require ($leaf.Contains('combine_lua_call_retire_results(') -and $leaf.Contains('lua_call_before_leaf_retire_signal(*(state->outtop - 1))')) 'S5 signal: first and second results are classified and combined by the unit-tested rule'
+Require (Before $leaf 'lua_call_before_leaf_retire_signal(*(state->outtop - 1))' 'state->outtop = luau_restorestack(state, callback_base_offset);') 'signal: the results are read before the stack is restored'
 Require ($leaf.Contains('++context->invoked_count;')) 'signal: invoked providers are counted'
-$helper = Get-Region $injection 'bool lua_call_before_leaf_is_retire_signal(const luau_TValue& value) noexcept' '// BEGIN LUA_CALL_BEFORE_PROTECTED_LEAF' 'sentinel helper'
+Require ($leaf.Contains('context->signal_addons |= 1ull << index;') -and $leaf.Contains('context->retire_all_addons |= 1ull << index;') -and $leaf.Contains('if (index < 64)')) 'S5/S4: signalling and retire-all addons are recorded per provider index (< 64, else plain R3)'
+$helper = Get-Region $injection 'LuaCallRetireSignal lua_call_before_leaf_retire_signal(const luau_TValue& value) noexcept' '// BEGIN LUA_CALL_BEFORE_PROTECTED_LEAF' 'sentinel helper'
+Require (Before $helper 'is_lua_call_retire_sentinel_bytes(text)' 'diagnostics::bad_read_ptr(text, lua_call_retire_all_sentinel_length + 1)') 'S5 signal: the R3 length is probed and matched before the four retire-all bytes are read'
 foreach ($forbidden in @('std::string', 'std::vector', 'ostringstream', 'throw', ' new ', 'config::')) {
     Require ($helper.IndexOf($forbidden, [StringComparison]::Ordinal) -lt 0) "signal: the sentinel read is destructor-free: no $forbidden"
 }
 
 $dispatch = Get-Region $injection 'bool dispatch_lua_call_phase(' 'enum class NativeCallPhaseLeafStage' 'dispatch'
-Require (Before $dispatch 'live_argument_base[index] = candidate_arguments[index];' 'retire_lua_call_slot(state, call, providers.execution.snapshot.get());') 'retire only after the committed copy-back'
+Require (Before $dispatch 'live_argument_base[index] = candidate_arguments[index];' 'retire_lua_call_slot(state, call, providers.execution.snapshot.get(),') 'retire only after the committed copy-back'
+Require ($dispatch.Contains('context.signal_addons, context.retire_all_addons);')) 'S5: the dispatch hands the per-addon signal masks to the retire path'
 Require ($dispatch.Contains('context.retire_signals != 0') -and $dispatch.Contains('context.retire_signals == context.invoked_count')) 'every invoked provider must signal'
 Require (Before $dispatch 'restore_stock();' 'retire_lua_call_slot(') 'a failed or rejected dispatch returns before retirement'
 
 # Other hook kinds are untouched: nativeCalls, damage and lifecycle leaves do
 # not interpret the sentinel.
 $native = Get-Region $injection 'enum class NativeCallPhaseLeafStage' 'bool dispatch_native_call_phase(' 'nativeCalls leaf'
-Require ($native.IndexOf('lua_call_before_leaf_is_retire_signal', [StringComparison]::Ordinal) -lt 0 -and $native.IndexOf('retire_signals', [StringComparison]::Ordinal) -lt 0) 'other hooks: the nativeCalls leaf does not interpret the sentinel'
+Require ($native.IndexOf('lua_call_before_leaf_retire_signal', [StringComparison]::Ordinal) -lt 0 -and $native.IndexOf('retire_signals', [StringComparison]::Ordinal) -lt 0 -and $native.IndexOf('retire_all', [StringComparison]::Ordinal) -lt 0) 'other hooks: the nativeCalls leaf does not interpret either sentinel'
 Require ([regex]::Matches($injection, [regex]::Escape('retire_lua_call_slot(state, call,')).Count -eq 1) 'other hooks: retirement is reachable only from the luaCalls.before dispatch'
+Require ([regex]::Matches($injection, [regex]::Escape('lua_call_before_prefilter<')).Count -eq 1) 'other hooks: the S2 prefilter is used only by the luaCalls.before interrupt observer'
+$nativeDispatch = Get-Region $injection 'bool dispatch_native_call_phase(' 'std::uint32_t de_luau_interrupt_increment_detour(' 'nativeCalls dispatch'
+$damageDispatch = Get-Region $injection 'void damage_callback_install_protected_leaf(' 'enum class LuaCallBeforeLeafStage' 'damage callback install and dispatch'
+foreach ($forbidden in @('lua_before_armed_prototypes', 'lua_call_dormant', 'lua_call_before_prefilter', 'retire_lua_call_slot', 'lua_before_retire')) {
+    Require ($nativeDispatch.IndexOf($forbidden, [StringComparison]::Ordinal) -lt 0 -and $damageDispatch.IndexOf($forbidden, [StringComparison]::Ordinal) -lt 0) "other hooks: nativeCalls and damage dispatch do not use R4 retirement state: no $forbidden"
+}
+
+# R4 S2: prefilter placement and armed-set publication.
+Require (Before $interrupt 'if (!lua_before_provider_fast_gate.load(std::memory_order_acquire))' 'lua_call_before_prefilter<luau_State, luau_Closure>(') 'S2: the prefilter runs only while the gate is open'
+Require (Before $interrupt '|| lua_call_hook_running)' 'lua_call_before_prefilter<luau_State, luau_Closure>(') 'S2: the prefilter runs after the re-entrancy check'
+Require (Before $interrupt 'lua_call_before_prefilter<luau_State, luau_Closure>(' 'exact_current_lua_instruction(state, raw_instruction)') 'S2: the prefilter runs before the first IsBadReadPtr probe (exact_current_lua_instruction)'
+Require (Before $interrupt 'lua_call_before_prefilter<luau_State, luau_Closure>(' 'acquire_target_execution_snapshot()') 'S2: the prefilter runs before the snapshot lease and the owner search'
+Require ($interrupt.Contains('if (lua_call_prefilter_skips(')) 'S2: only a proven miss returns early; candidate and undecided continue on the validated path'
+Require (Before $refresh 'lua_before_armed_prototypes.begin();' 'lua_before_armed_prototypes.insert(slot.address);') 'S2: the armed set is rebuilt from the published snapshot on every gate refresh'
+Require ($refresh.Contains('slot.slot >= lua_call_retire_max_prototypes') -and $refresh.Contains('((retired >> slot.slot) & 1ull) == 0')) 'S2: the set holds every armed or never-retirable declared slot (no false negative)'
+Require (Before $refresh 'lua_before_armed_prototypes.commit();' 'lua_before_provider_fast_gate.store(armed, std::memory_order_release);') 'S2: the armed set is committed before the gate store'
+$fastPaths = Get-Region $injection 'void open_lua_before_fast_paths() noexcept' 'void refresh_lua_before_provider_fast_gate() noexcept' 'fail-open helper'
+Require ($fastPaths.Contains('lua_before_armed_prototypes.disable();') -and $fastPaths.Contains('lua_before_provider_fast_gate.store(true, std::memory_order_release);')) 'S2 fail open: the exception path disables the prefilter and opens the gate'
+Require ([regex]::Matches($injection, [regex]::Escape('lua_before_provider_fast_gate.store(true, std::memory_order_release);')).Count -eq 1) 'S2 fail open: every exception path goes through open_lua_before_fast_paths'
+
+# R4 S4: dormant start, execution-evidence wake.
+Require ($bind.Contains('registered_lua_call_retire_ledger_locked(') -and $bind.Contains('predecessor->addon_aware(provider.addons[index].name)') -and $bind.Contains('lua_call_retire_dormant_mask(root_children & all,')) 'S4: only a ledger replacing an earlier one of the same (key, VM) starts dormant, for slots of retire-aware addons only'
+Require ($bind.Contains('inherit_aware_addons(predecessor->aware_addons())')) 'S4: retire-awareness is inherited across generations by addon name'
+Require ($bind.Contains('prototype.address != root') -and $bind.Contains('provider.lua_before_module_prototypes.erase(root);')) 'S4: module roots are never execution evidence (a root entry is a new instance)'
+Require (Before $refresh 'lua_call_dormant_prototypes.begin();' 'lua_call_dormant_watch.store(dormant, std::memory_order_release);') 'S4: the dormant-wake set and watch flag follow every gate refresh'
+$wake = Get-Region $injection 'void note_lua_call_dormant_execution(luau_State* state) noexcept' '// Generic target-root instance binding (2026-09-29).' 'dormant wake'
+Require (Before $wake 'lua_call_dormant_watch.load(std::memory_order_acquire)' 'lua_call_dormant_wake_candidate<luau_State, luau_Closure>(') 'S4: one atomic load when no ledger is dormant'
+Require (Before $wake 'lua_call_dormant_wake_candidate<luau_State, luau_Closure>(' 'acquire_target_execution_snapshot()') 'S4: the lease is taken only for a possible match'
+Require ($wake.Contains('std::binary_search(provider.lua_before_module_prototypes.begin(),') -and $wake.Contains('provider.lua_before_retire->wake()') -and $wake.Contains('lua_call_retire_ledgers.end(), provider.lua_before_retire)')) 'S4: only a registered ledger whose module owns the exact prototype wakes'
+foreach ($forbidden in @('getfield', 'setfield', 'protected_call', 'generation_mutex', 'lua_execution_mutex', 'config::log(')) {
+    Require ($wake.IndexOf($forbidden, [StringComparison]::Ordinal) -lt 0) "S4 wake performs no VM work and takes no generation lock: no $forbidden"
+}
+Require (Before $detour 'const auto target_root = inspect_target_root_entry(state);' 'note_lua_call_dormant_execution(state);') 'S4: a root entry (new instance) is recorded before the execution-evidence check'
+Require (Before $detour 'note_lua_call_dormant_execution(state);' 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);') 'S4: the wake happens before the naked stock VM execute'
+
+# R4 S5: retire-all scope.
+Require ($retire.Contains('lua_call_retire_all_exclusive_mask(') -and $retire.Contains('ledger->on_signal_all(call.callsite.prototype, environment, exclusive, serial)')) 'S5: retire-all serves only slots declared exclusively by retire-all addons, through the ledger rule'
+Require ($retire.Contains('ledger->note_aware_addon(provider->addons[index].name);')) 'S4: every addon that signalled becomes retire-aware'
+Require (Before $retire 'if (!registered) rejected = "ignored-superseded-generation-or-binding";' 'ledger->on_signal_all(') 'S5 fail closed: superseded generation/binding and cross-VM checks precede retire-all'
 
 if (-not [string]::IsNullOrWhiteSpace($EmitProbe)) {
     New-Item -ItemType Directory -Path $EmitProbe -Force | Out-Null
     Copy-Item -LiteralPath $fixture -Destination (Join-Path $EmitProbe 'RetireProbe.targets.addon.lua_B') -Force
     Write-Output "PROBE EMITTED $(Join-Path $EmitProbe 'RetireProbe.targets.addon.lua_B')"
+}
+if (-not [string]::IsNullOrWhiteSpace($EmitRetireAllProbe)) {
+    New-Item -ItemType Directory -Path $EmitRetireAllProbe -Force | Out-Null
+    Copy-Item -LiteralPath $allFixture -Destination (Join-Path $EmitRetireAllProbe 'RetireAllProbe.targets.addon.lua_B') -Force
+    Write-Output "PROBE EMITTED $(Join-Path $EmitRetireAllProbe 'RetireAllProbe.targets.addon.lua_B')"
 }
 
 Write-Output "LUA CALL RETIREMENT GATES PASS"

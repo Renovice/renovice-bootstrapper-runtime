@@ -12,8 +12,8 @@ replacements
 packages
 injection
 engine_damage
-de_vm_authority
 config
+de_vm_authority
 owf_web
 owf_tunables
 owf_scripting

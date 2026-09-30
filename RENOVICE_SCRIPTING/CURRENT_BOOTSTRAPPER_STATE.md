@@ -1,5 +1,31 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 Retire R4: retire-all (S5), dormant re-arm (S4), armed-prototype prefilter (S2) staged (not deployed)
+
+Branch `feat/lua-call-retire-r4-2026-09-30` (from `f3a3303`, DLL `372a9eea`, which is installed; hash checked read-only). Generic; no module, mission or ability rule.
+
+- **S5 retire-all (optional).** A `luaCalls.before` callback returns `"RENOVICE_RETIRE_ALL"`, or `"RENOVICE_RETIRE", "RENOVICE_RETIRE_ALL"`. `372a9eea` reads the second form as a plain R3 retire.
+  - The leaf reads two results (`protected_call(state, 4, 2, 0)`).
+  - Unanimity, root-child, generation, binding, VM and overflow rules are unchanged.
+  - It serves the calling slot and every retirable slot declared only by retire-all addons, for the calling instance and the untracked member.
+- **S4 dormant re-arm.** A ledger that replaces an earlier one of the same (key, VM) starts dormant for slots declared only by retire-aware addons. An addon is retire-aware when it has signalled for that (key, VM) before, tracked by name.
+  - A dormant slot counts as served: no claim, no gate.
+  - `note_lua_call_dormant_execution` in `vm_execute_detour` (before the stock execute) wakes it on a VM-execute entry whose Lua call chain (entered frame plus 7 callers) holds a non-root closure of that module.
+  - Roots are excluded: a root entry is a new instance.
+  - Never-signalling addons keep the R3 start. First load is armed.
+- **S2 prefilter.** `LuaCallAddressSet` (seqlock, 1,024 slots, at most 512 entries) holds every armed or never-retirable slot address. It is rebuilt with the gate.
+  - The interrupt observer calls `lua_call_before_prefilter` before `exact_current_lua_instruction`.
+  - A proven miss returns; a candidate or undecided frame takes the unchanged path.
+  - Every exception path calls `open_lua_before_fast_paths` (prefilter disabled, gate open).
+- **Cost (gate model).**
+  - Unrelated call while the gate is open: 3.4–4.4 ns, against 95–315 ns before.
+  - Added in front of an armed hit: about 3.6 ns.
+  - Dormant wake scan per VM-execute entry: about 8 ns, or one atomic load when nothing is dormant.
+- **Gates.** `verify_lua_call_retirement.ps1` extended with S2/S4/S5 self-tests, a 400,000-frame prefilter equivalence fuzz (0 false negatives), the before/after benchmark, a DE-compiled `RetireAllProbe` fixture and the source invariants. `verify_lua_call_raw_protection.ps1` pins `4, 2, 0`. 33/33 build-listed gates PASS.
+- **Build.** Main DLL `731fdb112aa0fe74e00788e16359b1ad4a178a503b4ab04466a0d539c29fe1c5` (5,628,416 B), 0 warnings, 0 errors. Staged in `work/staging/editor-phase2-3/` with the opt-in `live-test-retire-all/…/RetireAllProbe.targets.addon.lua_B`. The `372a9eea` set is in `older/retire-372a9eea/`.
+
+**Deployment and the live check are pending.** Rollback is `372a9eea…`. Contract: `CONTRACT_PHASE1.md` Revision R4. [Record](../RESEARCH/LUA_CALL_RETIRE_R4_2026-09-30/README.md).
+
 ## 2026-09-30 Retire after use for `luaCalls.before` hooks staged (not deployed)
 
 Branch `feat/lua-call-retire-2026-09-30` (from `47a3c92`, the ENGINE_DAMAGE codec build `9e44f885`). Generic; no module, mission or ability rule.
