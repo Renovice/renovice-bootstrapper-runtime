@@ -1,5 +1,20 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 Retire after use for `luaCalls.before` hooks staged (not deployed)
+
+Branch `feat/lua-call-retire-2026-09-30` (from `47a3c92`, the ENGINE_DAMAGE codec build `9e44f885`). Generic; no module, mission or ability rule.
+
+- **Signal.** A `luaCalls[P].before` callback returns the exact string `"RENOVICE_RETIRE"`. The leaf now reads one result (`protected_call(state, 4, 1, 0)`); any other value, or none, is ignored as before. The prototype retires only when every provider that ran in that committed dispatch returned it. The retiring call's own copy-back is delivered.
+- **Scope.** One ledger per (generation, key, VM, provider binding set). A module instance is one observed root execution in that VM, named by its closures' environment. A slot stays retired while every known instance signalled it. Only direct root-child prototypes can retire; at most 64 slots and 16 tracked instances (overflow keeps everything armed).
+- **Re-arm.** Each natural root entry of the module (next mission) re-arms before the root runs; every F9 commit and every rebind, enable or disable re-arms.
+- **Cost.** With every admitted slot retired, the process fast gate closes: about 1 ns per Lua call (gate micro-benchmark), the same path as "no hook". If another slot keeps the gate open, a retired slot is rejected in the claim check (about 3 ns) before any VM write, Lua entry, allocation or formatting.
+- **Fail closed.** Superseded generation or binding, another VM, ambiguous owner, non-root-child or overflow: no retirement, dispatch continues.
+- **Diagnostics** (on only): `RENOVICE LUACALL_RETIRE event=retire|rearm|ignored … slot_dispatches=N dispatches_total=M instance=K outcome=…`, one line per state change. Nothing is formatted when off.
+- **Gates.** New `verify_lua_call_retirement.ps1` (model, micro-benchmark, DE-compiled probe, source invariants); `verify_lua_call_raw_protection.ps1` is now in the build (pins `4, 1, 0`); `verify_target_root_binding.ps1` updated for the shared return path. 33/33 build-listed gates PASS.
+- **Build.** Main DLL `372a9eeafd796227f2a55550efe77e20f5f3b64d85d88b0ca0a60ac63f4918c7` (5,619,200 B), 0 warnings, 0 errors. Bridge `2e337a43…` unchanged. Staged in `work/staging/editor-phase2-3/` with the opt-in probe `live-test-retire/…/RetireProbe.targets.addon.lua_B`; the `9e44f885` set is in `older/codec-9e44f885/`.
+
+**Deployment and the live check are pending.** Rollback is `9e44f885…`. Contract for the generator: `work/research/universal-mission-editor-2026-09-29/CONTRACT_PHASE1.md` Revision R3. [Record](../RESEARCH/LUA_CALL_RETIRE_AFTER_USE_2026-09-30/README.md).
+
 ## 2026-09-30 ENGINE_DAMAGE per-build codec for 44.0.2 + per-hit result lane staged (not deployed)
 
 Branch `fix/engine-damage-codec-44.0.2-2026-09-30` (from `fb9655e`, the R2 settings editor). Diagnostics only. Stock damage, gameplay, Pluto and the addon lanes are unchanged.

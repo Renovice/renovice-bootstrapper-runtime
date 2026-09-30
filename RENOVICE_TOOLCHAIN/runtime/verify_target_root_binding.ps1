@@ -72,7 +72,8 @@ $injection = [IO.File]::ReadAllText((Join-Path $repo 'renovice\injection.cpp'))
 
 $detour = Get-Region $injection "void vm_execute_detour(luau_State* state)`n{" 'void maybe_poll_runtime_controls() noexcept' 'vm_execute_detour'
 Require (Before $detour 'const auto target_root = inspect_target_root_entry(state);' 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);') 'root instance is identified before the naked stock VM execute'
-Require (Before $detour 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);' 'queue_target_root_return(settle_target_root_return(state, target_root));') 'root return is recorded only after a normal stock return'
+Require (Before $detour 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);' 'const auto settled_root = settle_target_root_return(state, target_root);') 'root return is settled only after a normal stock return'
+Require (Before $detour 'const auto settled_root = settle_target_root_return(state, target_root);' 'if (target_root.valid) queue_target_root_return(settled_root);') 'only a retry-watched root return is queued for the rebind path'
 Require (Before $detour 'apply_target_root_returns(state);' 'drain_pending_target_addons_for_vm(state);') 'root rebind is queued at the exact idle return before the refresh drain'
 Require (Before $detour 'if (!exact_idle_return) return;' 'apply_target_root_returns(state);') 'identity update runs only at an exact idle return'
 

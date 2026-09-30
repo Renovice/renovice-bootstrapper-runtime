@@ -101,6 +101,11 @@ return {
 `luaCalls[P].after` is rejected, because exact return/yield/error retirement
 has not been implemented.
 
+A `luaCalls[P].before` callback may return the exact string
+`"RENOVICE_RETIRE"` to stop being dispatched for the current module instance.
+See "Retire after use" below. Any other return value, including none, is
+ignored, as before.
+
 ## Multi-target addons (several modules, one Scripts row)
 
 Use this when one feature, for example a single "Missions" script, has to touch
@@ -383,6 +388,100 @@ this generically for single-key and multi-target addons alike:
 - An addon that needs a fresh lifecycle for every instance is not supported
   as a lifecycle feature. Derive the instance from each hook call's arguments or
   upvalues instead (see above).
+
+## Retire after use (`luaCalls.before`)
+
+A hook on a frequently called prototype often has a one-time job, for example
+writing a value into the module's root table the first time it sees that table.
+After that job is done, every further call would still pay the full dispatch
+cost. The hook can retire itself instead.
+
+**Signal.** Return the exact string `"RENOVICE_RETIRE"` (case-sensitive, 15
+characters) from a `luaCalls[P].before` callback:
+
+```lua
+local RETIRE = "RENOVICE_RETIRE"
+local bound = setmetatable({}, { __mode = "k" })
+
+hooks = { luaCalls = { [67] = { before = function(prototype, args, upvalues)
+    local root = upvalues[70]
+    if type(root) ~= "table" then return end        -- not bound yet: stay armed
+    if not bound[root] then
+        bound[root] = true
+        if root.interval == 300 then root.interval = 150 end
+    end
+    return RETIRE                                    -- this instance is done
+end } } }
+```
+
+- Only a callback that **completes without error** can retire. The call that
+  returns the sentinel is itself fully processed first (its argument and
+  upvalue copy-back is applied as usual).
+- Several addons can hook the same prototype of the same module. The prototype
+  retires only when **every** callback that ran in the same dispatch returned
+  the sentinel. An addon that returns nothing keeps the hook armed for all of
+  them.
+- `nativeCalls`, `afterDamage`, `matchesAbility`, `afterAbilityCard`,
+  `transformFloatArgument` and lifecycle functions do not interpret the value.
+  Retirement never affects them, other prototypes, other modules or other VMs.
+
+**Scope: one module instance.** A module instance is one execution of the
+module's root in one VM (for a mission script: one mission). The runtime
+learns instances at the natural VM-execute entry of the module's recorded root
+prototype and identifies each instance by the environment its closures were
+created in (the environment the root published into, read at the root's normal
+return). A prototype stays retired while every instance the runtime knows
+about has returned the sentinel for it. Concretely, it is per
+(committed generation, module key, VM, set of bound addons, prototype,
+instance).
+
+**Re-arm.** The hook is dispatched again, and must signal again, when:
+
+- the module's root runs again in that VM (a new instance, for example the
+  next mission). This re-arm happens at the root's entry, before any of its
+  functions exist;
+- F9 commits a generation (even with no file changes), or the module's addons
+  are rebound, enabled or disabled;
+- the set of declared hooks changes.
+
+Re-arming is always safe: your callback sees the new instance's table, binds
+it, and returns the sentinel again.
+
+**Requirements (fail closed).**
+
+- Only a prototype whose closures the module **root** creates directly (a
+  function defined at the top level of the module) can retire. A signal from a
+  nested function's prototype is ignored and that hook stays armed.
+- Retire only when the value you bound stays the one the instance uses. If the
+  module can later replace the table your hook wrote into (for example by
+  assigning a new table to the same top-level local from another function),
+  do not retire from that hook.
+- Instances that already existed before a generation's first dispatch (for
+  example, F9 in the middle of a mission) are counted as one: the first signal
+  for that prototype serves them. Instances that overlap in time (per-cast
+  ability scripts) are tracked separately after that point.
+- At most 16 instances are tracked per module and VM. Instances that have
+  signalled every prototype that any instance has signalled are dropped first;
+  if the ledger still overflows, retirement is disabled for that module until
+  the next F9 (every hook stays armed).
+- At most 64 declared prototypes per module can retire; later ones stay armed.
+
+**Cost.** While every declared `luaCalls.before` prototype in the game is
+retired, the interrupt observer returns after one atomic load (about 1 ns per
+Lua call in the gate micro-benchmark), exactly as if no hook were declared. If
+another prototype still keeps the observer open, a call to a retired prototype
+is rejected in the claim check before any VM-stack write, Lua entry,
+allocation or formatting (about 3 ns for the check itself, after the existing
+instruction decode and owner lookup that every call pays while the observer is
+open).
+
+**Log.** With `Diagnostics` on, each state change writes one line:
+`RENOVICE LUACALL_RETIRE event=retire key=... prototype=67 slot_dispatches=N dispatches_total=M instance=K ... outcome=retired`
+(or `served-still-armed` when another instance still needs the hook), and one
+`event=rearm ... outcome=root-entry-new-instance` line when a new instance
+re-opens a retired prototype. An ignored signal (`ignored-prototype-not-root-child`,
+`ignored-superseded-generation-or-binding`, `ignored-cross-vm`, ...) is reported
+once per prototype. With `Diagnostics=false` nothing is formatted or written.
 
 ## Errors
 
