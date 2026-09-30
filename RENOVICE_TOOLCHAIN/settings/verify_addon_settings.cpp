@@ -704,9 +704,9 @@ void phase1_contract(const std::filesystem::path& fixtures, const std::filesyste
 	};
 	check(label_of("value:missions/survival.reward_interval") == "Reward interval: 150 s (stock 300 s)"
 		&& label_of("custom:missions/survival.reward_interval") == "Custom Reward interval"
-		&& label_of("value:missions/purgatory.difficulty1.warrior_level") == "Difficulty 1 warrior level (stock 10)"
+		&& label_of("value:missions/purgatory.difficulty1.warrior_level") == "Difficulty 1 warrior level: 15"
 		&& label_of("group:missions/survival") == "Custom Survival values",
-		"phase2i: row labels follow CONTRACT_PHASE1 D1");
+		"phase2i: row labels follow CONTRACT_PHASE1 D1 (R4: the int warrior level is a value BUTTON; its stock suffix does not fit 40)");
 	bool within_budget = true;
 	for (const auto& row : page.rows)
 		within_budget &= row.label.size() <= (row.kind == RowKind::Title ? maximum_title_label : maximum_row_label);
@@ -771,8 +771,8 @@ void ui_page_model()
 		return static_cast<std::size_t>(std::count_if(page.rows.begin(), page.rows.end(),
 			[&](const Row& row) { return row.kind == kind; }));
 	};
-	check(flat.title == "SCRIPT SETTINGS" && flat.search && !flat.rows.empty(),
-		"flat page: native title and the stock search box");
+	check(flat.title == "SCRIPT SETTINGS" && !flat.search && !flat.rows.empty(),
+		"flat page: native title; the stock search box stays off (R4: the stock filter re-adds populate-time copies)");
 	bool only_stock_types = true;
 	bool labels_fit = true;
 	bool no_glyphs = true;
@@ -799,26 +799,33 @@ void ui_page_model()
 	const auto* package_row = find_row(flat, "package:missions");
 	const auto* member_row = find_row(flat, "member:missions/missions.targets.addon.lua_b");
 	const auto* custom = find_row(flat, "custom:missions/survival.reward_interval");
-	const auto* editor = find_row(flat, "value:missions/survival.reward_interval");
+	const auto reward_page = build_value_page(view, "survival.reward_interval");
+	const auto* editor = reward_page.rows.size() == 1 ? &reward_page.rows[0] : nullptr;
 	const auto* enum_editor = find_row(flat, "value:missions/defense.mode");
 	const auto* section = find_row(flat, "group:missions/defense");
-	const auto* literal_value = find_row(flat, "value:missions/void_flood.fractures_per_round.normal");
+	const auto literal_page = build_value_page(view, "void_flood.fractures_per_round.normal");
+	const auto* literal_value = literal_page.rows.size() == 1 ? &literal_page.rows[0] : nullptr;
 	check(master != nullptr && master->kind == RowKind::Checkbox && !master->value
 		&& package_row != nullptr && package_row->value
 		&& member_row != nullptr && member_row->kind == RowKind::Checkbox && member_row->value,
 		"package, master and member switches are CHECKBOX rows with current state");
-	check(custom != nullptr && custom->kind == RowKind::Checkbox && custom->value
-		&& custom->label == "Custom Reward interval"
-		&& editor != nullptr && editor->kind == RowKind::InputCount && editor->count == 150
-		&& editor->minimum == 1 && editor->maximum == 3600
-		&& editor->label == "Reward interval (stock 300 s)",
-		"int >= 0: Custom checkbox + INPUTCOUNT with stock in the label and bounds");
 	const auto find_action = [&](const Page& page, std::string_view action) -> const Row*
 	{
 		for (const auto& row : page.rows)
 			if (row.action == action) return &row;
 		return nullptr;
 	};
+	const auto* int_button = find_action(flat, "open:val:Missions/survival.reward_interval");
+	check(custom != nullptr && custom->kind == RowKind::Checkbox && custom->value
+		&& custom->label == "Custom Reward interval"
+		&& int_button != nullptr && int_button->kind == RowKind::Button && !int_button->locked
+		&& int_button->label == "Reward interval: 150 s (stock 300 s)"
+		&& find_row(flat, "value:missions/survival.reward_interval") == nullptr
+		&& editor != nullptr && editor->kind == RowKind::InputCount && editor->count == 150
+		&& editor->minimum == 1 && editor->maximum == 3600
+		&& editor->label == "Reward interval (stock 300 s)" && editor->validate
+		&& reward_page.title == "REWARD INTERVAL",
+		"R4 int >= 0: Custom checkbox + a value BUTTON on the list; its one-row page holds the INPUTCOUNT with stock in the label and bounds");
 	const auto* float_button = find_action(flat, "open:val:Missions/survival.pickup_multiplier");
 	const auto* negative_button = find_action(flat, "open:val:Missions/defense.offset");
 	const auto float_page = build_value_page(view, "survival.pickup_multiplier");
@@ -839,14 +846,41 @@ void ui_page_model()
 		&& enum_editor != nullptr && enum_editor->kind == RowKind::Toggle && enum_editor->options.size() == 3
 		&& enum_editor->number == 1,
 		"value page: one validated INPUTBOX (float / negative int); enum uses TOGGLE at its stock option");
-	check(build_value_page(view, "survival.reward_interval").rows.empty()
+	check(!build_value_page(view, "survival.reward_interval").rows.empty()
 		&& build_value_page(view, "defense.mode").rows.empty()
 		&& build_value_page(view, "no.such.value").rows.empty(),
-		"value pages exist only for INPUTBOX values (int >= 0 and enum stay inline)");
+		"R4 value pages exist for every number (INPUTCOUNT or INPUTBOX); the enum TOGGLE stays inline");
 	check(section != nullptr && section->kind == RowKind::Checkbox && !section->value,
 		"section switch is the first row of its section and reflects the file");
-	check(literal_value != nullptr && literal_value->locked && literal_value->kind == RowKind::InputCount,
-		"literal-lane values are read-only in v1 (locked row)");
+	const auto* literal_button = find_action(flat, "open:val:Missions/void_flood.fractures_per_round.normal");
+	check(literal_value != nullptr && literal_value->locked && literal_value->kind == RowKind::InputCount
+		&& literal_button != nullptr && !literal_button->locked,
+		"literal-lane values are read-only in v1: the value page editor is locked, the list BUTTON is not (R4: stock never restores a locked row's Label alpha on a recycled clip)");
+	{
+		// R4: no list page holds a stock INPUTCOUNT (widgets bound to the
+		// first clip), an INPUTBOX (breaks the scroll contract) or a locked
+		// value BUTTON (Label alpha leak); every number opens its value page.
+		const auto list_safe = [&](const Page& page)
+		{
+			return std::all_of(page.rows.begin(), page.rows.end(), [](const Row& row)
+			{
+				return row.kind != RowKind::InputCount && row.kind != RowKind::InputBox
+					&& !(row.kind == RowKind::Button && row.locked);
+			});
+		};
+		bool every_number_opens = true;
+		for (const auto& declaration : declarations.values)
+		{
+			if (declaration.type == settings::ValueType::Enum) continue;
+			const auto page = build_value_page(view, declaration.id);
+			every_number_opens &= find_action(flat, "open:val:Missions/" + declaration.id) != nullptr
+				&& page.rows.size() == 1
+				&& page.rows[0].kind == (declaration.type == settings::ValueType::Int && declaration.minimum >= 0
+					? RowKind::InputCount : RowKind::InputBox);
+		}
+		check(list_safe(flat) && list_safe(build_group_page(view, "survival")) && every_number_opens,
+			"R4 list pages hold no INPUTCOUNT, no INPUTBOX and no locked value BUTTON; every number opens its one-row page");
+	}
 	check(std::all_of(flat.rows.begin(), flat.rows.end(), [](const Row& row)
 		{
 			return row.kind != RowKind::Button || row.action.rfind("open:val:", 0) == 0;
@@ -900,7 +934,8 @@ void ui_page_model()
 		other.declarations = &none;
 		const auto other_page = build_flat_page({other});
 		const auto* none_custom = find_row(other_page, "custom:other/g.transform");
-		const auto* none_editor = find_row(other_page, "value:other/g.transform");
+		const auto none_page = build_value_page(other, "g.transform");
+		const auto* none_editor = none_page.rows.size() == 1 ? &none_page.rows[0] : nullptr;
 		check(error.empty() && none_custom != nullptr && none_editor != nullptr
 			&& none_editor->tooltip == "Stock 5. Range 0 to 5. Unticked: dynamic. Applies: live, at the next read."
 			&& none_custom->tooltip == "Off: the stock value is used. " + none_editor->tooltip,
@@ -937,10 +972,10 @@ void ui_page_model()
 			[](const Row& row) { return row.kind == RowKind::Button && row.action == "restore:Missions"; }),
 		"nested L2: mission-type buttons and Restore all");
 	const auto group_page = build_group_page(view, "survival");
-	check(group_page.search && group_page.rows.front().setting == "group:missions/survival"
+	check(!group_page.search && group_page.rows.front().setting == "group:missions/survival"
 		&& std::any_of(group_page.rows.begin(), group_page.rows.end(),
 			[](const Row& row) { return row.action == "restore:Missions/survival"; }),
-		"nested L3: section switch first, stock search box, Restore section");
+		"nested L3: section switch first, Restore section; the stock search box stays off (R4)");
 	check(stock_uniform_heights(root) && stock_uniform_heights(package_page) && stock_uniform_heights(group_page)
 		&& find_action(group_page, "open:val:Missions/survival.pickup_multiplier") != nullptr,
 		"nested pages keep the stock scroll contract too; floats open the same value page");
@@ -1115,16 +1150,38 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 	bool labels_fit = true;
 	bool tooltips_fit = true;
 	bool sentence_rule = true;
-	for (const auto& row : page.rows)
+	// ROW / VALROW lines carry every descriptor field the host sends, so the
+	// stock-render gate (verify_script_settings_render.ps1 -PageRows) can run
+	// exactly these rows through the stock screen.
+	const auto print_row = [](const std::string& prefix, const Row& row)
 	{
-		std::cout << "ROW\t" << row_kind_name(row.kind) << '\t' << row.setting << '\t' << row.label;
+		std::cout << prefix << '\t' << row_kind_name(row.kind) << '\t' << row.setting << '\t' << row.label;
 		if (row.kind == RowKind::InputCount) std::cout << "\tcount=" << settings::json::number_text(row.count);
 		if (row.kind == RowKind::InputBox) std::cout << "\tcontent=" << row.content;
 		if (row.kind == RowKind::Checkbox) std::cout << "\tvalue=" << (row.value ? "on" : "off");
 		if (row.kind == RowKind::Button) std::cout << "\taction=" << row.action;
+		if (row.kind == RowKind::Toggle)
+		{
+			std::cout << "\tnumber=" << settings::json::number_text(row.number);
+			for (const auto& option : row.options)
+				std::cout << "\toption=" << settings::json::number_text(option.value) << ':' << option.label;
+		}
+		if (row.kind == RowKind::InputCount || row.kind == RowKind::InputBox)
+		{
+			std::cout << "\tmin=" << settings::json::number_text(row.minimum)
+				<< "\tmax=" << settings::json::number_text(row.maximum);
+			if (row.validate) std::cout << "\tvalidate";
+			if (row.integer) std::cout << "\tinteger";
+			if (!row.invalid_message.empty()) std::cout << "\tinvalid=" << row.invalid_message;
+		}
 		if (row.locked) std::cout << "\tlocked";
 		if (!row.tooltip.empty()) std::cout << "\ttooltip=" << row.tooltip;
 		std::cout << '\n';
+	};
+	std::cout << "PAGE\ttitle=" << page.title << "\tsearch=" << (page.search ? 1 : 0) << '\n';
+	for (const auto& row : page.rows)
+	{
+		print_row("ROW", row);
 		labels_fit &= row.label.size() <= (row.kind == RowKind::Title ? maximum_title_label : maximum_row_label);
 		tooltips_fit &= row.tooltip.size() <= maximum_tooltip;
 		for (const auto& declaration : declarations.values)
@@ -1149,10 +1206,12 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 			std::cout << '\t' << row_kind_name(value_page.rows[0].kind) << '\t' << value_page.rows[0].setting
 				<< '\t' << value_page.rows[0].label << "\tcontent=" << value_page.rows[0].content;
 		std::cout << '\n';
+		for (const auto& value_row : value_page.rows) print_row("VALROW\t" + row.action, value_row);
 		const auto* value_declaration = slash == std::string_view::npos ? nullptr
 			: declarations.value(body.substr(slash + 1));
 		value_pages &= value_declaration != nullptr && value_page.rows.size() == 1
-			&& value_page.rows[0].kind == RowKind::InputBox
+			&& value_page.rows[0].kind == (value_declaration->type == settings::ValueType::Int
+				&& value_declaration->minimum >= 0 ? RowKind::InputCount : RowKind::InputBox)
 			&& value_page.rows[0].label == editor_label(*value_declaration)
 			&& row.label == value_button_label(*value_declaration, current_value(view, *value_declaration));
 	}
@@ -1164,7 +1223,13 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 	check(!page.rows.empty(), label + "SCRIPT SETTINGS page has rows");
 	check(stock_uniform_heights(page),
 		label + "the flat page keeps the stock scroll contract (uniform 44 px rows, no INPUTBOX): it scrolls once it exceeds 14 rows");
-	check(value_pages, label + "every value-page BUTTON shows its current value and opens exactly one INPUTBOX for the same value");
+	check(value_pages, label + "every value-page BUTTON shows its current value and opens exactly one editor for the same value (INPUTCOUNT for int >= 0, else INPUTBOX)");
+	check(!page.search && std::all_of(page.rows.begin(), page.rows.end(), [](const Row& row)
+		{
+			return row.kind != RowKind::InputCount && row.kind != RowKind::InputBox
+				&& !(row.kind == RowKind::Button && row.locked);
+		}),
+		label + "R4: the flat page holds no INPUTCOUNT, INPUTBOX or locked BUTTON, and the stock search box stays off");
 	check(view.members.size() < 2 || member_labels,
 		label + "every member label fits the 40-character row without cutting (package.json producer rule)");
 	check(labels_fit, label + "every row label fits the width budget (40 value / 48 title)");

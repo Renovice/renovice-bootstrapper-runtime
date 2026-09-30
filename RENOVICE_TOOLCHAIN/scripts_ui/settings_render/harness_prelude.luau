@@ -1,5 +1,5 @@
 --!nocheck
--- SCRIPT SETTINGS render harness, prelude (R3, 2026-09-30).
+-- SCRIPT SETTINGS render harness, prelude (R3, extended R4, 2026-09-30).
 --
 -- Runs the real 44.0.2 stock ThemedGenericSettings and EE.Interface.Components.List
 -- code (derecomp decompile-mod-u44 renders of the stock bytecode, see
@@ -15,16 +15,23 @@ local HARNESS = {
     failures = {},
     checks = 0,
     errors = {},
+    categories = {},
+    staleWrites = {},
+    components = {},
 }
 
-local function harnessFail(message)
+-- Every failure carries a category, so the gate can require the exact
+-- defect class of a negative control.
+local function harnessFail(message, category)
     HARNESS.failures[#HARNESS.failures + 1] = message
+    local name = category or "other"
+    HARNESS.categories[name] = (HARNESS.categories[name] or 0) + 1
 end
 
-local function harnessCheck(condition, message)
+local function harnessCheck(condition, message, category)
     HARNESS.checks = HARNESS.checks + 1
     if not condition then
-        harnessFail(message)
+        harnessFail(message, category)
     end
     return condition
 end
@@ -52,6 +59,9 @@ function Movie.new(name)
         _instance = nil,
         _created = { ["Container.OptionList.MenuEntry1"] = true },
         _duplicates = 0,
+        _serials = {},
+        _executed = {},
+        _closed = false,
     }
     return setmetatable(movie, Movie)
 end
@@ -194,7 +204,13 @@ function Movie:PushChildMovie(resource)
     return HARNESS.pushGenericSettings(self, resource)
 end
 
+function Movie:Close()
+    rawset(self, "_closed", true)
+end
+
 function Movie:Execute(name, argument)
+    local executed = rawget(self, "_executed")
+    executed[#executed + 1] = name
     local instance = rawget(self, "_instance")
     if instance == nil then
         error("Execute on a movie without a script: " .. tostring(name), 2)
@@ -206,15 +222,74 @@ function Movie:Execute(name, argument)
     return handler(argument)
 end
 
+-- Frame-specific children of a GenericSettings row clip (the row types'
+-- widgets). A gotoAndStop to another frame replaces them with fresh authoring
+-- instances (their SWF default text: "SELECT ITEMS", "Hold to clear", ...);
+-- Label, Bg, Btn, Lock and SubLabel exist on every row frame and keep their
+-- state. Modelling assumption of the harness, not stock script logic.
+local FRAME_SPECIFIC_CHILDREN = {
+    Minus = true, Count = true, Plus = true, Callouts = true, Checkbox = true, Toggle = true,
+    InputBox = true, InputBoxText = true, IconElement = true, YesBtn = true, NoBtn = true,
+    Image = true, Color = true,
+}
+
+local function resetFrameChildren(movie, clip)
+    local serials = rawget(movie, "_serials")
+    serials[clip] = (serials[clip] or 0) + 1
+    local prefix = clip .. "."
+    for _, store in ipairs({ rawget(movie, "_clips"), rawget(movie, "_vars") }) do
+        local drop = {}
+        for path in pairs(store) do
+            if string.sub(path, 1, #prefix) == prefix then
+                local child = string.match(string.sub(path, #prefix + 1), "^([^%.]+)")
+                if FRAME_SPECIFIC_CHILDREN[child] then
+                    drop[#drop + 1] = path
+                end
+            end
+        end
+        for index = 1, #drop do
+            store[drop[index]] = nil
+        end
+    end
+end
+
+-- A removed or newly duplicated clip is a fresh instance: every state under
+-- it (frame, texts, members, children) is gone.
+local function resetWholeClip(movie, clip)
+    local serials = rawget(movie, "_serials")
+    serials[clip] = (serials[clip] or 0) + 1
+    local prefix = clip .. "."
+    for _, store in ipairs({ rawget(movie, "_clips"), rawget(movie, "_vars") }) do
+        local drop = {}
+        for path in pairs(store) do
+            if path == clip or string.sub(path, 1, #prefix) == prefix then
+                drop[#drop + 1] = path
+            end
+        end
+        for index = 1, #drop do
+            store[drop[index]] = nil
+        end
+    end
+end
+
 local function flashMethod(movie, path, argument)
     local clip, method = string.match(path, "^(.*)%.([^%.]+)$")
     if method == "gotoAndStop" then
-        movie:_clip(clip).frame = argument
+        local state = movie:_clip(clip)
+        if state.frame ~= argument then
+            resetFrameChildren(movie, clip)
+        end
+        state.frame = argument
     elseif method == "duplicateMovieClip" then
         local parentPath = string.match(clip, "^(.*)%.[^%.]+$") or ""
         local created = rawget(movie, "_created")
-        created[parentPath .. "." .. tostring(argument)] = true
+        local copy = parentPath .. "." .. tostring(argument)
+        created[copy] = true
+        resetWholeClip(movie, copy)
         rawset(movie, "_duplicates", rawget(movie, "_duplicates") + 1)
+    elseif method == "removeMovieClip" then
+        rawget(movie, "_created")[clip] = nil
+        resetWholeClip(movie, clip)
     end
     return nil
 end
@@ -240,17 +315,60 @@ local function permissiveTable(name)
 end
 
 -- Themed widget stand-in: data fields (mXxx) are plain values, anything else
--- is a no-op method.
+-- is a no-op method. A widget on a list row records the row clip it was built
+-- on and that clip's frame serial; a write after the clip changed frame (the
+-- row clip now belongs to another row or type) is a stale-widget write.
 local COMPONENT_DEFAULTS = { mMaxSize = 200, mMinSize = 200, mHeight = 28, mWidth = 200 }
+local function rowClipOf(clip)
+    return string.match(clip, "^(Container%.OptionList%.MenuEntry%d+)%.")
+end
+
+local function clipSerial(movie, clip)
+    return rawget(movie, "_serials")[clip] or 0
+end
+
+local function recordWrite(component, method)
+    local owner = rawget(component, "_owner")
+    if owner ~= nil and clipSerial(component.mMovie, owner) ~= rawget(component, "_serial") then
+        HARNESS.staleWrites[#HARNESS.staleWrites + 1] = tostring(component.mClipName) .. ":" .. method
+    end
+end
+
 local function newComponent(movie, clip, kind)
+    local owner = rowClipOf(clip)
     local component = {
         mMovie = movie,
         mClipName = clip,
+        mLabelClipName = clip .. ".Label",
         mLabel = "",
         mKind = kind,
+        mVisible = true,
         TYPE = { PLAIN = 0, PASSWORD = 1, NUMBER = 2 },
+        _owner = owner,
+        _serial = owner and clipSerial(movie, owner) or nil,
     }
     for key, value in pairs(COMPONENT_DEFAULTS) do component[key] = value end
+    -- ThemedButton/ThemedInputField text: the label text variable the stock
+    -- count poll reads back (GetStringVariable(<clip>.Label, 36)).
+    component.SetText = function(self, text)
+        recordWrite(self, "SetText")
+        self.mLabel = tostring(text)
+        movie:SetStringVariable(self.mLabelClipName, 36, tostring(text))
+    end
+    component.InputFieldTextChanged = function(self, text)
+        recordWrite(self, "InputFieldTextChanged")
+        self.mLabel = text or ""
+    end
+    component.SetVisible = function(self, flag)
+        self.mVisible = flag
+    end
+    for _, method in ipairs({ "Redraw", "Resize", "SetPosition", "SetTextAlignment", "SetIndexByValue" }) do
+        component[method] = function(self)
+            recordWrite(self, method)
+        end
+    end
+    local list = HARNESS.components
+    list[#list + 1] = component
     return setmetatable(component, {
         __index = function(t, key)
             if string.match(key, "^m%u") then return nil end
@@ -263,8 +381,14 @@ end
 
 local function componentModule(kind)
     local module = permissiveTable(kind)
-    rawset(module, "Create__e256561c", function(movie, clip, ...)
-        return newComponent(movie, clip, kind)
+    rawset(module, "Create__e256561c", function(movie, clip, initial, ...)
+        local component = newComponent(movie, clip, kind)
+        if type(initial) == "string" then
+            -- ThemedInputField: the initial text is the field's label text.
+            component.mLabel = initial
+            movie:SetStringVariable(component.mLabelClipName, 36, initial)
+        end
+        return component
     end)
     rawset(module, "Create", function(movie, clip, ...)
         return newComponent(movie, clip, kind)
@@ -372,6 +496,9 @@ local BASE_ENV = {
     Engine = setmetatable({}, { __index = function() return function() return false end end }),
     gFlashMgr = setmetatable({}, { __index = function() return function() return nil end end }),
     IsNull = function(value) return value == nil end,
+    -- Engine text check used by the INPUTBOX completion: index of the first
+    -- invalid character, 0 when there is none.
+    FindInvalidCharacter = function() return 0 end,
     RealDeltaTime = function() return 1 / 60 end,
     FlashMethod = flashMethod,
     FlashInterpolate = flashInterpolate,

@@ -23,23 +23,6 @@ local lotusUtilities = require("Lotus.Interface.LotusUtilities")
 -- their own one-value pages.
 local UNIFORM_ROW_HEIGHT = 44
 
--- Stock list recycling (R4). With the scroll bar attached (uniform rows, more
--- than 14 of them, no INPUTBOX) the stock List draws 14 clips and moves the
--- row tables through them. Stock rebuilds the CHECKBOX and TOGGLE widgets on
--- every scrolled draw (element draw callback, 44.0.2 source lines 878-880 and
--- 927-929: `if list.mScroll ~= nil then element.Checkbox = nil end`), but
--- builds the INPUTCOUNT Minus/Count/Plus widgets once per row table, bound to
--- the clip of its first draw (source lines 1081-1152, `if mButtonInfo == nil`).
--- A scrolled INPUTCOUNT row therefore shows an uninitialised count field in
--- its new clip, its old widgets keep writing into a clip another row now owns,
--- and the per-frame count poll (Update, source line 1627 -> 1474) indexes a
--- row copy that has no mCountButton. A locked row also dims its clip's Label
--- (source line 1304, alpha 60) and nothing restores it for the next row. On a
--- recycled page the bridge therefore renders no INPUTCOUNT and no locked row:
--- an INPUTCOUNT becomes a BUTTON that opens a one-row page holding the stock
--- INPUTCOUNT; a locked row becomes an unlocked BUTTON that shows its value.
-local STOCK_VISIBLE_ROWS = 14
-
 local host = {
     resource = nil,
     getPage = nil,
@@ -113,84 +96,9 @@ local function buttonLabel(spec)
     return label
 end
 
--- True when the stock screen will attach its scroll bar to this page and
--- recycle its clips (ThemedGenericSettings Update, source lines 1656-1712:
--- uniform heights, no INPUTBOX, more than 14 rows).
-local function recycledPage(specs)
-    if specs == nil or #specs <= STOCK_VISIBLE_ROWS then
-        return false
-    end
-    for i = 1, #specs do
-        if specs[i].kind == "INPUTBOX" then
-            return false
-        end
-    end
-    return true
-end
-
--- The text a recycled-page BUTTON shows for a row it stands in for.
-local function valueText(spec)
-    local kind = spec.kind
-    if kind == "INPUTCOUNT" then
-        return tostring(spec.count)
-    elseif kind == "CHECKBOX" then
-        if spec.value == true then
-            return "On"
-        end
-        return "Off"
-    elseif kind == "TOGGLE" then
-        local options = spec.options
-        if options ~= nil then
-            for i = 1, #options do
-                if options[i].value == spec.number then
-                    return options[i].label
-                end
-            end
-        end
-        return tostring(spec.number)
-    end
-    return nil
-end
-
-local openRowPage -- forward
-
-local function buildRow(spec, types, movie, depth, recycled)
+local function buildRow(spec, types, movie, depth)
     local kind = spec.kind
     local row = nil
-    if recycled == true and (kind == "INPUTCOUNT" or (spec.locked == true
-        and (kind == "CHECKBOX" or kind == "TOGGLE" or kind == "BUTTON"))) then
-        -- R4: stand-in BUTTON on a recycled page (see STOCK_VISIBLE_ROWS). It
-        -- is never locked; an INPUTCOUNT opens its own one-row page (which
-        -- keeps the row's lock), a locked BUTTON keeps its action (the page it
-        -- opens holds the locked editor), a locked CHECKBOX or TOGGLE only
-        -- shows its value.
-        local label = spec.label or ""
-        local detail = valueText(spec)
-        if kind == "BUTTON" then
-            label = buttonLabel(spec)
-        elseif detail ~= nil and detail ~= "" then
-            label = label .. ": " .. detail
-        end
-        local action = nil
-        if kind == "BUTTON" then
-            action = spec.action
-        end
-        row = {
-            mLabel = label,
-            mType = types.BUTTON,
-            mSetting = "action:",
-            mTooltip = spec.tooltip,
-            mLocked = false,
-            mCallback = function()
-                if kind == "INPUTCOUNT" then
-                    openRowPage(movie, spec, depth + 1)
-                elseif action ~= nil and string.sub(action, 1, 5) == "open:" then
-                    openPage(movie, string.sub(action, 6), depth + 1)
-                end
-            end,
-        }
-        return row
-    end
     if kind == "TITLE" then
         row = { mLabel = spec.label, mType = types.TITLE, mHeight = UNIFORM_ROW_HEIGHT }
     elseif kind == "SPACER" then
@@ -315,10 +223,9 @@ local function configure(child, page, depth, types)
     _T[elementsName] = function()
         local rows = {}
         local specs = page.rows
-        local recycled = recycledPage(specs)
         if specs ~= nil then
             for i = 1, #specs do
-                local row = buildRow(specs[i], types, child, depth, recycled)
+                local row = buildRow(specs[i], types, child, depth)
                 if row ~= nil then
                     rows[#rows + 1] = row
                 end
@@ -341,13 +248,9 @@ local function configure(child, page, depth, types)
 
     child:Execute("SetTitle", page.title)
     child:Execute("SetNoElementsMessage", page.empty)
-    -- R4: the stock search box stays hidden (page.search is ignored). The
-    -- stock filter (source lines 685-709) rebuilds the list from copies taken
-    -- when the page was populated (source lines 1656-1678), so a row edited
-    -- before typing shows its old value again, and the completion pass would
-    -- stage that old value; with an INPUTCOUNT on the page the per-frame count
-    -- poll then raised "attempt to index nil with 'mClipName'" (source line
-    -- 1474, live EE.log 2026-09-30) and the screen could not be left.
+    if page.search == true then
+        child:Execute("ShowHideSearchBox", "true")
+    end
     child:Execute("SetConfirmButtonVisibleWhenInactive", "true")
     child:Execute("SetConfirmButtonActive", "true")
     child:Execute("SetCallBack", doneName)
@@ -355,9 +258,13 @@ local function configure(child, page, depth, types)
     child:Execute("SetElementsFunction", elementsName)
 end
 
-local function pushPage(parentMovie, page, depth)
+openPage = function(parentMovie, pageId, depth)
     local types = resolveTypes()
-    if types == nil or page == nil then
+    if types == nil then
+        return false
+    end
+    local page = host.getPage(pageId)
+    if page == nil then
         return false
     end
     local child = parentMovie:PushChildMovie(host.resource)
@@ -366,17 +273,6 @@ local function pushPage(parentMovie, page, depth)
     end
     configure(child, page, depth, types)
     return true
-end
-
-openPage = function(parentMovie, pageId, depth)
-    return pushPage(parentMovie, host.getPage(pageId), depth)
-end
-
--- R4: one-row page for a row a recycled page cannot hold (an INPUTCOUNT).
--- The row keeps its setting, bounds, validator and lock; its close only
--- stages (depth > 1), exactly like a host value page.
-openRowPage = function(parentMovie, spec, depth)
-    return pushPage(parentMovie, { title = spec.label or "", empty = "", rows = { spec } }, depth)
 end
 
 local function openScriptSettings(parentMovie, resource, layout, getPage, stage, done, act)

@@ -6424,7 +6424,8 @@ settings_ui::Page select_script_settings_page(
 	}
 	else if (page_id.rfind("val:", 0) == 0)
 	{
-		// One-value INPUTBOX page (stock scroll contract: no INPUTBOX on lists).
+		// One-value page: INPUTCOUNT or INPUTBOX (stock scroll contract: no
+		// INPUTBOX on lists; R4: no INPUTCOUNT on a recycled list).
 		const auto body = std::string_view(page_id).substr(4);
 		const auto slash = body.find('/');
 		if (slash != std::string_view::npos)

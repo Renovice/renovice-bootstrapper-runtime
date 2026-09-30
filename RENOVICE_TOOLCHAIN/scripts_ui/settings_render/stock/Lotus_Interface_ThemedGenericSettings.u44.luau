@@ -1229,6 +1229,7 @@
       c19v9 = c19v7 - c19v3
       c19v8 = c19v9 / 2
       c19v9 = v12
+      local __renovice_capture_18_7 = c19v8
       c19v11 = function(c18v0)
         local c18v1, c18v2, c18v3, c18v4, c18v5, c18v6
         local __renovice_state_0 = 0
@@ -1254,7 +1255,7 @@
           c18v1 = mMovie
           c18v3 = c18v0.mClipName
           c18v4 = 0
-          c18v5 = c19v8
+          c18v5 = __renovice_capture_18_7
           c18v1:SetNumberVariable(c18v3, c18v4, c18v5)
           c18v1 = c18v0.mType
           c18v2 = v0
@@ -2895,9 +2896,10 @@
                             c47v5.mInnerAlpha = c47v6
                             c47v6 = c47v5.SetFocus
                             c47v5.BaseSetFocus = c47v6
+                            local __renovice_capture_46_15 = c47v5
                             c47v6 = function(c37v0, c37v1)
                               local c37v2
-                              c37v2 = c47v5
+                              c37v2 = __renovice_capture_46_15
                               c37v2:BaseSetFocus(c37v1)
                               if not c37v1 then
                                 c37v2 = ConcludeCount
@@ -2913,6 +2915,7 @@
                             end
                             c47v6 = c47v5.OnGamepadTransition
                             c47v5.BaseOnGamepadTransition = c47v6
+                            local __renovice_capture_46_17 = c47v2
                             c47v6 = function(c38v0)
                               local c38v1, c38v2, c38v3, c38v4
                               c38v1 = c38v0.mCallout
@@ -2921,7 +2924,7 @@
                                 c38v2 = v1
                                 c38v2 = c38v2.Ternary
                                 c38v3 = ""
-                                c38v4 = c47v2
+                                c38v4 = __renovice_capture_46_17
                                 c38v4 = c38v4.Label
                                 c38v4 = c38v2(c38v1, c38v3, c38v4)
                                 c38v0:SetText(c38v4)
@@ -2934,11 +2937,12 @@
                             if c47v6 then
                               c47v6 = c47v5.InputFieldFocused
                               c47v5.BaseInputFieldFocused = c47v6
+                              local __renovice_capture_46_18 = c47v5
                               c47v6 = function(c39v0, c39v1)
                                 local c39v2, c39v3, c39v4, c39v5, c39v6, c39v7
                                 c39v0:BaseInputFieldFocused(c39v1)
                                 if c39v1 then
-                                  c39v3 = c47v5
+                                  c39v3 = __renovice_capture_46_18
                                   c39v3 = c39v3.mLabel
                                   c39v2 = tonumber
                                   c39v2 = c39v2(c39v3)
@@ -2959,12 +2963,12 @@
                                 end
                                 c39v2 = v46
                                 c39v2()
-                                c39v3 = c47v5
+                                c39v3 = __renovice_capture_46_18
                                 c39v3 = c39v3.mLabel
                                 c39v2 = tonumber
                                 c39v2 = c39v2(c39v3)
                                 if c39v2 == nil then
-                                  c39v3 = c47v5
+                                  c39v3 = __renovice_capture_46_18
                                   c39v5 = "1"
                                   c39v3:SetText(c39v5)
                                   c39v2 = 1
@@ -3354,7 +3358,7 @@
                               c47v9 = c47v10[__renovice_for_1_0]
                               c47v7.Icon = c47v9
                               c47v8 = true
-                              c47v7 = {c47v8}
+                              c47v7[1] = c47v8
                               c47v5:AddElement(c47v7)
                             end
                             c47v2 = c47v0.mIconGrid

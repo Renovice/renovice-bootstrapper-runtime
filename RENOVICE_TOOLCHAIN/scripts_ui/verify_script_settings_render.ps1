@@ -1,11 +1,20 @@
-# Offline gate: SCRIPT SETTINGS rows through the real stock render (R3, 2026-09-30).
+# Offline gate: SCRIPT SETTINGS rows through the real stock render (R3, extended R4, 2026-09-30).
 #
-# Live defect (bridge 2e337a43, DLL 731fdb11): every float value BUTTON carried
-# mSubLabel without mButtonWidth. The stock 44.0.2 element draw callback of
-# ThemedGenericSettings computes `mButtonWidth - (mSubLabelOffset or 100)` for a
-# BUTTON with a sub-label (source line 991), so the draw raised "attempt to
-# perform arithmetic (sub) on nil and number", the List Redraw and the populate
-# layout after it were aborted, and recycled clips kept stale content.
+# R3 live defect (bridge 2e337a43, DLL 731fdb11): every float value BUTTON
+# carried mSubLabel without mButtonWidth; the stock draw raised a nil
+# arithmetic at source line 991 and aborted the list redraw and the layout.
+#
+# R4 live defects (bridge 739d8177, DLL a578bb78, full Missions package):
+#   - scrolled INPUTCOUNT rows showed an uninitialised count field (raw
+#     "SELECT ITEMS", `size="19" color`, "Hold to clear"): stock builds the
+#     Minus/Count/Plus widgets once per row, bound to the clip of the first
+#     draw (source lines 1081-1152), and never rebuilds them on a scrolled
+#     draw, unlike CHECKBOX and TOGGLE (lines 878-880, 927-929);
+#   - typing into the stock search box, then clearing it, raised "attempt to
+#     index nil with 'mClipName'" in Update (source lines 1627 -> 1474, the
+#     per-frame count poll) and the screen could not be left: the filter
+#     re-adds populate-time copies, and the polled INPUTCOUNT copy has no
+#     widgets.
 #
 # This gate runs the bridge under test through the stock code itself:
 #   settings_render/stock/*.u44.luau   derecomp decompile-mod-u44 renders of the
@@ -14,15 +23,27 @@
 #                                      (hashes pinned in STOCK_INPUTS.txt; the
 #                                      render is re-made and compared when the
 #                                      stock corpus and derecomp are present);
-#   settings_render/harness_*.luau     recording Flash movie + engine stubs and a
-#                                      driver (open, populate, 14-row scroll bar,
-#                                      every scroll position, mouse wheel).
-# Checks: no Lua error on any path, every visible clip shows its own row (frame,
-# label, background, no leftover sub-label), the stock scroll contract holds,
-# and the stock layout runs (search box inside the panel).
-# Negative control: the R2 bridge (fixtures/ScriptSettingsBridgeV1.r2-2e337a43.luau,
-# the installed bytes) must fail with the live nil-arithmetic error inside the
-# stock BUTTON sub-label statement.
+#   settings_render/harness_*.luau     recording Flash movie (frame-specific
+#                                      children reset on a frame change, widget
+#                                      binding and stale-write records) + engine
+#                                      stubs, and a driver: open, populate, every
+#                                      scroll-bar position and the wheel with one
+#                                      stock Update per step, every page a BUTTON
+#                                      opens (populate, poll, Confirm), the stock
+#                                      search filter (type, extend, clear) and
+#                                      the Confirm / Exit / Close routes.
+# Negative controls: the R2 bridge must fail at the stock sub-label statement
+# (line 991); the R3 bridge (the installed 739d8177) must reproduce the R4
+# defects: unbound INPUTCOUNT widgets, stale widget writes, the locked-row
+# Label dim leak and the line 1474 script error after the search is cleared.
+#
+# -PageRows <file>: additionally run the current bridge on the rows of a real
+# package: the output of `verify_addon_settings.ps1 -Package <folder>
+# -Settings <file>` (PAGE, ROW and VALROW lines), for example a read-only copy
+# of the installed Missions package.
+param(
+    [string]$PageRows = ''
+)
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -33,7 +54,8 @@ $luau = Join-Path $toolchain "bin\luau.exe"
 $derecomp = Join-Path $toolchain "bin\derecomp.exe"
 $renderDir = Join-Path $PSScriptRoot "settings_render"
 $bridgeSource = Join-Path $repo "RENOVICE_SCRIPTING\INTERNAL\ScriptSettingsBridgeV1.luau"
-$negativeBridge = Join-Path $renderDir "fixtures\ScriptSettingsBridgeV1.r2-2e337a43.luau"
+$negativeR2 = Join-Path $renderDir "fixtures\ScriptSettingsBridgeV1.r2-2e337a43.luau"
+$negativeR3 = Join-Path $renderDir "fixtures\ScriptSettingsBridgeV1.r3-739d8177.luau"
 
 function Require([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "SCRIPT SETTINGS RENDER GATE FAIL: $Message" }
@@ -83,31 +105,16 @@ foreach ($module in $modules) {
     }
 }
 
-# Render corrections (applied in the harness copy only; the fixtures stay the
-# byte-exact derecomp output). Each one is a proven toolchain rendering defect
-# with its bytecode evidence; the count must match exactly.
-$renderPatches = @(
-    @{
-        Module = 'EE.Interface.Components.List'
-        Find = "`n    c87v3 = {c87v4}`n"
-        Replace = "`n    c87v3[1] = c87v4`n"
-        Evidence = 'CreateList (proto 86) pc 143 SETLIST A=3 B=4 C=2 appends R4 to the constructor table R3; derecomp renders it as a fresh table and loses every list field'
-    },
-    @{
-        Module = 'EE.Interface.Components.List'
-        Find = "            if not c55v3 then`n              c55v22 = function()`n                local c54v0, c54v1, c54v2`n                c54v0 = c55v0`n                c54v2 = c55v17`n                c54v0:OnElementTransitionEnded(c54v2)`n                c54v1 = c55v19`n                c54v0 = IsNull`n                c54v0 = c54v0(c54v1)`n                if not c54v0 then`n                  c54v0 = c55v19`n"
-        Replace = "            if not c55v3 then`n              local __capturedElement, __capturedCallback = c55v17, c55v19`n              c55v22 = function()`n                local c54v0, c54v1, c54v2`n                c54v0 = c55v0`n                c54v2 = __capturedElement`n                c54v0:OnElementTransitionEnded(c54v2)`n                c54v1 = __capturedCallback`n                c54v0 = IsNull`n                c54v0 = c54v0(c54v1)`n                if not c54v0 then`n                  c54v0 = __capturedCallback`n"
-        Evidence = 'Redraw (proto 54) pc 308-311 NEWCLOSURE proto 53 with CAPTURE A=0 (by value) of R19/R21; derecomp renders the by-value captures as shared function locals that the draw loop later overwrites'
-    }
-)
+# R4: the renders are used exactly as derecomp wrote them. The R3 harness had
+# to patch two toolchain rendering defects (List CreateList SETLIST into the
+# constructor table; List Redraw by-value CAPTURE); derecomp 9c008ae renders
+# both correctly. Pin that the fixed forms are present.
+$listRender = [IO.File]::ReadAllText((Join-Path $renderDir "stock\EE_Interface_Components_List.u44.luau")).Replace("`r`n", "`n")
+Require ($listRender.Contains("`n    c87v3[1] = c87v4`n") -and -not $listRender.Contains("`n    c87v3 = {c87v4}`n")) "List CreateList SETLIST renders as an append (no harness render patch)"
+Require ($listRender.Contains('local __renovice_capture_54_1 = c55v17') -and $listRender.Contains('local __renovice_capture_54_2 = c55v19')) "List Redraw by-value captures render as per-closure snapshots (no harness render patch)"
 
-function Get-PatchedRender($Module) {
+function Get-HarnessRender($Module) {
     $text = [IO.File]::ReadAllText((Join-Path $renderDir "stock\$($Module.Stem).u44.luau")).Replace("`r`n", "`n")
-    foreach ($patch in @($renderPatches | Where-Object { $_.Module -eq $Module.Name })) {
-        $count = ([regex]::Matches($text, [regex]::Escape($patch.Find))).Count
-        if ($count -ne 1) { throw "SCRIPT SETTINGS RENDER GATE FAIL: render patch expected once, found $count ($($patch.Evidence))" }
-        $text = $text.Replace($patch.Find, $patch.Replace)
-    }
     # DE VM semantics: LENGTH of nil yields 0 instead of raising. Stock relies
     # on it: the layout callback (ThemedGenericSettings proto 16 pc 45-52)
     # evaluates #element.mClipName and #element.mAlignment for every TITLE row,
@@ -121,7 +128,80 @@ function Get-PatchedRender($Module) {
     return $text
 }
 
-function Invoke-Harness([string]$Bridge, [string]$Tag) {
+# PAGE / ROW / VALROW lines (verify_addon_settings.cpp print_row) -> Luau table.
+function ConvertTo-LuauString([string]$Text) {
+    $escaped = $Text.Replace('\', '\\').Replace('"', '\"')
+    return '"' + $escaped + '"'
+}
+function ConvertTo-LuauRow([string[]]$Fields) {
+    # Fields: KIND, setting, label, key=value ... (see print_row).
+    $parts = New-Object System.Collections.Generic.List[string]
+    $parts.Add("kind = $(ConvertTo-LuauString $Fields[0])")
+    if ($Fields[1] -ne '') { $parts.Add("setting = $(ConvertTo-LuauString $Fields[1])") }
+    $parts.Add("label = $(ConvertTo-LuauString $Fields[2])")
+    $options = New-Object System.Collections.Generic.List[string]
+    for ($i = 3; $i -lt $Fields.Count; $i++) {
+        $field = $Fields[$i]
+        switch -Regex ($field) {
+            '^count=(.*)$' { $parts.Add("count = $($Matches[1])"); break }
+            '^content=(.*)$' { $parts.Add("content = $(ConvertTo-LuauString $Matches[1])"); break }
+            '^value=(on|off)$' { $parts.Add("value = $(if ($Matches[1] -eq 'on') { 'true' } else { 'false' })"); break }
+            '^action=(.*)$' { $parts.Add("action = $(ConvertTo-LuauString $Matches[1])"); break }
+            '^number=(.*)$' { $parts.Add("number = $($Matches[1])"); break }
+            '^option=([^:]*):(.*)$' { $options.Add("{ value = $($Matches[1]), label = $(ConvertTo-LuauString $Matches[2]) }"); break }
+            '^min=(.*)$' { $parts.Add("minimum = $($Matches[1])"); break }
+            '^max=(.*)$' { $parts.Add("maximum = $($Matches[1])"); break }
+            '^validate$' { $parts.Add("validate = true"); break }
+            '^integer$' { $parts.Add("integer = true"); break }
+            '^invalid=(.*)$' { $parts.Add("invalid = $(ConvertTo-LuauString $Matches[1])"); break }
+            '^locked$' { $parts.Add("locked = true"); break }
+            '^tooltip=(.*)$' { $parts.Add("tooltip = $(ConvertTo-LuauString $Matches[1])"); break }
+            default { throw "SCRIPT SETTINGS RENDER GATE FAIL: unknown row field '$field'" }
+        }
+    }
+    if ($options.Count -gt 0) { $parts.Add("options = { $($options -join ', ') }") }
+    return "{ $($parts -join ', ') }"
+}
+function ConvertTo-HarnessPage([string]$Path) {
+    $rows = New-Object System.Collections.Generic.List[string]
+    $valpages = @{}
+    $titles = @{}
+    $title = 'SCRIPT SETTINGS'
+    $inlineCounts = 0
+    $inputBoxes = 0
+    foreach ($line in [IO.File]::ReadAllLines($Path)) {
+        $fields = $line.Split("`t")
+        if ($fields[0] -eq 'PAGE' -and $fields.Count -ge 2 -and $fields[1] -match '^title=(.*)$') { $title = $Matches[1] }
+        elseif ($fields[0] -eq 'ROW') {
+            $rows.Add((ConvertTo-LuauRow $fields[1..($fields.Count - 1)]))
+            if ($fields[1] -eq 'INPUTCOUNT') { $inlineCounts++ }
+            if ($fields[1] -eq 'INPUTBOX') { $inputBoxes++ }
+        }
+        elseif ($fields[0] -eq 'VALPAGE' -and $fields.Count -ge 3 -and $fields[2] -match '^title=(.*)$') { $titles[$fields[1]] = $Matches[1] }
+        elseif ($fields[0] -eq 'VALROW') {
+            $action = $fields[1]
+            if (-not $valpages.ContainsKey($action)) { $valpages[$action] = New-Object System.Collections.Generic.List[string] }
+            $valpages[$action].Add((ConvertTo-LuauRow $fields[2..($fields.Count - 1)]))
+        }
+    }
+    if ($rows.Count -eq 0) { throw "SCRIPT SETTINGS RENDER GATE FAIL: no ROW lines in $Path" }
+    $builder = New-Object System.Text.StringBuilder
+    [void]$builder.Append("HARNESS_PAGE_DATA = { title = $(ConvertTo-LuauString $title), search = true, source = `"package`", rows = {`n")
+    foreach ($row in $rows) { [void]$builder.Append("  $row,`n") }
+    [void]$builder.Append("}, valpages = {`n")
+    foreach ($action in $valpages.Keys) {
+        $pageTitle = if ($titles.ContainsKey($action)) { $titles[$action] } else { '' }
+        [void]$builder.Append("  [$(ConvertTo-LuauString $action)] = { title = $(ConvertTo-LuauString $pageTitle), rows = { $($valpages[$action] -join ', ') } },`n")
+    }
+    [void]$builder.Append("} }`n")
+    # Pages the harness opens: every value page, plus (hosts before R4) one
+    # row page per inline INPUTCOUNT when the stock list recycles its clips.
+    $recycledList = $rows.Count -gt 14 -and $inputBoxes -eq 0
+    $expectedPages = $valpages.Count + $(if ($recycledList) { $inlineCounts } else { 0 })
+    return @{ Text = $builder.ToString(); Rows = $rows.Count; ValuePages = $valpages.Count; InlineCounts = $inlineCounts; ExpectedPages = $expectedPages }
+}
+
+function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '') {
     $builder = New-Object System.Text.StringBuilder
     $offsets = @{}
     $append = {
@@ -134,13 +214,14 @@ function Invoke-Harness([string]$Bridge, [string]$Tag) {
     foreach ($module in $modules) {
         & $append "MODULE_SOURCES[`"$($module.Name)`"] = function(...)"
         $offsets[$module.Name] = & $linesSoFar
-        & $append (Get-PatchedRender $module)
+        & $append (Get-HarnessRender $module)
         & $append "end"
     }
     & $append "MODULE_SOURCES[`"bridge`"] = function(...)"
     $offsets['bridge'] = & $linesSoFar
     & $append ([IO.File]::ReadAllText($Bridge))
     & $append "end"
+    if ($PageData -ne '') { & $append $PageData }
     & $append ([IO.File]::ReadAllText((Join-Path $renderDir "harness_driver.luau")))
     $file = Join-Path $scratch "harness_$Tag.luau"
     [IO.File]::WriteAllText($file, $builder.ToString(), (New-Object System.Text.UTF8Encoding($false)))
@@ -156,30 +237,92 @@ function Resolve-RenderLine($Run, [string]$Text) {
     $offset = $Run.Offsets['Lotus.Interface.ThemedGenericSettings']
     return $line - $offset
 }
-
-# 1. Bridge under test.
-$run = Invoke-Harness $bridgeSource 'current'
-$run.Output | ForEach-Object { Write-Output "HARNESS`t$_" }
-Require ($run.Exit -eq 0) "harness process exits cleanly (current bridge)"
-Require (@($run.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0) "no Lua error on open, populate, scroll bar or wheel (current bridge)"
-Require (@($run.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "every visible row renders its own frame, label and background through the stock draw (current bridge)"
-
-# 2. Negative control: the installed R2 bridge reproduces the live error.
-Require ((Get-TextSha256 $negativeBridge) -eq $inputs['render:ScriptSettingsBridgeV1.r2-2e337a43']) "negative-control bridge is the R2 source of the installed 2e337a43 bytes"
-$negative = Invoke-Harness $negativeBridge 'r2'
-$negative.Output | Select-Object -First 12 | ForEach-Object { Write-Output "NEGATIVE`t$_" }
-$nilError = @($negative.Output | Where-Object { $_ -like 'ERROR*' -and $_.Contains('attempt to perform arithmetic (sub) on nil and number') })
-Require ($nilError.Count -ge 1) "negative control: the R2 bridge raises the live nil arithmetic in the stock draw"
-$renderLine = Resolve-RenderLine $negative $nilError[0]
 $tgsLines = [IO.File]::ReadAllLines((Join-Path $renderDir "stock\Lotus_Interface_ThemedGenericSettings.u44.luau"))
-$statement = if ($null -ne $renderLine -and $renderLine -ge 1 -and $renderLine -le $tgsLines.Count) { $tgsLines[$renderLine - 1].Trim() } else { '' }
-$context = if ($null -ne $renderLine -and $renderLine -ge 5) { ($tgsLines[($renderLine - 5)..($renderLine - 1)] -join "`n") } else { "" }
-Require ($statement -match '^c47v5 = c47v6 - __renovice_local_0$' -and $context.Contains('c47v6 = c47v0.mButtonWidth') -and $context.Contains('"SubLabel"')) "negative control fails at the stock BUTTON sub-label statement mButtonWidth - offset (render line $renderLine = stock source line 991)"
-Require (@($negative.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS FAIL*' }).Count -eq 1) "negative control is reported as a harness FAIL"
+function Get-RenderStatement($Line) {
+    if ($null -ne $Line -and $Line -ge 1 -and $Line -le $tgsLines.Count) { return $tgsLines[$Line - 1].Trim() }
+    return ''
+}
+function Get-RenderContext($Line, [int]$Before) {
+    if ($null -ne $Line -and $Line -gt $Before) { return ($tgsLines[($Line - $Before - 1)..($Line - 1)] -join "`n") }
+    return ''
+}
+function Get-Category($Run, [string]$Name) {
+    $line = @($Run.Output | Where-Object { $_ -like "CATEGORY`t$Name`t*" })
+    if ($line.Count -eq 0) { return 0 }
+    return [int]($line[0].Split("`t")[2])
+}
+function Get-Report($Run) {
+    $line = @($Run.Output | Where-Object { $_ -like "REPORT`t*" })
+    if ($line.Count -eq 0) { return @{} }
+    $report = @{}
+    foreach ($pair in $line[0].Substring(7).Split(' ')) {
+        $kv = $pair.Split('=', 2)
+        if ($kv.Count -eq 2) { $report[$kv[0]] = $kv[1] }
+    }
+    return $report
+}
 
-# 3. Static pins on the bridge under test.
+# 1. Bridge under test, built-in mixed fixture (72 rows: TITLE, CHECKBOX,
+# locked CHECKBOX, inline INPUTCOUNT and locked INPUTCOUNT as pre-R4 hosts send
+# them, TOGGLE, locked TOGGLE, value BUTTONs with and without a legacy
+# subLabel, locked value BUTTONs).
+$run = Invoke-Harness $bridgeSource 'current'
+$run.Output | Where-Object { $_ -notlike 'CATEGORY*' } | ForEach-Object { Write-Output "HARNESS`t$_" }
+$report = Get-Report $run
+Require ($run.Exit -eq 0) "harness process exits cleanly (current bridge)"
+Require (@($run.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0) "no Lua error on open, populate, scroll bar, wheel, value pages, search filter or close routes (current bridge)"
+Require (@($run.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "every visible row renders its own frame, label, background and widgets on its own clip; no stale widget write; no locked-row Label dim (current bridge)"
+Require ($report['search_shown'] -eq 'false') "R4: the bridge never shows the stock search box (ShowHideSearchBox is not executed)"
+Require ([int]$report['pages'] -ge 12) "R4: every value BUTTON and every INPUTCOUNT stand-in opens a one-row page that populates, polls and confirms ($($report['pages']) pages)"
+Require ([int]$report['search_steps'] -eq 21) "the stock search filter was driven through type, extend and clear on the Confirm, Exit and Close opens (21 steps)"
+Require ($report['snapshot_revert'] -eq 'true') "stock property pinned (why the search box stays hidden): the filter re-adds populate-time copies, so a CHECKBOX changed before typing shows its old value again"
+
+# 2. Negative control R3: the installed bridge 739d8177 on the same page
+# reproduces the live R4 defects.
+Require ((Get-TextSha256 $negativeR3) -eq $inputs['render:ScriptSettingsBridgeV1.r3-739d8177']) "negative-control bridge is the R3 source of the installed 739d8177 bytes"
+$r3 = Invoke-Harness $negativeR3 'r3'
+$r3.Output | Where-Object { $_ -like 'CATEGORY*' -or $_ -like 'REPORT*' -or $_ -like 'SCRIPT SETTINGS RENDER HARNESS*' } | ForEach-Object { Write-Output "NEGATIVE-R3`t$_" }
+$r3.Output | Where-Object { $_ -like 'FAIL*' } | Select-Object -First 6 | ForEach-Object { Write-Output "NEGATIVE-R3`t$_" }
+Require ((Get-Category $r3 'widget-unbound') -ge 1) "negative control R3: a scrolled INPUTCOUNT row shows a count field that was never built on its clip (live glitch 1)"
+Require ((Get-Category $r3 'stale-widget-write') -ge 1) "negative control R3: INPUTCOUNT widgets keep writing into a clip another row now owns"
+Require ((Get-Category $r3 'locked-dim-leak') -ge 1) "negative control R3: a locked row leaves its Label at alpha 60 for the next row drawn in the clip"
+$pollError = @($r3.Output | Where-Object { $_ -like 'ERROR*' -and $_.Contains("attempt to index nil with 'mClipName'") })
+Require ($pollError.Count -ge 1) "negative control R3: typing into the stock search box and clearing it raises the live error 'attempt to index nil with 'mClipName''"
+$pollLine = Resolve-RenderLine $r3 $pollError[0]
+$pollContext = Get-RenderContext $pollLine 10
+Require ((Get-RenderStatement $pollLine) -eq 'c56v5 = c56v5.mClipName' -and $pollContext.Contains(':GetElementIndexById(c56v2)') -and $pollContext.Contains('c56v5 = c56v1.mCountButton')) "negative control R3 fails in the stock count poll: element.mCountButton.mClipName (render line $pollLine = stock source line 1474, called from Update line 1627)"
+Require (@($r3.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS FAIL*' }).Count -eq 1) "negative control R3 is reported as a harness FAIL"
+
+# 3. Negative control R2: the sub-label nil arithmetic (R3 defect).
+Require ((Get-TextSha256 $negativeR2) -eq $inputs['render:ScriptSettingsBridgeV1.r2-2e337a43']) "negative-control bridge is the R2 source of the installed 2e337a43 bytes"
+$r2 = Invoke-Harness $negativeR2 'r2'
+$r2.Output | Where-Object { $_ -like 'ERROR*' } | Select-Object -First 3 | ForEach-Object { Write-Output "NEGATIVE-R2`t$($_.Split("`n")[0])" }
+$nilError = @($r2.Output | Where-Object { $_ -like 'ERROR*' -and $_.Contains('attempt to perform arithmetic (sub) on nil and number') })
+Require ($nilError.Count -ge 1) "negative control R2: the R2 bridge raises the live nil arithmetic in the stock draw"
+$renderLine = Resolve-RenderLine $r2 $nilError[0]
+$context = Get-RenderContext $renderLine 4
+Require ((Get-RenderStatement $renderLine) -match '^c47v5 = c47v6 - __renovice_local_0$' -and $context.Contains('c47v6 = c47v0.mButtonWidth') -and $context.Contains('"SubLabel"')) "negative control R2 fails at the stock BUTTON sub-label statement mButtonWidth - offset (render line $renderLine = stock source line 991)"
+Require (@($r2.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS FAIL*' }).Count -eq 1) "negative control R2 is reported as a harness FAIL"
+
+# 4. Static pins on the bridge under test.
 $bridgeText = [IO.File]::ReadAllText($bridgeSource)
 Require (-not [regex]::IsMatch($bridgeText, 'mSubLabel\s*=')) "the bridge never builds a stock mSubLabel (the stock draw needs mButtonWidth for it)"
 Require ($bridgeText.Contains('local function buttonLabel(spec)')) "the bridge folds a host subLabel into the BUTTON label"
+Require (-not $bridgeText.Contains('ShowHideSearchBox')) "R4: the bridge never shows the stock search box"
+Require ($bridgeText.Contains('local STOCK_VISIBLE_ROWS = 14') -and $bridgeText.Contains('local function recycledPage(specs)')) "R4: the bridge detects the stock recycled list (uniform, more than 14 rows, no INPUTBOX)"
+Require ($bridgeText.Contains('openRowPage(movie, spec, depth + 1)')) "R4: an INPUTCOUNT on a recycled page opens its own one-row page"
+
+# 5. Optional: a real package's rows (read-only copy), current bridge.
+if (-not [string]::IsNullOrWhiteSpace($PageRows)) {
+    $page = ConvertTo-HarnessPage $PageRows
+    Write-Output "PACKAGE`trows=$($page.Rows) value_pages=$($page.ValuePages) inline_inputcount=$($page.InlineCounts) source=$PageRows"
+    $pkg = Invoke-Harness $bridgeSource 'package' $page.Text
+    $pkg.Output | Where-Object { $_ -notlike 'CATEGORY*' } | ForEach-Object { Write-Output "PACKAGE-HARNESS`t$_" }
+    $pkgReport = Get-Report $pkg
+    Require ($pkg.Exit -eq 0 -and @($pkg.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0) "package rows: no Lua error on open, scroll, wheel, value pages, search filter or close routes"
+    Require (@($pkg.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "package rows: every visible row renders its own frame, label, background and widgets; no stale write; no dim leak"
+    Require ([int]$pkgReport['pages'] -eq $page.ExpectedPages) "package rows: every value BUTTON (and, for pre-R4 host rows, every inline INPUTCOUNT stand-in) opens its one-row page ($($pkgReport['pages'])/$($page.ExpectedPages))"
+    Require ($pkgReport['search_shown'] -eq 'false') "package rows: the stock search box stays hidden"
+}
 
 Write-Output "SCRIPT SETTINGS RENDER PASS"

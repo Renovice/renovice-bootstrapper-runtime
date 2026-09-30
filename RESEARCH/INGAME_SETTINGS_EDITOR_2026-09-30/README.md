@@ -295,3 +295,114 @@ prototypes and word PCs, then to `derecomp ir-u44` and the render. Render closur
 - Live checks pending: open SCRIPT SETTINGS; scroll to the end with the bar and the wheel; every row shows its own label;
   float BUTTONs read "<label>: <value> (stock …)"; no Script Error in EE.log; the search box sits inside the panel; the
   value page opens from a float BUTTON.
+
+## Follow-up R4 (2026-09-30): INPUTCOUNT on the recycled list, stuck search, locked-row dim
+
+Trigger: live session on DLL `a578bb78…` (branch `fix/settings-r3-button-render-2026-09-30` `cf5ee2e`) and bridge
+`739d8177…`, with the full Missions package (`package.json` `abf62770…`, 281 values), Frost and Octavia installed
+(`page PASS id=flat rows=627 search=1 uniform=1 scroll=1`). The R3 crash was gone and scrolling worked, but:
+(1) scrolled INPUTCOUNT rows ("Level up enrage time (stock 1020 s)") showed white boxes, raw text (`SE`,
+`size="19" color`, `input`, `SELECT ITEMS`, `L'1`) and a floating "Hold to clear" instead of the stepper;
+(2) a dimmed rectangle covered the left part of several rows; (3) typing into the search box broke the screen and the
+player could not leave SCRIPT SETTINGS. Offline only; nothing was deployed, pushed or written to a game folder. Branch
+`fix/settings-r4-inputcount-search-2026-09-30` from `cf5ee2e`.
+
+EE.log (session of 2026-09-30 17:1x, last write 17:22): one `Script Error: /Lotus/Interface/ThemedGenericSettings.lua:1474:
+attempt to index nil with 'mClipName'`, stack 1474, 1627, 1751, at 111.304 s. No other script error; the
+`SetCallbacks on unknown clip …MenuEntryN.Btn` lines are the stock ones from R3-5. `renovice_source.log`: the flat page
+(`rows=627`) and one value page (`val:Frost/ice_wave.bonus_per_cold_stack`, closed with `CLOSE depth=2`).
+Screenshot `Skjermbilde 2026-09-30 172100.png` (cropped, 1776x525).
+
+Stock evidence: 44.0.2 `Lotus_Interface_ThemedGenericSettings.lua_B` (`397f46de…2d3d`), `EE_Interface_Components_List.lua_B`
+(`2f5237c6…345c`) and `Lotus_Interface_Components_ThemedInputField.lua_B`, rendered with `derecomp decompile-mod-u44`
+(derecomp `65c46572…`, toolchain `fix/natural-loop-header-cfg-gate` `9c008ae`). Source lines were mapped through the
+per-prototype line table (`lineinfo`/`abslineinfo`) to word PCs; word PCs to `derecomp ir-u44` instructions (wide
+opcodes counted twice; prototypes 46, 55 and 59 add up exactly to their `sizecode`).
+
+| Stock line | Prototype (render) | What it is |
+|---|---|---|
+| 878-880, 927-929 | 46 (`c47`, element draw) | CHECKBOX / TOGGLE: `if list.mScroll ~= nil then element.Checkbox = nil` (`.Toggle`), so the widget is rebuilt on the current clip at every scrolled draw |
+| 1079-1152 | 46 | INPUTCOUNT: `gotoAndStop("InputCount")`; only `if element.mButtonInfo == nil` builds Minus/Count/Plus (ThemedButton / ThemedInputField `Create` on `<clip>.Minus/.Count/.Plus`), sets `mCountButton` and the screen upvalue `v31 = element.Id` |
+| 1300-1304 | 46 | `.Lock` visibility on every draw; `Label` alpha 60 only when `mLocked`; nothing sets it back |
+| 1471-1474 | 55 (`c56`, count poll) | `i = list:GetElementIndexById(v31)`; `list:GetElementInIndex(i).mCountButton.mClipName .. ".Label"` |
+| 1626-1627 | 59 (`c60`, `Update`) | every frame: `if v31 ~= nil then` count poll |
+| 685-709 | 19 (`c20`, search filter) | term extended or new: `RemoveElements` (removes every duplicated clip, `SetScroll(1)`), then `AddElement(CopyTable(copy))` for each matching populate copy; a shorter term only removes rows |
+| 1656-1678 | 62 (`c63`, populate) | `mUnfilteredElements[i] = CopyTable(element)` before any draw; `mSearchTerm = ToSearchable(mLabel)` |
+
+| ID | Hypothesis | Result | Evidence |
+|---|---|---|---|
+| R4-1 | Glitch 1 is the stock INPUTCOUNT widgets staying bound to the clip of the row's first draw while the recycled list draws the row into another clip | **TRUE** | Lines 1081-1152 build the widgets only while `mButtonInfo == nil`; CHECKBOX and TOGGLE have the `mScroll` reset, INPUTCOUNT has none. After a scroll the row is drawn into a clip whose `InputCount` frame children are fresh SWF instances (the raw default texts, `ClearSearchLabel` "Hold to clear" from `ThemedInputField` `/Lotus/Language/Menu/HoldToClear`), and its old widgets keep writing into a clip another row owns. Before R2 the flat list did not scroll, so every row kept its first clip (the "Difficulty 1 warrior level ▼ 15 ▲" rows were correct); the R3 screenshot `121316` shows INPUTCOUNT correct on open, before any scroll |
+| R4-2 | Glitch 1 comes from a wrong `mMaxCount`/`mCount` or a row-height mismatch | FALSE | The rows carry `mCount`, `mMinCount`, `mMaxCount` from the host; INPUTCOUNT's default height is 44 like every other list row; the draw never reads them before the widget build. The harness passes the same rows without recycling |
+| R4-3 | The search crash is the per-frame count poll hitting a row copy without widgets | **TRUE** | `v31` names the last INPUTCOUNT whose widgets were built. The filter replaces every row with a populate-time copy (no `mButtonInfo`, no `mCountButton`) and redraws 14 rows + 1 buffer from the top. On the live page the first 15 rows (FROST, ICE WAVE, MISSIONS headers, member switches, CAPTURE, two Custom switches) hold no INPUTCOUNT, so no copy is drawn, `v31` keeps the old id, and the next `Update` indexes `nil.mClipName` at line 1474, every frame. Replay: the installed R3 bridge with the R3-era rows of the installed packages (627 rows, 204 inline INPUTCOUNT) raises exactly this error when the search is cleared (3 frames, 3 errors per open) |
+| R4-4 | The stuck screen is caused by the same error | **Partially true** | The error is the only abnormal event in EE.log, and without it nothing blocks a close. The exact blocking mechanism is UNRESOLVED: in the harness the close still completes, because `Update` runs the movie tick (which drives the close interpolation and its completion callback) before the count poll. Candidates: the engine stops dispatching the failing `Update`, or the error skips the TextSuggest/IME update after the poll while the search field has focus. EE.log logs the error once although it recurs every frame, so the log alone cannot tell |
+| R4-5 | Rows without `mLabel`, TITLE/SPACER rows, or the bridge re-running the elements function break the search | FALSE | Every bridge row has a label (SPACER `""`), so every row has `mSearchTerm`. The elements function runs once per open (populate); the filter works on copies. The completion and close callbacks survive the filter (the harness closes through Confirm, Exit and Close after typing and clearing) |
+| R4-6 | The stock search is unsafe with editable rows even without INPUTCOUNT | **TRUE** | The copies are taken at populate. A CHECKBOX changed before typing shows its old value after the filter, and the completion pass (`stageVisible`) would stage that old value. The harness reproduces it (`snapshot_revert=true`) with the R4 bridge too |
+| R4-7 | Glitch 2 (the dimmed rectangle) is a leftover row clip or the locked-row Label alpha | FALSE (both) | Pixels of `172100.png`: inside the rectangle the background is unchanged (20,19,29), the gold text (190,169,102) becomes (81,73,55) and the row border (70,65,61) becomes (38,36,41). That is an overlay of the panel background colour at about 64 % opacity in front of the rows, spanning three rows with one edge at x = 383. A row clip is row-sized and opaque; the Label alpha 60 would give (122,109,70) over the whole label. Only one rectangle is visible, although two INPUTCOUNT rows are broken |
+| R4-8 | Glitch 2 is the stock focus tooltip | UNRESOLVED | Consistent with R2-8 (GenericSettings sets `_T.gToolTip` on focus; the shared tooltip owner draws it over the list). The crop hides the rectangle's top and the cursor. A full screenshot is needed |
+| R4-9 | The locked-row Label alpha leaks to other rows on the recycled list | **TRUE (static and harness)** | Line 1304 sets `Label` alpha 60 for `mLocked` and nothing restores it. The installed Missions page has one literal-lane value (a locked INPUTCOUNT in R3). The harness reports 170 leaked labels for the installed rows with the R3 bridge |
+| R4-10 | The harness still needs `$renderPatches` | FALSE | derecomp `65c46572` renders List `CreateList` SETLIST as `c87v3[1] = c87v4` and the Redraw captures as per-closure snapshots (also the INPUTCOUNT widget closures in ThemedGenericSettings). The fixtures were re-rendered; the gate pins the fixed forms and applies no patch. The DE `#nil = 0` emulation stays (VM semantics, not a render defect) |
+
+**Fix (native).**
+- Page model (`settings_ui_core.hpp`): every number opens its one-value page (`uses_value_page` = int or float). An
+  int >= 0 page holds the stock INPUTCOUNT stepper (drawn once in its own clip, never recycled), a float or negative
+  int page the validated INPUTBOX. The list shows `value_button_label`, for example `"Level up enrage time: 1020 s"`.
+  The value BUTTON is never locked; the page's editor carries the lock of a read-only lane. `stock_search_box = false`
+  for the flat and group pages. Enum TOGGLE rows stay inline (stock rebuilds them on every scrolled draw).
+- Bridge (`ScriptSettingsBridgeV1.luau`, same name and host contract): never executes `ShowHideSearchBox`
+  (`page.search` is ignored). On a page the stock list recycles (more than 14 rows, no INPUTBOX), it renders no
+  INPUTCOUNT and no locked row: an INPUTCOUNT becomes a BUTTON `"<label>: <count>"` that opens a one-row page holding
+  the same INPUTCOUNT (setting, bounds, validator and lock kept; the close only stages, like a host value page), a
+  locked CHECKBOX or TOGGLE becomes an unlocked BUTTON showing its value, and a locked BUTTON is unlocked and keeps its
+  action. With the R4 DLL this path never triggers; it makes the bridge alone correct with DLL `a578bb78` and older.
+  Bytes `739d8177…` -> `7b9b9950…` (6,716 B).
+- Not changed: the scroll contract (uniform 44 px, scroll bar, wheel), the R3 BUTTON label rule, staging and the root
+  apply through F9, the one-value INPUTBOX pages, the nested layout.
+
+**Gates.**
+- `verify_script_settings_render.ps1` (R4):
+  - Renders: re-made with derecomp `65c46572` and pinned (`STOCK_INPUTS.txt`); no render patch.
+  - Harness model: a frame change resets the row clip's frame-specific children (Minus, Count, Plus, Checkbox,
+    Toggle, …) to fresh SWF instances; `duplicateMovieClip`/`removeMovieClip` make fresh clips; every widget records the
+    row clip and frame serial it was built on.
+  - Built-in page: 88 rows (the live header block, then TITLE, CHECKBOX, locked CHECKBOX, inline and locked INPUTCOUNT,
+    TOGGLE, locked TOGGLE, value BUTTONs, locked value BUTTONs, legacy `subLabel`) plus INPUTBOX and INPUTCOUNT value
+    pages.
+  - Flow: open, populate, every scroll-bar position both ways and the wheel with one stock `Update` per step; every
+    page a BUTTON opens (populated, polled 5 frames, confirmed); the stock filter typed, extended, shortened and
+    cleared; Confirm, Exit and Close after the search.
+  - Per visible row: stock frame, own label, background drawn, no leftover sub-label, the type's widgets built on this
+    clip since its last frame change, no Label left at a locked row's alpha 60, and on a recycled list no INPUTCOUNT
+    and no locked row. Globally: no widget write into a clip that changed frame. 27,110 checks PASS.
+  - Negative control R3 (installed `739d8177`, pinned source): unbound INPUTCOUNT widgets, stale widget writes, the
+    Label dim leak, and `attempt to index nil with 'mClipName'` at render `c56v5 = c56v5.mClipName` (stock line 1474)
+    after the search is cleared. The R2 control (line 991) is kept.
+  - `-PageRows <file>`: runs the current bridge on the PAGE/ROW/VALROW lines that `verify_addon_settings -Package`
+    now prints.
+- `verify_addon_settings.ps1`: every number opens a one-row page (INPUTCOUNT for int >= 0, else INPUTBOX); list pages
+  hold no INPUTCOUNT, INPUTBOX or locked value BUTTON; the search box is off; the literal lane is locked on its value
+  page. `-Package` prints every descriptor field (min, max, options, validate, invalid, locked) for the render gate.
+- Read-only copies of the installed packages (`Missions` `abf62770…` + `Settings/Missions.json` `5df49c67…`, Frost,
+  Octavia): page model 167/167 each (Missions: 613 rows, 281 value BUTTONs, 0 INPUTCOUNT on the list). Render
+  harness, current bridge: Missions 199,755 checks, 281/281 pages; the combined 627-row flat page 204,259 checks,
+  283/283 pages; Frost and Octavia (7 rows, not scrolled) PASS. The R3-era rows of the same packages (627 rows,
+  204 inline INPUTCOUNT) PASS with the R4 bridge (283 pages: 79 value pages + 204 row pages) and FAIL with the R3
+  bridge exactly as live (13,901 unbound widgets, 848 stale writes, 170 dimmed labels, 27 line-1474 errors).
+- Full `build_private.ps1`: 34 gate scripts, `PRIVATE BUILD PASS flavor=main warnings=0 errors=0`, 5,636,096 B,
+  `aebb08e3bd6589851ed6fbf6a8430aa52de962eed46c5ab09e16edf0b0796a92`.
+
+**Limits (exact).**
+- The harness simulates the engine (Flash members and frames, timers, the scroll-bar component, themed widgets). The
+  frame-specific children list is a modelling assumption; the stock script logic is real. Passing it does not prove
+  the live look.
+- R4-4 (how the error blocked the close) and R4-8 (what the dimmed rectangle is) are unresolved.
+- R4-6: the stock search stays off until a design keeps the filter's copies in step with the edits.
+- The value BUTTON label shows the value as of the page build (R2 limit, unchanged): after editing on the value page the
+  list row keeps the old text until the next open.
+- Every integer now costs one click more than the inline stepper did.
+- Live checks pending: see the staging README (scroll the Missions page; open an int row's page and use - / + and
+  typing; Confirm; no Script Error; no search box; close with Confirm, Cancel and Esc; a full uncropped screenshot if
+  the dimmed rectangle appears again, with the mouse position).
+
+Rejected: re-creating the INPUTCOUNT widgets from the bridge on each draw (the bridge does not own the stock draw and
+the element table fields `mButtonInfo`/`mCountButton` are stock state); keeping the search box with a bridge-side
+restage filter (the list would still show the populate-time values, so what the player sees would not be what applies).

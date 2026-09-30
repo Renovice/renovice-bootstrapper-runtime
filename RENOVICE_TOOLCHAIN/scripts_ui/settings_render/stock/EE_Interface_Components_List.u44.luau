@@ -139,7 +139,7 @@
     c87v7 = 67
     c87v8 = false
     c87v4 = c87v0:Name__863e56e7(c87v1, c87v7, c87v8)
-    c87v3 = {c87v4}
+    c87v3[1] = c87v4
     c87v6 = 12
     c87v7 = 1
     c87v5 = {c87v6, c87v7}
@@ -2204,16 +2204,18 @@
             c55v20, c55v21 = c55v0:GetInterpolationProperties(c55v17)
             c55v0:OnElementTransitionStarted(c55v17)
             if not c55v3 then
+              local __renovice_capture_54_1 = c55v17
+              local __renovice_capture_54_2 = c55v19
               c55v22 = function()
                 local c54v0, c54v1, c54v2
                 c54v0 = c55v0
-                c54v2 = c55v17
+                c54v2 = __renovice_capture_54_1
                 c54v0:OnElementTransitionEnded(c54v2)
-                c54v1 = c55v19
+                c54v1 = __renovice_capture_54_2
                 c54v0 = IsNull
                 c54v0 = c54v0(c54v1)
                 if not c54v0 then
-                  c54v0 = c55v19
+                  c54v0 = __renovice_capture_54_2
                   c54v0()
                 end
                 do return end

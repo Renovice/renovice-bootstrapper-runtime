@@ -1,9 +1,13 @@
-# Inputs of record for verify_script_settings_render.ps1 (R3, 2026-09-30).
+# Inputs of record for verify_script_settings_render.ps1 (R3 2026-09-30; renders refreshed R4 2026-09-30).
 # stock:  Steam 2026.09.28.13.06 (44.0.2) bytecode, repos/toolchains/de-luau-toolchain/work/u44-rawhash-2026-09-29/stock/<stem>.lua_B
-# render: derecomp.exe decompile-mod-u44 <stock> <out> (derecomp 54cab5a8f197e1be23e096e9f009e1529c58c2a2ff7bbcadeea3ad8c1f370300)
-# fixture: ScriptSettingsBridgeV1.luau at fb9655e (compiles to the installed 2e337a43 bytes)
+# render: derecomp.exe decompile-mod-u44 <stock> <out> (derecomp 65c4657239eebc194f8aa9c62cb919153449ec05a163e88086decf5c990ecf1c,
+#         de-luau-toolchain fix/natural-loop-header-cfg-gate 9c008ae: SETLIST into an existing table and by-value capture
+#         snapshots are rendered correctly, so the harness applies no render corrections besides DE `#nil` = 0)
+# fixture r2: ScriptSettingsBridgeV1.luau at fb9655e (compiles to the installed 2e337a43 bytes)
+# fixture r3: ScriptSettingsBridgeV1.luau at cf5ee2e (compiles to the installed 739d8177 bytes)
 stock	Lotus_Interface_ThemedGenericSettings	397f46de090dc55d31ba493dc22d91b17680e4a4d2341bb335450d5d07ab2d3d
 stock	EE_Interface_Components_List	2f5237c67640ead0bdca78e71b69ba5f44728159808184acca965327b651345c
-render	Lotus_Interface_ThemedGenericSettings	0a2f9877d8b40d676b553974f28623d668d9977f5341102b8a8b488082e37aae
-render	EE_Interface_Components_List	32434e82727bc0d0fbd2a03d52addd70e7811643452cd33be307eff881dd64af
+render	Lotus_Interface_ThemedGenericSettings	9f9190c1b04efaaa917ea5b5a657abb54e183341bae8652d8d35a0dfb53399dc
+render	EE_Interface_Components_List	19684450121abf4f5cd10d9b15d2fb0d439479d7da3180854aef4841a7828630
 render	ScriptSettingsBridgeV1.r2-2e337a43	e947f065f0631f5d0a9cb1cd39cdbceaa5f61d6b9dc1eb022a4db9dbbc18fa6d
+render	ScriptSettingsBridgeV1.r3-739d8177	e1b6e8bb30be7142b835f7186e14148785615a74aae4cc9da78199083b96b0f3

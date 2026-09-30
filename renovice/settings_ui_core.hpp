@@ -16,7 +16,8 @@
 //   custom:<folder lower>/<value id>  per-value "Custom" switch
 //   value:<folder lower>/<value id>   the value editor
 // BUTTON actions: open:val:<Folder>/<value id> (every layout: the one-value
-// INPUTBOX page, see "Stock scroll contract" below), open:pkg:<Folder>,
+// INPUTCOUNT or INPUTBOX page, see "Stock scroll contract" below and
+// uses_value_page), open:pkg:<Folder>,
 // open:grp:<Folder>/<group>, restore:<Folder> and restore:<Folder>/<group>
 // (nested layout only).
 
@@ -385,12 +386,20 @@ inline bool group_enabled(const PackageView& view, std::string_view group)
 	return found == view.state.groups.end() || found->second;
 }
 
-// Floats and negative integers are typed into an INPUTBOX, which the stock
-// scroll contract forbids on a list page; they get a one-value page.
+// Every number is edited on its own one-value page (R4). Floats and negative
+// integers use an INPUTBOX, which the stock scroll contract forbids on a list
+// page. Integers >= 0 use the stock INPUTCOUNT stepper, which cannot live on a
+// recycled (scrolled) list: stock builds its Minus/Count/Plus widgets once per
+// row, bound to the clip of the first draw (ThemedGenericSettings 44.0.2
+// source lines 1081-1152), while CHECKBOX and TOGGLE are rebuilt on every
+// scrolled draw (lines 878-880, 927-929). A scrolled INPUTCOUNT showed an
+// uninitialised count field (raw "SELECT ITEMS", `size="19" color`, "Hold to
+// clear"), and after a search filter the per-frame count poll (line 1627 ->
+// 1474) indexed a row copy without mCountButton (live EE.log 2026-09-30). On
+// a one-row page the INPUTCOUNT is drawn once in its own clip, like stock.
 inline bool uses_value_page(const settings::ValueDecl& declaration) noexcept
 {
-	return declaration.type == settings::ValueType::Float
-		|| (declaration.type == settings::ValueType::Int && declaration.minimum < 0);
+	return declaration.type == settings::ValueType::Float || declaration.type == settings::ValueType::Int;
 }
 
 inline double current_value(const PackageView& view, const settings::ValueDecl& declaration)
@@ -409,8 +418,8 @@ inline std::string value_page_action(const PackageView& view, const settings::Va
 	return "open:val:" + view.folder + "/" + declaration.id;
 }
 
-// The stock value editor of one value: TOGGLE (enum), INPUTCOUNT (int >= 0)
-// or a validated INPUTBOX (float, negative int; value page only).
+// The stock value editor of one value: TOGGLE (enum, inline), or on the value
+// page INPUTCOUNT (int >= 0) or a validated INPUTBOX (float, negative int).
 inline Row value_editor(const PackageView& view, const settings::ValueDecl& declaration)
 {
 	const double current = current_value(view, declaration);
@@ -433,7 +442,7 @@ inline Row value_editor(const PackageView& view, const settings::ValueDecl& decl
 		for (const auto& option : declaration.options)
 			editor.options.push_back(ToggleOption{fit_words(option.label, maximum_row_label), option.value});
 	}
-	else if (!uses_value_page(declaration))
+	else if (declaration.type == settings::ValueType::Int && declaration.minimum >= 0)
 	{
 		// INPUTCOUNT takes integers >= 0 only and clamps typed input to
 		// 0..mMaxCount; the validator enforces the declared minimum.
@@ -463,9 +472,13 @@ inline std::string value_button_label(const settings::ValueDecl& declaration, do
 	return button_label(declaration.label, value);
 }
 
-// The per-value pair: "Custom <label>" CHECKBOX, then either the stock value
-// editor (TOGGLE, INPUTCOUNT: 44 px, list-safe) or a BUTTON showing the
-// current value (value_button_label) that opens the value's INPUTBOX page.
+// The per-value pair: "Custom <label>" CHECKBOX, then either the enum TOGGLE
+// (rebuilt by stock on every scrolled draw, list-safe) or a BUTTON showing the
+// current value (value_button_label) that opens the value's one-value page
+// (INPUTCOUNT or INPUTBOX). The BUTTON is never locked: stock dims a locked
+// row's Label (source line 1304, alpha 60) and never restores it, so on a
+// recycled list the next row drawn into that clip stayed dimmed. The value
+// page's editor carries the lock (read-only lanes) instead.
 inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, const settings::ValueDecl& declaration)
 {
 	const std::string key = folder_key(view.folder);
@@ -488,12 +501,13 @@ inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, c
 	open.action = value_page_action(view, declaration);
 	open.setting = "action:" + open.action;
 	open.tooltip = tooltip;
-	open.locked = declaration.lane != settings::Lane::Addon;
+	open.locked = false;
 	rows.push_back(std::move(open));
 }
 
-// One-value page (page id "val:<Folder>/<value id>"): the value's validated
-// INPUTBOX alone. Its close stages the typed text; the root close applies.
+// One-value page (page id "val:<Folder>/<value id>"): the value's stock
+// editor alone (INPUTCOUNT for int >= 0, validated INPUTBOX otherwise). Its
+// close stages the value; the root close applies.
 inline Page build_value_page(const PackageView& view, std::string_view value_id)
 {
 	Page page;
@@ -604,14 +618,22 @@ inline void append_group_rows(std::vector<Row>& rows, const PackageView& view, c
 	}
 }
 
-// Default layout: one flat list with TITLE sections and the stock search box
-// on. Its only BUTTON rows open one-value INPUTBOX pages (open:val:); it has
-// no package/section navigation, Restore or FinishSelection buttons.
+// The stock search box stays off (R4). The stock filter (ThemedGenericSettings
+// 44.0.2 source lines 685-709) rebuilds the list from copies taken at populate
+// (lines 1656-1678): a row edited before typing shows its old value again and
+// the completion pass would stage that old value. Live 2026-09-30 the filter
+// also re-added an INPUTCOUNT row copy without widgets, the per-frame count
+// poll raised a script error and the screen could not be left.
+inline constexpr bool stock_search_box = false;
+
+// Default layout: one flat list with TITLE sections. Its only BUTTON rows
+// open one-value pages (open:val:); it has no package/section navigation,
+// Restore or FinishSelection buttons.
 inline Page build_flat_page(const std::vector<PackageView>& views)
 {
 	Page page;
 	page.title = "SCRIPT SETTINGS";
-	page.search = true;
+	page.search = stock_search_box;
 	page.empty_message = "NO PACKAGE SETTINGS FOUND";
 	// No SPACER rows: under the stock scroll contract every row takes one 43 px
 	// slot of the 14 visible, and each package and section already starts with
@@ -681,7 +703,7 @@ inline Page build_package_page(const PackageView& view)
 inline Page build_group_page(const PackageView& view, std::string_view group_id)
 {
 	Page page;
-	page.search = true;
+	page.search = stock_search_box;
 	if (view.declarations == nullptr) return page;
 	const auto* group = view.declarations->group(group_id);
 	if (group == nullptr) return page;
