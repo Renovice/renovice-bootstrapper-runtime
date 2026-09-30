@@ -1,6 +1,6 @@
 #pragma once
 
-// LIVE_LITERALS_V1 shared patch core (2026-09-30).
+// LIVE_LITERALS_V1 shared patch core (2026-09-30; R11 coupled sites).
 //
 // The exact-literal site rules of the RENOVICE mission editor, shared by the
 // build-time generator (ability-editor, exact replacement builder and recipe
@@ -26,6 +26,12 @@
 // `numerator / value` for an inverse site. A master knob drives a row with a
 // scale: the row value is `llround(master * scale)` for an integer row and
 // `master * scale` otherwise.
+// R11 (2026-09-30): a COUPLED site adds a fixed `value_offset` to the row
+// value first: operand = (value + value_offset) * numerator / denominator (or
+// numerator / (value + value_offset)). One row then keeps two stock literals
+// in their stock relation, e.g. an escape timer 30 and its host-migration
+// threshold 27 = 30 - 3 (offset -3). Every site keeps its own preimage and
+// domain check; value_offset 0 is the plain site.
 //
 // Only the C++ standard library is used; nothing here reads a file, a game
 // folder or a VM.
@@ -62,6 +68,7 @@ struct Site
 	bool inverse = false;
 	double numerator = 1.0;
 	double denominator = 1.0;
+	double value_offset = 0.0;  // R11 coupled site (0 = plain site)
 };
 
 enum class Error : std::uint8_t
@@ -112,7 +119,8 @@ inline double row_value(double master, double scale, bool integer_row) noexcept
 
 inline double operand(const Site& site, double value) noexcept
 {
-	return site.inverse ? site.numerator / value : value * site.numerator / site.denominator;
+	const double coupled = value + site.value_offset;
+	return site.inverse ? site.numerator / coupled : coupled * site.numerator / site.denominator;
 }
 
 // Domain of the encoded operand (no byte access).

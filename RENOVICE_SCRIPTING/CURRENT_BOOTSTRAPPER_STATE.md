@@ -1,5 +1,15 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 Contract R11: coupled live-literal sites (`value_offset`) + the R11 Missions package — staged as one combined set (not deployed)
+
+Branch `feat/settings-r11-coupled-literals-2026-09-30` from `d250e11` (R10). Generic; no mission or ability rule in shared code. **This entry supersedes `combined-r10` for installation.**
+
+- **Primitive.** Shared live-literal core `Site::value_offset` (operand = (value + value_offset) x num / den), byte-identical with the generator (`2fdda7b8…`); recipe sites accept an optional finite `value_offset`. One row can now keep two stock literals in their stock relation (Orokin escape timer 30 and its host-migration threshold 27 = value - 3).
+- **Package.** Railjack kill goals (Grineer fighters/crewships, Corpus fighter limit; generator mode `scale_count`, no runtime change beyond R10) and the Orokin escape timer. 490 values, 34 targets.
+- **Gates.** 38 build-listed gates PASS; render gate walks Railjack → Fighters to kill and Sabotage → Timers → Orokin: escape timer and synthesizes the coupled module. Private build `b729b2e1…` (5,903,360 bytes), 0 warnings.
+- **Compatibility.** The R10 DLL refuses the R11 `literals.json` (unknown site field): install DLL and package together.
+- Record: `RESEARCH/COUPLED_LITERALS_R11_2026-09-30/README.md`; staging `work/staging/combined-r11/`.
+
 ## 2026-09-30 Contract R10: callee environment for `luaCalls.before` + the R10 Missions package — staged as one combined set (not deployed)
 
 Branch `feat/settings-r10-param-env-2026-09-30` from `c2909f2` (the R9 merge). Generic; no mission or ability rule in shared code. **This entry supersedes `combined-r7-r8` for installation.**

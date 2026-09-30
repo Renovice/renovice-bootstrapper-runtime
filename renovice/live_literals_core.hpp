@@ -43,7 +43,8 @@
 //                                  "rewrites_instruction": true, // optional, loadn
 //                                  "constant_gate": "K_CONSTANT_EXCLUSIVE_V1", // number_constant
 //                                  "numerator": X, "denominator": Y,
-//                                  "inverse": true } ] } ]      // optional
+//                                  "inverse": true,             // optional
+//                                  "value_offset": V } ] } ]    // optional (R11 coupled site)
 //     } } }
 // A value whose single drive names its own id is a DIRECT row value; any other
 // value is a MASTER knob (row value = master x scale). A row's own value, when
@@ -222,7 +223,7 @@ inline std::string parse_site(const settings::json::Value& value, patch::Site& s
 	if (!value.is_object()) return "site-not-object";
 	std::string unknown;
 	if (!only_fields(value, {"kind", "offset", "expected", "register", "rewrites_instruction", "constant_gate",
-		"numerator", "denominator", "inverse"}, unknown))
+		"numerator", "denominator", "inverse", "value_offset"}, unknown))
 	{
 		return "site-unknown-field=" + unknown;
 	}
@@ -273,6 +274,12 @@ inline std::string parse_site(const settings::json::Value& value, patch::Site& s
 	{
 		if (!inverse->is_bool()) return "site-inverse-invalid";
 		site.inverse = inverse->boolean;
+	}
+	// R11 coupled site: the operand is (row value + value_offset) x numerator / denominator.
+	if (const auto* coupled = value.find("value_offset"))
+	{
+		if (!coupled->is_number() || !std::isfinite(coupled->number)) return "site-value_offset-invalid";
+		site.value_offset = coupled->number;
 	}
 	if (const auto error = patch::shape_error(site); error != patch::Error::None) return patch::error_text(error);
 	return {};
@@ -445,7 +452,7 @@ inline std::string parse_recipes(std::string_view text, std::string_view expecte
 				const auto& b = drive.sites[n];
 				same = a.kind == b.kind && a.offset == b.offset && a.expected == b.expected && a.reg == b.reg
 					&& a.rewrites_instruction == b.rewrites_instruction && a.inverse == b.inverse
-					&& a.numerator == b.numerator && a.denominator == b.denominator;
+					&& a.numerator == b.numerator && a.denominator == b.denominator && a.value_offset == b.value_offset;
 			}
 			if (!same) return "recipe-row-sites-disagree row=" + drive.row;
 		}

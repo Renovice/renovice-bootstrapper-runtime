@@ -159,6 +159,15 @@ void part1_core()
 	inverse.inverse = true;
 	inverse.numerator = 120.0;
 	check(patch::operand(inverse, 4.0) == 30.0, "core: inverse operand = numerator / value");
+	// R11 coupled site: operand = (value + value_offset) x numerator / denominator; each site keeps its own domain.
+	patch::Site coupled = loadn(8, 4, 27);
+	coupled.value_offset = -3.0;
+	check(patch::operand(coupled, 30.0) == 27.0 && patch::stock_error(coupled, 30.0) == patch::Error::None
+		&& patch::stock_error(coupled, 27.0) == patch::Error::StockDisagrees, "core: coupled site operand = value + value_offset (stock 30 -> 27)");
+	check(patch::encode(coupled, 45.0, out) == patch::Error::None && out[1] == 4 && out[2] == 42 && out[3] == 0,
+		"core: coupled site encodes value + value_offset (45 -> LOADN 42)");
+	check(patch::encode(coupled, 3.0, out) == patch::Error::OperandOutOfDomain && patch::encode(coupled, 4.0, out) == patch::Error::None,
+		"core: coupled site keeps the LOADN domain (3 - 3 = 0 rejected, 4 - 3 = 1 accepted)");
 	check(patch::row_value(20.0, 3.0, true) == 60.0 && patch::row_value(50.0, 1.4, true) == 70.0
 		&& patch::row_value(0.5, 3.0, false) == 1.5, "core: master row value (llround for integer rows)");
 	check(patch::stock_error(site, 240.0) == patch::Error::None && patch::stock_error(site, 180.0) == patch::Error::StockDisagrees,
@@ -290,6 +299,27 @@ void part2_recipe(const Fixture& fixture, ll::Recipes& recipes, settings::Declar
 		const auto text = replace_after(fixture.recipe, "\"row\": \"mobiledefense.total_time.maximum\"", "\"stock\": 240", "\"stock\": 241");
 		const auto error = text.empty() ? std::string("mutation-not-applied") : parse_error(text);
 		check(error.find("stock-value-disagrees-with-preimage") != std::string::npos, "recipe reject: stock disagrees with the preimage (" + error + ")");
+	}
+	// R11 coupled site ("value_offset"): the parser reads it, the preimage check applies it (row stock + offset must be
+	// what the bytes hold), and a non-number is rejected. Disruption round timeout: one drive, stock 180, LOADN 180.
+	{
+		const std::string anchor = "\"row\": \"disruption.round_timeout\"";
+		auto text = replace_after(fixture.recipe, anchor, "\"denominator\": 1", "\"denominator\": 1, \"value_offset\": -1");
+		const auto shifted = text.empty() ? std::string("mutation-not-applied") : parse_error(text);
+		check(shifted.find("stock-value-disagrees-with-preimage") != std::string::npos,
+			"recipe coupled site: stock 180 with value_offset -1 disagrees with LOADN 180 (" + shifted + ")");
+		text = text.empty() ? text : replace_after(text, anchor, "\"stock\": 180", "\"stock\": 181");
+		ll::Recipes coupled;
+		const auto error = text.empty() ? std::string("mutation-not-applied") : ll::parse_recipes(text, "package:missions", coupled);
+		const patch::Site* site = nullptr;
+		for (const auto& value : coupled.values)
+			for (const auto& drive : value.drives)
+				if (drive.row == "disruption.round_timeout" && !drive.sites.empty()) site = &drive.sites.front();
+		check(error.empty() && site != nullptr && site->value_offset == -1.0 && patch::operand(*site, 181.0) == 180.0,
+			"recipe coupled site: stock 181 with value_offset -1 parses and encodes 181 - 1 = 180 (" + error + ")");
+		const auto bad = replace_after(fixture.recipe, anchor, "\"denominator\": 1", "\"denominator\": 1, \"value_offset\": \"x\"");
+		const auto rejected = bad.empty() ? std::string("mutation-not-applied") : parse_error(bad);
+		check(rejected.find("site-value_offset-invalid") != std::string::npos, "recipe reject: site-value_offset-invalid (" + rejected + ")");
 	}
 	// Overlap and double drive: an extra value inserted at the head of "values".
 	const std::string site_text = "{\"kind\": \"loadn\", \"offset\": 21642, \"expected\": \"0812f000\", \"register\": 18, \"numerator\": 1, \"denominator\": 1}";

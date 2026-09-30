@@ -900,7 +900,7 @@ end
 -- Confirm, Back (Exit) and Close. Every host call must be the planned one.
 -- ---------------------------------------------------------------------------
 local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0, r9 = 0,
-    r10 = 0 }
+    r10 = 0, r11 = 0 }
 if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
     local messages = {}
     rawset(UTIL, "ShowMessage", function(message) messages[#messages + 1] = tostring(message) end)
@@ -1213,6 +1213,39 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
             r7Report.r10 = 1
         end
     end
+
+    -- i) R11: Railjack -> Fighters to kill, an encounter-parameter scale (addon lane, INPUTBOX). The mission type has one
+    --    category, so its rows sit on the Railjack page; 0.5 is typed and applied with Confirm.
+    local railjack = missions and pressLabel(missions, "Railjack", "r11", 3)
+    if railjack ~= nil then
+        expectLabel(railjack, "Fighters to kill", "Fighters to kill: x1 (20-130) (default)", "r11 Railjack before the edit")
+        local fighters = pressLabel(railjack, "Fighters to kill", "r11", 4)
+        if fighters ~= nil then
+            typeInto(fighters, "0.5")
+            closeR7(fighters, "Confirm", 4, railjack, "r11 fighters to kill")
+            expectLabel(railjack, "Fighters to kill", "Fighters to kill: 0.5x", "r11 Railjack after the edit")
+            closeR7(railjack, "Confirm", 3, missions, "r11 Railjack page")
+            expectLabel(missions, "Railjack", "Railjack: 1 changed", "r11 Missions after the Railjack edit")
+            r7Report.r11 = r7Report.r11 + 1
+        end
+    end
+    --    Sabotage -> Timers -> Orokin: escape timer, a coupled live literal (stepper); 45 is typed and applied.
+    local sabotage = missions and pressLabel(missions, "Sabotage", "r11", 3)
+    local sabotageTimers = sabotage and pressLabel(sabotage, "Timers", "r11", 4)
+    if sabotageTimers ~= nil then
+        expectLabel(sabotageTimers, "Orokin: escape timer", "Orokin: escape timer: 30 s (default)", "r11 Sabotage Timers before the edit")
+        local escape = pressLabel(sabotageTimers, "Orokin: escape timer", "r11", 5)
+        if escape ~= nil then
+            setCount(escape, 45)
+            closeR7(escape, "Confirm", 5, sabotageTimers, "r11 Orokin escape timer")
+            expectLabel(sabotageTimers, "Orokin: escape timer", "Orokin: escape timer: 45 s", "r11 Sabotage Timers after the edit")
+            closeR7(sabotageTimers, "Exit", 4, sabotage, "r11 Sabotage Timers page")
+            expectLabel(sabotage, "Timers", "Timers: 1 changed", "r11 Sabotage after the edit")
+            closeR7(sabotage, "Confirm", 3, missions, "r11 Sabotage page")
+            expectLabel(missions, "Sabotage", "Sabotage: 1 changed", "r11 Missions after the Sabotage edit")
+            r7Report.r11 = r7Report.r11 + 1
+        end
+    end
     if missions ~= nil then closeR7(missions, "Close", 2, root, "Missions page") end
 
     -- e) Frost (no path): Back with an invalid value shows the stock message; an edit; Reset all.
@@ -1248,7 +1281,8 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
 end
 print("R7REPORT\tcalls=" .. r7Report.calls .. " returns=" .. r7Report.returns .. " refreshed=" .. r7Report.refreshed
     .. " inplace=" .. r7Report.inplace .. " messages=" .. r7Report.messages .. " max_depth=" .. r7Report.maxDepth
-    .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches .. " r9=" .. r7Report.r9 .. " r10=" .. r7Report.r10)
+    .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches .. " r9=" .. r7Report.r9 .. " r10=" .. r7Report.r10
+    .. " r11=" .. r7Report.r11)
 
 for index = 1, #HARNESS.errors do
     print("ERROR\t" .. HARNESS.errors[index])

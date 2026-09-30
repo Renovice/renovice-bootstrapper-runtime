@@ -357,6 +357,8 @@ $plan = @(
     "STAGE`tactive:missions/interception.score_goal_scale`tbool`tfalse`trestage",
     "STAGE`tactive:missions/mobiledefense.time_per_terminal`tbool`tfalse`trestage",
     "STAGE`tactive:missions/orphix.spawn_interval`tbool`tfalse`trestage",
+    # R11: Quick settings holds 15 entries (new: Railjack: fighters to kill).
+    "STAGE`tactive:missions/railjack.fighter_kills_scale`tbool`tfalse`trestage",
     "STAGE`tactive:missions/spy.vault_alarm_scale`tbool`tfalse`trestage",
     "STAGE`tactive:missions/survival.reward_interval`tbool`ttrue`trestage",
     "STAGE`tactive:missions/void_armageddon.wave_time`tbool`tfalse`trestage",
@@ -366,11 +368,15 @@ $plan = @(
     "STAGE`tvalue:missions/survival.reward_interval`ttext`t60`trestage",
     "ACT`treset:Missions/value:survival.reward_interval",
     "STAGE`tvalue:missions/survival.capsule_interval`ttext`t60`trestage",
-    "ACT`tresetall:Missions/node:35.0.0",
+    "ACT`tresetall:Missions/node:36.0.0",
     # R9 (merged R7 + R8): Mobile Defense -> Timers -> Time per terminal, a live literal (stepper), typed 20.
     "STAGE`tvalue:missions/mobiledefense.time_per_terminal`tnumber`t20`trestage",
     # R10: Defense -> Objectives -> Waves to finish (a MissionInfo count, addon lane, stepper), typed 3.
     "STAGE`tvalue:missions/defense.waves_to_finish`tnumber`t3`trestage",
+    # R11: Railjack -> Fighters to kill (an encounter parameter scale, addon lane, INPUTBOX), typed 0.5; Sabotage ->
+    # Timers -> Orokin: escape timer (a coupled live literal, stepper), typed 45.
+    "STAGE`tvalue:missions/railjack.fighter_kills_scale`ttext`t0.5`trestage",
+    "STAGE`tvalue:missions/sabotage.orokin_escape_timer`tnumber`t45`trestage",
     "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t250`trestage",
     "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t60`trestage",
     "ACT`tresetall:Frost"
@@ -380,28 +386,46 @@ $tapeExpect = @(
     "EXPECTROW`t3`tquick:Missions`topen:qval:Missions/survival.reward_interval`tSurvival: 45 s",
     # R10 page ids: the Missions package lists 39 mission types (R10 adds Assassination, Rush, Sabotage, Sanctuary
     # Onslaught, Void Armageddon and the Interception, Spy and Legacyte Harvest pages).
-    "EXPECTROW`t19`tnode:Missions/23.2.0`topen:val:Missions/loopdefend.max_enemies.p4`tSquad: 40",
-    "EXPECTROW`t19`tpkg:Missions`topen:node:Missions/23`tMirror Defense: 1 changed",
-    "EXPECTROW`t21`tnode:Missions/35.0`topen:val:Missions/survival.reward_interval`tTime between rewards: 300 s (default)",
-    "EXPECTROW`t23`tnode:Missions/35.0.0`topen:val:Missions/survival.capsule_interval`tTime between capsules: 90 s (default)",
+    # R11 page ids and steps: the Missions package lists 40 mission types (Railjack is 30; Sabotage 33 and Survival 36
+    # move down one); the extra Quick settings restage moves every later step down one.
+    "EXPECTROW`t20`tnode:Missions/23.2.0`topen:val:Missions/loopdefend.max_enemies.p4`tSquad: 40",
+    "EXPECTROW`t20`tpkg:Missions`topen:node:Missions/23`tMirror Defense: 1 changed",
+    "EXPECTROW`t22`tnode:Missions/36.0`topen:val:Missions/survival.reward_interval`tTime between rewards: 300 s (default)",
+    "EXPECTROW`t24`tnode:Missions/36.0.0`topen:val:Missions/survival.capsule_interval`tTime between capsules: 90 s (default)",
     "EXPECTROW`t0`tnode:Missions/24.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 60-80 s (default)",
     "EXPECTROW`t0`tquick:Missions`topen:qval:Missions/mobiledefense.time_per_terminal`tMobile Defense: 20 s",
-    "EXPECTROW`t24`tnode:Missions/24.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 20 s",
-    "EXPECTROW`t24`tpkg:Missions`topen:node:Missions/24`tMobile Defense: 1 changed",
+    "EXPECTROW`t25`tnode:Missions/24.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 20 s",
+    "EXPECTROW`t25`tpkg:Missions`topen:node:Missions/24`tMobile Defense: 1 changed",
     # R10: the Defense waves-to-finish walk.
     "EXPECTROW`t0`tnode:Missions/9.1`topen:val:Missions/defense.waves_to_finish`tWaves to finish: Endless (default)",
     "EXPECTROW`t0`tquick:Missions`topen:qval:Missions/defense.waves_to_finish`tDefense: Endless (default)",
-    "EXPECTROW`t25`tnode:Missions/9.1`topen:val:Missions/defense.waves_to_finish`tWaves to finish: 3",
-    "EXPECTROW`t25`tnode:Missions/9`topen:node:Missions/9.1`tObjectives: 1 changed",
-    "EXPECTROW`t25`tpkg:Missions`topen:node:Missions/9`tDefense: 1 changed",
-    "EXPECTROW`t27`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 60x",
-    "EXPECTROW`t28`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 50x (default)",
+    "EXPECTROW`t26`tnode:Missions/9.1`topen:val:Missions/defense.waves_to_finish`tWaves to finish: 3",
+    "EXPECTROW`t26`tnode:Missions/9`topen:node:Missions/9.1`tObjectives: 1 changed",
+    "EXPECTROW`t26`tpkg:Missions`topen:node:Missions/9`tDefense: 1 changed",
+    # R11: the Railjack fighters-to-kill walk (one category: the rows sit on the Railjack page) and the Orokin escape
+    # timer walk (a coupled live literal).
+    "EXPECTROW`t0`tnode:Missions/30`topen:val:Missions/railjack.fighter_kills_scale`tFighters to kill: x1 (20-130) (default)",
+    "EXPECTROW`t0`tnode:Missions/30`topen:val:Missions/railjack.crewship_kills_scale`tCrewships to kill: x1 (2-10) (default)",
+    "EXPECTROW`t0`tnode:Missions/30`topen:val:Missions/railjack.corpus_fighter_limit_scale`tCorpus fighters: x1 (20-130) (default)",
+    "EXPECTROW`t0`tquick:Missions`topen:qval:Missions/railjack.fighter_kills_scale`tRailjack: x1 (20-130) (default)",
+    "EXPECTROW`t27`tnode:Missions/30`topen:val:Missions/railjack.fighter_kills_scale`tFighters to kill: 0.5x",
+    "EXPECTROW`t27`tpkg:Missions`topen:node:Missions/30`tRailjack: 1 changed",
+    "EXPECTROW`t0`tnode:Missions/33.0`topen:val:Missions/sabotage.orokin_escape_timer`tOrokin: escape timer: 30 s (default)",
+    "EXPECTROW`t28`tnode:Missions/33.0`topen:val:Missions/sabotage.orokin_escape_timer`tOrokin: escape timer: 45 s",
+    "EXPECTROW`t28`tnode:Missions/33`topen:node:Missions/33.0`tTimers: 1 changed",
+    "EXPECTROW`t28`tpkg:Missions`topen:node:Missions/33`tSabotage: 1 changed",
+    "EXPECTROW`t30`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 60x",
+    "EXPECTROW`t31`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 50x (default)",
     "EXPECTFILE`tMissions`tloopdefend.max_enemies.p4`tenabled=1`tvalue=40",
     "EXPECTFILE`tMissions`tsurvival.reward_interval`tenabled=0`tvalue=300",
     "EXPECTFILE`tMissions`tsurvival.capsule_interval`tenabled=0`tvalue=90",
     "EXPECTFILE`tFrost`tice_wave.bonus_per_cold_stack`tenabled=0`tvalue=50",
     "EXPECTFILE`tMissions`tmobiledefense.time_per_terminal`tenabled=1`tvalue=20",
     "EXPECTFILE`tMissions`tdefense.waves_to_finish`tenabled=1`tvalue=3",
+    "EXPECTFILE`tMissions`trailjack.fighter_kills_scale`tenabled=1`tvalue=0.5",
+    "EXPECTFILE`tMissions`tsabotage.orokin_escape_timer`tenabled=1`tvalue=45",
+    # R11: the coupled site. 45 s writes the escape timer LOADN 45 and its host-migration threshold LOADN 42 (45 - 3).
+    "EXPECTPLAN`tMissions`ta0cea91cc0ac3b31`tvalues=sabotage.orokin_escape_timer`trows=sabotage.orokin_escape_timer=45`tpatches=2",
     # R9: the written file resolves to the LIVE_LITERALS_V1 plans (and, with the stock corpus, synthesizes): the master
     # sets both total-time rows to 20 x 3 = 60 s (20 s per terminal on every node); Void Flood 4 from the shipped file.
     "EXPECTPLAN`tMissions`ta807aae359ffc1eb`tvalues=mobiledefense.time_per_terminal`trows=mobiledefense.total_time.maximum=60,mobiledefense.total_time.minimum=60`tpatches=2",
@@ -465,6 +489,9 @@ Require ([int]$r7Report['inplace'] -eq 2) "R7: 'Reset all to defaults' re-reads 
 Require ([int]$r7Report['messages'] -eq 1 -and (Get-Category $r7 'r7-validate') -eq 0) "R7: Back with an out-of-range value shows the row's stock message (Frost 250)"
 Require ([int]$r7Report['switches'] -eq 0 -and (Get-Category $r7 'r7-switch') -eq 0) "R7: no page the player opens holds a package, member, 'Use stock values', section or Custom switch"
 Require ([int]$r7Report['r9'] -eq 1) "R9: Missions -> Mobile Defense -> Timers -> Time per terminal (live literal, range default '60-80 s (default)') opens a stepper, 20 is typed and applied, and the rows read 'Time per terminal: 20 s', 'Timers: 1 changed', 'Mobile Defense: 1 changed'"
+$orokinSynthesized = @($tapeOutput | Where-Object { $_ -like "TAPEPLAN`tMissions`ta0cea91cc0ac3b31`t*" -and $_.Contains("`tsynthesis=pass") })
+if ($corpusArgs.Count -gt 0) { Require ($orokinSynthesized.Count -eq 1) "R11: the Orokin escape timer plan (a coupled site, value_offset -3) synthesizes from the real U44 stock bytes" }
+Require ([int]$r7Report['r11'] -eq 2) "R11: Missions -> Railjack -> Fighters to kill ('x1 (20-130) (default)', one category, rows on the Railjack page) takes 0.5 ('Fighters to kill: 0.5x', 'Railjack: 1 changed'); Missions -> Sabotage -> Timers -> Orokin: escape timer (coupled live literal) takes 45 ('Orokin: escape timer: 45 s', 'Timers: 1 changed', 'Sabotage: 1 changed')"
 Require ([int]$r7Report['r10'] -eq 1) "R10: Missions -> Defense -> Objectives -> Waves to finish ('Endless (default)', a MissionInfo count) opens a stepper, 3 is typed and applied, and the rows read 'Waves to finish: 3', 'Objectives: 1 changed', 'Defense: 1 changed'; the values file holds { enabled: true, value: 3 }"
 
 # 2. Negative control R3: the installed bridge 739d8177 on the same page

@@ -2,7 +2,7 @@
   "description": "RENOVICE mission editor output for client build 2026.09.28.13.06. Script-literal values (literals.json) need the LIVE_LITERALS_V1 bootstrapper; older DLLs ignore that file and keep those values stock. CustomScripts/Settings/Missions.json holds the chosen values.",
   "members": {
     "Missions.targets.addon.lua_B": {
-      "label": "Mission values: 30 sections",
+      "label": "Mission values: 31 sections",
       "settings": {
         "values": {
           "capture.target_health_player_mult.p1": {
@@ -5592,6 +5592,61 @@
             "type": "int",
             "unit": "x"
           },
+          "railjack.fighter_kills_scale": {
+            "applies": "next_mission",
+            "default_label": "x1 (20-130)",
+            "group": "railjack",
+            "label": "Fighters to kill",
+            "lane": "addon",
+            "max": 10,
+            "min": 0.1,
+            "path": [
+              "Railjack"
+            ],
+            "quick": "Railjack: fighters to kill",
+            "row": "Fighters to kill",
+            "scope": "Multiplies the fighters to destroy in Grineer Railjack Exterminate (20 to 130 by node level).",
+            "stock": 1,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
+          },
+          "railjack.crewship_kills_scale": {
+            "applies": "next_mission",
+            "default_label": "x1 (2-10)",
+            "group": "railjack",
+            "label": "Crewships to kill",
+            "lane": "addon",
+            "max": 10,
+            "min": 0.1,
+            "path": [
+              "Railjack"
+            ],
+            "row": "Crewships to kill",
+            "scope": "Multiplies the crewships to destroy in Grineer Railjack Exterminate (2 to 10 by node level).",
+            "stock": 1,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
+          },
+          "railjack.corpus_fighter_limit_scale": {
+            "applies": "next_mission",
+            "default_label": "x1 (20-130)",
+            "group": "railjack",
+            "label": "Corpus fighters",
+            "lane": "addon",
+            "max": 10,
+            "min": 0.1,
+            "path": [
+              "Railjack"
+            ],
+            "row": "Corpus fighters",
+            "scope": "Multiplies the Corpus fighter kills after which no new fighter squadrons come (no on-screen counter).",
+            "stock": 1,
+            "stock_check": "none",
+            "type": "float",
+            "unit": "x"
+          },
           "sabotage.gascity_hack_time": {
             "applies": "next_mission",
             "group": "sabotage",
@@ -7256,6 +7311,18 @@
       },
       {
         "aliases": [
+          "Empyrean",
+          "Skirmish",
+          "Kuva Lich",
+          "Fighters",
+          "Crewships"
+        ],
+        "id": "railjack",
+        "label": "Railjack",
+        "order": 450
+      },
+      {
+        "aliases": [
           "Gas City",
           "Orokin",
           "Forest",
@@ -7283,7 +7350,7 @@
         ],
         "id": "sabotage",
         "label": "Sabotage",
-        "order": 470
+        "order": 480
       },
       {
         "aliases": [
@@ -7315,7 +7382,7 @@
         ],
         "id": "sabotage_advanced",
         "label": "Sabotage: advanced",
-        "order": 475
+        "order": 485
       },
       {
         "aliases": [
@@ -7338,7 +7405,7 @@
         ],
         "id": "spy",
         "label": "Spy",
-        "order": 500
+        "order": 510
       },
       {
         "aliases": [
@@ -7362,7 +7429,7 @@
         ],
         "id": "spy_advanced",
         "label": "Spy: advanced",
-        "order": 505
+        "order": 515
       },
       {
         "aliases": [
@@ -7403,7 +7470,7 @@
         ],
         "id": "survival",
         "label": "Survival",
-        "order": 510
+        "order": 520
       },
       {
         "aliases": [
@@ -7445,7 +7512,7 @@
         ],
         "id": "survival_advanced",
         "label": "Survival: advanced",
-        "order": 515
+        "order": 525
       },
       {
         "aliases": [
@@ -7455,7 +7522,7 @@
         ],
         "id": "void_armageddon",
         "label": "Void Armageddon",
-        "order": 530
+        "order": 540
       },
       {
         "aliases": [
@@ -7466,7 +7533,7 @@
         ],
         "id": "void_armageddon_advanced",
         "label": "Void Armageddon: advanced",
-        "order": 535
+        "order": 545
       },
       {
         "aliases": [
@@ -7477,7 +7544,7 @@
         ],
         "id": "void_cascade",
         "label": "Void Cascade",
-        "order": 540
+        "order": 550
       },
       {
         "aliases": [
@@ -7487,7 +7554,7 @@
         ],
         "id": "void_flood",
         "label": "Void Flood",
-        "order": 550
+        "order": 560
       },
       {
         "aliases": [
@@ -7498,7 +7565,7 @@
         ],
         "id": "void_flood_advanced",
         "label": "Void Flood: advanced",
-        "order": 555
+        "order": 565
       }
     ]
   }

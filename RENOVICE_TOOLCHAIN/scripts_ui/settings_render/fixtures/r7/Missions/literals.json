@@ -467,7 +467,7 @@
       ],
       "id": "rescue",
       "label": "Rescue",
-      "order": 450
+      "order": 460
     },
     {
       "aliases": [
@@ -477,7 +477,7 @@
       ],
       "id": "rush",
       "label": "Rush",
-      "order": 460
+      "order": 470
     },
     {
       "aliases": [
@@ -485,7 +485,7 @@
       ],
       "id": "onslaught",
       "label": "Sanctuary Onslaught",
-      "order": 480
+      "order": 490
     },
     {
       "aliases": [
@@ -494,7 +494,7 @@
       ],
       "id": "onslaught_advanced",
       "label": "Sanctuary Onslaught: advanced",
-      "order": 485
+      "order": 495
     }
   ],
   "values": {
@@ -5864,6 +5864,53 @@
               "register": 5,
               "numerator": 1,
               "denominator": 1
+            }
+          ]
+        }
+      ]
+    },
+    "sabotage.orokin_escape_timer": {
+      "declaration": {
+        "group": "sabotage",
+        "label": "Orokin: escape timer",
+        "unit": "s",
+        "type": "int",
+        "stock": 30,
+        "min": 4,
+        "max": 32767,
+        "scope": "Escape countdown after the portal device is sabotaged in Orokin Sabotage.",
+        "lane": "literal",
+        "applies": "next_mission",
+        "path": [
+          "Sabotage",
+          "Timers"
+        ],
+        "row": "Orokin: escape timer"
+      },
+      "module": "a0cea91cc0ac3b31",
+      "drives": [
+        {
+          "row": "sabotage.orokin_escape_timer",
+          "scale": 1,
+          "integer": true,
+          "stock": 30,
+          "sites": [
+            {
+              "kind": "loadn",
+              "offset": 14959,
+              "expected": "08031e00",
+              "register": 3,
+              "numerator": 1,
+              "denominator": 1
+            },
+            {
+              "kind": "loadn",
+              "offset": 14947,
+              "expected": "08041b00",
+              "register": 4,
+              "numerator": 1,
+              "denominator": 1,
+              "value_offset": -3
             }
           ]
         }

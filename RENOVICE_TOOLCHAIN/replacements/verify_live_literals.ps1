@@ -23,7 +23,7 @@ $repo = Split-Path -Parent $toolchainDir
 . (Join-Path $toolchainDir 'gate_paths.ps1')
 $scratch = Get-GateScratch $repo 'live-literals'
 $fixtureDir = Join-Path $replacementsDir 'fixtures\live_literals'
-$coreSha = 'b933c7c7ece076daadd008e702a00e572e63ca6fcdc6a568a4bbd1070b1b3761'
+$coreSha = '2fdda7b84c966250d3718da4391a1145981734d6774cb62cce02e7e099ba9be8'
 
 function Require([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "LIVE LITERALS GATE FAIL: $Message" }
