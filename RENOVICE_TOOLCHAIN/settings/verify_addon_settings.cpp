@@ -689,10 +689,17 @@ void phase1_contract(const std::filesystem::path& fixtures, const std::filesyste
 	view.declarations = package != nullptr ? package->declarations.get() : nullptr;
 	(void)settings::parse_values_file(values_text, "package:missions", view.state);
 	const auto page = build_flat_page({view});
+	// A float's editor row is the BUTTON that opens its INPUTBOX page.
+	const auto matches = [](const Row& row, std::string_view setting)
+	{
+		if (row.setting == setting) return true;
+		if (setting.rfind("value:missions/", 0) != 0) return false;
+		return row.action == "open:val:Missions/" + std::string(setting.substr(15));
+	};
 	const auto label_of = [&](std::string_view setting) -> std::string
 	{
 		for (const auto& row : page.rows)
-			if (row.setting == setting) return row.label;
+			if (matches(row, setting)) return row.label;
 		return "<missing>";
 	};
 	check(label_of("value:missions/survival.reward_interval") == "Reward interval (stock 300 s)"
@@ -707,12 +714,37 @@ void phase1_contract(const std::filesystem::path& fixtures, const std::filesyste
 	const auto tooltip_of = [&](std::string_view setting) -> std::string
 	{
 		for (const auto& row : page.rows)
-			if (row.setting == setting) return row.tooltip;
+			if (matches(row, setting)) return row.tooltip;
 		return {};
 	};
 	check(tooltip_of("value:missions/survival.reward_interval").find(live_stock_sentence) != std::string::npos
 		&& tooltip_of("value:missions/void_flood.fractures_per_round.normal").find(live_stock_sentence) == std::string::npos,
 		"phase2i: without stock_check the addon rows keep the live-stock sentence (backward compatible); literal rows never carry it");
+
+	// Live defect 2026-09-30 (DLL ed2a996d, bridge 9c1450ed): the phase2i flat
+	// page ran off the screen without a scroll bar. Stock attaches the scroll
+	// bar only to uniform-height lists without INPUTBOX rows.
+	std::size_t inputboxes = 0;
+	std::size_t spacers = 0;
+	for (const auto& row : page.rows)
+	{
+		inputboxes += row.kind == RowKind::InputBox ? 1u : 0u;
+		spacers += row.kind == RowKind::Spacer ? 1u : 0u;
+	}
+	check(page.rows.size() > stock_uniform_visible_rows && inputboxes == 0 && spacers == 0
+		&& stock_uniform_heights(page) && stock_scroll_attached(page),
+		"phase2i: the flat page (" + std::to_string(page.rows.size())
+			+ " rows) keeps the stock scroll contract: uniform 44 px rows, no INPUTBOX, scroll bar attached");
+	const Row* reward_button = nullptr;
+	for (const auto& row : page.rows)
+		if (row.action == "open:val:Missions/survival.reward_interval") reward_button = &row;
+	const auto reward_page = build_value_page(view, "survival.reward_interval");
+	check(reward_button != nullptr && reward_button->kind == RowKind::Button && reward_button->sub_label == "150 s"
+		&& !reward_button->locked
+		&& reward_page.title == "REWARD INTERVAL" && reward_page.rows.size() == 1
+		&& reward_page.rows[0].kind == RowKind::InputBox && reward_page.rows[0].content == "150"
+		&& reward_page.rows[0].setting == "value:missions/survival.reward_interval" && reward_page.rows[0].validate,
+		"phase2i: the float Reward interval is a BUTTON (sub-label 150 s) that opens its one-row INPUTBOX page");
 }
 
 // -----------------------------------------------------------------------------
@@ -767,9 +799,7 @@ void ui_page_model()
 	const auto* member_row = find_row(flat, "member:missions/missions.targets.addon.lua_b");
 	const auto* custom = find_row(flat, "custom:missions/survival.reward_interval");
 	const auto* editor = find_row(flat, "value:missions/survival.reward_interval");
-	const auto* float_editor = find_row(flat, "value:missions/survival.pickup_multiplier");
 	const auto* enum_editor = find_row(flat, "value:missions/defense.mode");
-	const auto* negative = find_row(flat, "value:missions/defense.offset");
 	const auto* section = find_row(flat, "group:missions/defense");
 	const auto* literal_value = find_row(flat, "value:missions/void_flood.fractures_per_round.normal");
 	check(master != nullptr && master->kind == RowKind::Checkbox && !master->value
@@ -782,18 +812,67 @@ void ui_page_model()
 		&& editor->minimum == 1 && editor->maximum == 3600
 		&& editor->label == "Reward interval (stock 300 s)",
 		"int >= 0: Custom checkbox + INPUTCOUNT with stock in the label and bounds");
-	check(float_editor != nullptr && float_editor->kind == RowKind::InputBox && float_editor->content == "2.5"
-		&& float_editor->validate && !float_editor->integer
-		&& negative != nullptr && negative->kind == RowKind::InputBox && negative->integer
+	const auto find_action = [&](const Page& page, std::string_view action) -> const Row*
+	{
+		for (const auto& row : page.rows)
+			if (row.action == action) return &row;
+		return nullptr;
+	};
+	const auto* float_button = find_action(flat, "open:val:Missions/survival.pickup_multiplier");
+	const auto* negative_button = find_action(flat, "open:val:Missions/defense.offset");
+	const auto float_page = build_value_page(view, "survival.pickup_multiplier");
+	const auto negative_page = build_value_page(view, "defense.offset");
+	const auto* float_editor = float_page.rows.empty() ? nullptr : &float_page.rows[0];
+	const auto* negative = negative_page.rows.empty() ? nullptr : &negative_page.rows[0];
+	check(float_button != nullptr && float_button->kind == RowKind::Button
+		&& float_button->label == "Pickup multiplier (stock 1.5x)" && float_button->sub_label == "2.5x"
+		&& float_button->setting == "action:open:val:Missions/survival.pickup_multiplier"
+		&& negative_button != nullptr && negative_button->kind == RowKind::Button
+		&& find_row(flat, "value:missions/survival.pickup_multiplier") == nullptr
+		&& find_row(flat, "value:missions/defense.offset") == nullptr,
+		"float and negative int: the list shows a BUTTON with the current value, never the INPUTBOX itself");
+	check(float_editor != nullptr && float_page.rows.size() == 1 && float_editor->kind == RowKind::InputBox
+		&& float_editor->content == "2.5" && float_editor->setting == "value:missions/survival.pickup_multiplier"
+		&& float_editor->validate && !float_editor->integer && float_page.title == "PICKUP MULTIPLIER"
+		&& negative != nullptr && negative_page.rows.size() == 1 && negative->kind == RowKind::InputBox && negative->integer
 		&& enum_editor != nullptr && enum_editor->kind == RowKind::Toggle && enum_editor->options.size() == 3
 		&& enum_editor->number == 1,
-		"float and negative int use a validated INPUTBOX; enum uses TOGGLE at its stock option");
+		"value page: one validated INPUTBOX (float / negative int); enum uses TOGGLE at its stock option");
+	check(build_value_page(view, "survival.reward_interval").rows.empty()
+		&& build_value_page(view, "defense.mode").rows.empty()
+		&& build_value_page(view, "no.such.value").rows.empty(),
+		"value pages exist only for INPUTBOX values (int >= 0 and enum stay inline)");
 	check(section != nullptr && section->kind == RowKind::Checkbox && !section->value,
 		"section switch is the first row of its section and reflects the file");
 	check(literal_value != nullptr && literal_value->locked && literal_value->kind == RowKind::InputCount,
 		"literal-lane values are read-only in v1 (locked row)");
-	check(count_kind(flat, RowKind::Button) == 0,
-		"flat fallback has no navigation or FinishSelection buttons (unproven gates stay off)");
+	check(std::all_of(flat.rows.begin(), flat.rows.end(), [](const Row& row)
+		{
+			return row.kind != RowKind::Button || row.action.rfind("open:val:", 0) == 0;
+		}),
+		"flat page: its only BUTTONs open value pages (no package/section navigation, Restore or FinishSelection)");
+
+	// Stock scroll contract (44.0.2 ThemedGenericSettings Update L4740-4880).
+	{
+		Page mixed;
+		mixed.rows.push_back(title("Section"));
+		mixed.rows.push_back(checkbox("Switch", "x", false, ""));
+		Page with_box = mixed;
+		Row box;
+		box.kind = RowKind::InputBox;
+		with_box.rows.push_back(box);
+		Page long_uniform;
+		for (std::size_t index = 0; index != stock_uniform_visible_rows + 1; ++index)
+			long_uniform.rows.push_back(checkbox("Row", "r", false, ""));
+		Page fits = long_uniform;
+		fits.rows.pop_back();
+		check(stock_uniform_heights(mixed) && !stock_uniform_heights(with_box)
+			&& stock_scroll_attached(long_uniform) && !stock_scroll_attached(fits) && !stock_scroll_attached(with_box),
+			"scroll model: TITLE (mHeight 44) and CHECKBOX are uniform; any INPUTBOX disables the scroll bar; more than 14 uniform rows attach it");
+	}
+	check(count_kind(flat, RowKind::InputBox) == 0 && count_kind(flat, RowKind::Spacer) == 0
+		&& stock_uniform_heights(flat),
+		"flat page keeps the stock scroll contract (no INPUTBOX, no SPACER, uniform heights)");
 	check(custom != nullptr && custom->tooltip.find("All Survival nodes") != std::string::npos
 		&& custom->tooltip.find("Applies: live, at the next read") != std::string::npos,
 		"tooltips carry scope and apply timing");
@@ -843,6 +922,36 @@ void ui_page_model()
 		&& std::any_of(group_page.rows.begin(), group_page.rows.end(),
 			[](const Row& row) { return row.action == "restore:Missions/survival"; }),
 		"nested L3: section switch first, stock search box, Restore section");
+	check(stock_uniform_heights(root) && stock_uniform_heights(package_page) && stock_uniform_heights(group_page)
+		&& find_action(group_page, "open:val:Missions/survival.pickup_multiplier") != nullptr,
+		"nested pages keep the stock scroll contract too; floats open the same value page");
+
+	// Member switches: long manifest labels are cut without dangling list
+	// punctuation; the full label, the file and the declared values are in the tooltip.
+	{
+		const MemberView tunables{addon_file, "Mission tunables: Purgatory, HalloweenLanternEndless, SurvivalMission",
+			"member:missions/missions.targets.addon.lua_b", true, false};
+		const MemberView exact{literal_file, "Exact replacement: ZarimanCorruptionMission (void_flood.fractures_per_round.normal)",
+			"member:missions/x", true, true};
+		const MemberView fits_row{addon_file, "Mission values: Survival, Defense", "member:missions/y", true, false};
+		const auto exact_tooltip = member_tooltip(view, exact);
+		const auto addon_tooltip = member_tooltip(view, fits_row);
+		check(member_row_label(tunables) == "Mission tunables: Purgatory"
+			&& member_row_label(exact) == "Exact replacement"
+			&& member_row_label(fits_row) == "Mission values: Survival, Defense",
+			"member row label: fits unchanged; over 40 cut at a word without trailing ',' or ':'");
+		check(exact_tooltip.rfind("Exact replacement: ZarimanCorruptionMission (void_flood.fractures_per_round.normal). Replaces a stock script.", 0) == 0
+			&& exact_tooltip.find("File: " + literal_file + ".") != std::string::npos
+			&& exact_tooltip.find("Sections: Void Flood (1).") != std::string::npos
+			&& addon_tooltip.find("Sections: Survival (2), Defense (2).") != std::string::npos
+			&& addon_tooltip.find("Replaces") == std::string::npos
+			&& exact_tooltip.size() <= maximum_tooltip,
+			"member tooltip: full label, replacement note, file and declared values per section");
+		const auto* literal_member_row = find_row(flat, "member:missions/" + script_control::ascii_lower(literal_file));
+		check(literal_member_row != nullptr && literal_member_row->label == "Void Flood fractures"
+			&& literal_member_row->tooltip == member_tooltip(view, view.members[1]),
+			"the flat page uses the member label and tooltip helpers");
+	}
 
 	// Staging -> applied state.
 	Session session;
@@ -993,6 +1102,7 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 		if (row.kind == RowKind::InputCount) std::cout << "\tcount=" << settings::json::number_text(row.count);
 		if (row.kind == RowKind::InputBox) std::cout << "\tcontent=" << row.content;
 		if (row.kind == RowKind::Checkbox) std::cout << "\tvalue=" << (row.value ? "on" : "off");
+		if (row.kind == RowKind::Button) std::cout << "\taction=" << row.action << "\tsubLabel=" << row.sub_label;
 		if (row.locked) std::cout << "\tlocked";
 		if (!row.tooltip.empty()) std::cout << "\ttooltip=" << row.tooltip;
 		std::cout << '\n';
@@ -1007,7 +1117,33 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 				&& declaration.stock_check == settings::StockCheck::Live);
 		}
 	}
+	bool value_pages = true;
+	for (const auto& row : page.rows)
+	{
+		if (row.action.rfind("open:val:", 0) != 0) continue;
+		const auto body = std::string_view(row.action).substr(9);
+		const auto slash = body.find('/');
+		const auto value_page = slash == std::string_view::npos ? Page{}
+			: build_value_page(view, body.substr(slash + 1));
+		std::cout << "VALPAGE\t" << row.action << "\ttitle=" << value_page.title << "\trows=" << value_page.rows.size();
+		if (!value_page.rows.empty())
+			std::cout << '\t' << row_kind_name(value_page.rows[0].kind) << '\t' << value_page.rows[0].setting
+				<< '\t' << value_page.rows[0].label << "\tcontent=" << value_page.rows[0].content;
+		std::cout << '\n';
+		value_pages &= value_page.rows.size() == 1 && value_page.rows[0].kind == RowKind::InputBox
+			&& value_page.rows[0].label == row.label;
+	}
+	bool member_labels = true;
+	for (const auto& member : view.members)
+		member_labels &= clean(member.label.empty() ? member.filename : member.label).size() <= maximum_row_label;
+	std::cout << "SCROLL\trows=" << page.rows.size() << " uniform=" << (stock_uniform_heights(page) ? 1 : 0)
+		<< " scroll=" << (stock_scroll_attached(page) ? 1 : 0) << '\n';
 	check(!page.rows.empty(), label + "SCRIPT SETTINGS page has rows");
+	check(stock_uniform_heights(page),
+		label + "the flat page keeps the stock scroll contract (uniform 44 px rows, no INPUTBOX): it scrolls once it exceeds 14 rows");
+	check(value_pages, label + "every value-page BUTTON opens exactly one INPUTBOX with the same label");
+	check(view.members.size() < 2 || member_labels,
+		label + "every member label fits the 40-character row without cutting (package.json producer rule)");
 	check(labels_fit, label + "every row label fits the width budget (40 value / 48 title)");
 	check(tooltips_fit, label + "every tooltip fits the tooltip budget");
 	check(sentence_rule, label + "the live-stock tooltip sentence appears exactly on addon rows with stock_check live");

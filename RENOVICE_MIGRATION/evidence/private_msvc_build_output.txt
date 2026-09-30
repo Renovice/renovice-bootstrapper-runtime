@@ -13,8 +13,8 @@ packages
 injection
 engine_damage
 de_vm_authority
-config
 owf_web
+config
 owf_tunables
 owf_scripting
 owf_repo

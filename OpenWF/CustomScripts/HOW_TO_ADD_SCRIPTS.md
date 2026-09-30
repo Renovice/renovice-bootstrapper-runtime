@@ -214,6 +214,11 @@ Other files (README, checksums) are ignored. Subfolders are ignored.
 - Every field is optional. `name` (1-64 printable characters) replaces the
   folder name in the row label; `description` (up to 1,024 characters) and the
   member `label`s (up to 128) go into the tooltip.
+- SCRIPT SETTINGS shows each member `label` on one row of **40 characters**.
+  Keep member labels within 40 and human-readable (for example
+  `Void Flood (script replacement)`); a longer label is cut at a word there.
+  The row tooltip adds the full label, the file and the member's declared
+  values per section.
 - If `members` is present, the folder must contain **exactly** those `.lua_B`
   files (case-insensitive). A partially copied package fails as a whole.
 - `settings` (top level and per member) declares editable values; see
@@ -329,9 +334,13 @@ the same.
 
 **SCRIPT SETTINGS** (pause menu, directly under SCRIPTS). One native list:
 package switch, `Use stock values`, member switches, then one section per group
-with `Custom <section> values` and, per value, `Custom <label>` plus its editor.
-Clicks only stage; closing the screen writes the file(s) and runs the normal F9
-transaction. `SettingsMenuNested=true` in `renovice.cfg` switches to nested
+with `Custom <section> values` and, per value, `Custom <label>` plus its editor:
+an INPUTCOUNT stepper for an `int` with `min >= 0`, a TOGGLE for an `enum`, and
+for a `float` (or an `int` with `min < 0`) a button showing the current value
+that opens a one-value page with the text box. The stock screen scrolls a list
+only when every row has the same height and none is a text box, so text boxes
+never share the list (see the R2 record). Clicks only stage; closing the root
+screen writes the file(s) and runs the normal F9 transaction. `SettingsMenuNested=true` in `renovice.cfg` switches to nested
 pages (only after the Phase 0 probe proved nested screens).
 
 ## Reserved internal names

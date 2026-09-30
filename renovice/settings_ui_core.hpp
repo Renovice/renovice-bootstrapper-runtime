@@ -15,8 +15,10 @@
 //   group:<folder lower>/<group id>   section switch
 //   custom:<folder lower>/<value id>  per-value "Custom" switch
 //   value:<folder lower>/<value id>   the value editor
-// BUTTON actions: open:pkg:<Folder>, open:grp:<Folder>/<group>, restore:<Folder>
-// and restore:<Folder>/<group> (nested layout only).
+// BUTTON actions: open:val:<Folder>/<value id> (every layout: the one-value
+// INPUTBOX page, see "Stock scroll contract" below), open:pkg:<Folder>,
+// open:grp:<Folder>/<group>, restore:<Folder> and restore:<Folder>/<group>
+// (nested layout only).
 
 #include <algorithm>
 #include <cctype>
@@ -38,6 +40,22 @@ inline constexpr std::size_t maximum_row_label = 40;
 inline constexpr std::size_t maximum_title_label = 48;
 inline constexpr std::size_t maximum_tooltip = 300;
 inline constexpr std::size_t maximum_input_chars = 16;
+
+// Stock scroll contract (Lotus.Interface.ThemedGenericSettings Update; 44.0.2
+// render L4740-4880, pre-44 NSTM render L4880-4940). The list only attaches
+// Container.ScrollBar, enables smooth scroll, limits itself to 14 visible rows
+// and masks at 600 px when UniformElementHeights is true: every element has
+// the same height (mHeight, else the per-type default {44,44,44,44,24,108,8,
+// 44,87,84,44}) and no element is an INPUTBOX or multi-line. Otherwise the
+// scroll bar is hidden, the mask takes the movie height and the background
+// grows with the summed row heights, so a long list runs off the screen and
+// the mouse wheel (onKeyDown_MENU_MOUSE_Z needs mScrollBar) does nothing.
+// Therefore: the bridge gives TITLE and SPACER mHeight = 44 (the CHECKBOX,
+// TOGGLE, BUTTON and INPUTCOUNT default), and an INPUTBOX editor never shares
+// a list page: it lives alone on its one-value page ("val:" page id).
+inline constexpr double stock_uniform_row_height = 44.0;
+inline constexpr double stock_inputbox_row_height = 108.0;
+inline constexpr std::size_t stock_uniform_visible_rows = 14;
 
 enum class RowKind { Title, Spacer, Checkbox, InputCount, InputBox, Toggle, Button };
 
@@ -90,6 +108,29 @@ struct Page
 	std::string empty_message = "NO SETTINGS";
 	std::vector<Row> rows;
 };
+
+// Height the stock Update uses for the row the bridge builds from `kind`.
+inline double stock_row_height(RowKind kind) noexcept
+{
+	return kind == RowKind::InputBox ? stock_inputbox_row_height : stock_uniform_row_height;
+}
+
+// Mirror of the stock UniformElementHeights decision for one page.
+inline bool stock_uniform_heights(const Page& page) noexcept
+{
+	for (const auto& row : page.rows)
+	{
+		if (row.kind == RowKind::InputBox) return false;
+		if (stock_row_height(row.kind) != stock_row_height(page.rows.front().kind)) return false;
+	}
+	return true;
+}
+
+// True when the stock screen attaches its scroll bar (and wheel scrolling).
+inline bool stock_scroll_attached(const Page& page) noexcept
+{
+	return stock_uniform_heights(page) && page.rows.size() > stock_uniform_visible_rows;
+}
 
 struct MemberView
 {
@@ -322,29 +363,39 @@ inline bool group_enabled(const PackageView& view, std::string_view group)
 	return found == view.state.groups.end() || found->second;
 }
 
-// The per-value pair: "Custom <label>" CHECKBOX, then one stock value editor.
-inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, const settings::ValueDecl& declaration)
+// Floats and negative integers are typed into an INPUTBOX, which the stock
+// scroll contract forbids on a list page; they get a one-value page.
+inline bool uses_value_page(const settings::ValueDecl& declaration) noexcept
 {
-	const std::string key = folder_key(view.folder);
+	return declaration.type == settings::ValueType::Float
+		|| (declaration.type == settings::ValueType::Int && declaration.minimum < 0);
+}
+
+inline double current_value(const PackageView& view, const settings::ValueDecl& declaration)
+{
 	const auto entry = view.state.values.find(declaration.id);
-	const bool has_entry = entry != view.state.values.end() && entry->second.shape_valid;
-	const bool enabled = has_entry && entry->second.enabled;
-	double current = declaration.stock;
-	if (has_entry && entry->second.has_value
+	if (entry != view.state.values.end() && entry->second.shape_valid && entry->second.has_value
 		&& settings::validate_value(declaration, entry->second.value).empty())
 	{
-		current = entry->second.value;
+		return entry->second.value;
 	}
-	const std::string tooltip = value_tooltip(declaration);
-	auto custom = checkbox(custom_label(declaration.label), "custom:" + key + "/" + declaration.id, enabled,
-		"Off: the stock value is used. " + tooltip);
-	custom.locked = declaration.lane == settings::Lane::Metadata;
-	rows.push_back(std::move(custom));
+	return declaration.stock;
+}
 
+inline std::string value_page_action(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	return "open:val:" + view.folder + "/" + declaration.id;
+}
+
+// The stock value editor of one value: TOGGLE (enum), INPUTCOUNT (int >= 0)
+// or a validated INPUTBOX (float, negative int; value page only).
+inline Row value_editor(const PackageView& view, const settings::ValueDecl& declaration)
+{
+	const double current = current_value(view, declaration);
 	Row editor;
 	editor.label = editor_label(declaration);
-	editor.setting = "value:" + key + "/" + declaration.id;
-	editor.tooltip = tooltip;
+	editor.setting = "value:" + folder_key(view.folder) + "/" + declaration.id;
+	editor.tooltip = value_tooltip(declaration);
 	editor.minimum = declaration.minimum;
 	editor.maximum = declaration.maximum;
 	editor.integer = declaration.type != settings::ValueType::Float;
@@ -360,7 +411,7 @@ inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, c
 		for (const auto& option : declaration.options)
 			editor.options.push_back(ToggleOption{fit_words(option.label, maximum_row_label), option.value});
 	}
-	else if (declaration.type == settings::ValueType::Int && declaration.minimum >= 0)
+	else if (!uses_value_page(declaration))
 	{
 		// INPUTCOUNT takes integers >= 0 only and clamps typed input to
 		// 0..mMaxCount; the validator enforces the declared minimum.
@@ -374,7 +425,52 @@ inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, c
 		editor.content = settings::json::number_text(current);
 		editor.validate = !editor.locked;
 	}
-	rows.push_back(std::move(editor));
+	return editor;
+}
+
+// The per-value pair: "Custom <label>" CHECKBOX, then either the stock value
+// editor (TOGGLE, INPUTCOUNT: 44 px, list-safe) or a BUTTON with the same
+// label that opens the value's INPUTBOX page. The BUTTON's sub-label shows the
+// value as of this page build (the stock list is built once per open).
+inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, const settings::ValueDecl& declaration)
+{
+	const std::string key = folder_key(view.folder);
+	const auto entry = view.state.values.find(declaration.id);
+	const bool enabled = entry != view.state.values.end() && entry->second.shape_valid && entry->second.enabled;
+	const std::string tooltip = value_tooltip(declaration);
+	auto custom = checkbox(custom_label(declaration.label), "custom:" + key + "/" + declaration.id, enabled,
+		"Off: the stock value is used. " + tooltip);
+	custom.locked = declaration.lane == settings::Lane::Metadata;
+	rows.push_back(std::move(custom));
+
+	if (!uses_value_page(declaration))
+	{
+		rows.push_back(value_editor(view, declaration));
+		return;
+	}
+	Row open;
+	open.kind = RowKind::Button;
+	open.label = editor_label(declaration);
+	open.action = value_page_action(view, declaration);
+	open.setting = "action:" + open.action;
+	open.sub_label = fit_words(with_unit(declaration, current_value(view, declaration)), maximum_row_label);
+	open.tooltip = tooltip;
+	open.locked = declaration.lane != settings::Lane::Addon;
+	rows.push_back(std::move(open));
+}
+
+// One-value page (page id "val:<Folder>/<value id>"): the value's validated
+// INPUTBOX alone. Its close stages the typed text; the root close applies.
+inline Page build_value_page(const PackageView& view, std::string_view value_id)
+{
+	Page page;
+	page.empty_message = "NO SETTINGS";
+	if (view.declarations == nullptr) return page;
+	const auto* declaration = view.declarations->value(value_id);
+	if (declaration == nullptr || !uses_value_page(*declaration)) return page;
+	page.title = fit_words(upper(declaration->label), maximum_title_label);
+	page.rows.push_back(value_editor(view, *declaration));
+	return page;
 }
 
 inline std::vector<const settings::GroupDecl*> ordered_groups(const settings::Declarations& declarations)
@@ -386,6 +482,53 @@ inline std::vector<const settings::GroupDecl*> ordered_groups(const settings::De
 		return lhs->order < rhs->order;
 	});
 	return groups;
+}
+
+// Member switch label: the manifest label when it fits the row. A longer label
+// (the loader allows 128) is cut at a word boundary without the dangling list
+// punctuation ("Mission tunables: Purgatory," read as a broken sentence); the
+// full label always opens the tooltip. Producers should keep labels within 40.
+inline std::string member_row_label(const MemberView& member)
+{
+	std::string label = clean(member.label.empty() ? member.filename : member.label);
+	if (label.size() <= maximum_row_label) return label;
+	label = fit_words(std::move(label), maximum_row_label);
+	while (!label.empty() && std::string_view(" ,;:(-/").find(label.back()) != std::string_view::npos)
+		label.pop_back();
+	return label.empty() ? fit_words(member.filename, maximum_row_label) : label;
+}
+
+// Member tooltip: full label, what the switch does, the file, and the values
+// the member declares per section (derived from the declarations, so every
+// package gets the detail without extra manifest fields).
+inline std::string member_tooltip(const PackageView& view, const MemberView& member)
+{
+	std::string text = clean(member.label.empty() ? member.filename : member.label);
+	if (!text.empty() && text.back() != '.') text += '.';
+	if (member.replacement) text += " Replaces a stock script.";
+	text += " Off: this script stays out of the package. File: " + clean(member.filename) + ".";
+	if (view.declarations == nullptr) return bounded_tooltip(text);
+	const std::string member_key = script_control::ascii_lower(member.filename);
+	std::size_t total = 0;
+	std::string sections;
+	std::size_t section_count = 0;
+	for (const auto* group : ordered_groups(*view.declarations))
+	{
+		const auto count = static_cast<std::size_t>(std::count_if(view.declarations->values.begin(),
+			view.declarations->values.end(), [&](const settings::ValueDecl& declaration)
+			{
+				return declaration.group == group->id && script_control::ascii_lower(declaration.member) == member_key;
+			}));
+		if (count == 0) continue;
+		total += count;
+		++section_count;
+		sections += (sections.empty() ? "" : ", ") + clean(group->label) + " (" + std::to_string(count) + ")";
+	}
+	if (total == 0) return bounded_tooltip(text);
+	const std::string detailed = " Sections: " + sections + ".";
+	const std::string compact = " Sections: " + std::to_string(section_count) + " (" + std::to_string(total)
+		+ (total == 1 ? " value)." : " values).");
+	return bounded_tooltip(text + (text.size() + detailed.size() <= maximum_tooltip ? detailed : compact));
 }
 
 inline void append_package_switches(std::vector<Row>& rows, const PackageView& view, bool with_title)
@@ -408,9 +551,8 @@ inline void append_package_switches(std::vector<Row>& rows, const PackageView& v
 	{
 		for (const auto& member : view.members)
 		{
-			const std::string label = member.label.empty() ? member.filename : member.label;
-			rows.push_back(checkbox(label, member.state_id, member.enabled,
-				label + " (" + member.filename + "). Off: this script stays out of the package."));
+			rows.push_back(checkbox(member_row_label(member), member.state_id, member.enabled,
+				member_tooltip(view, member)));
 		}
 	}
 }
@@ -429,25 +571,25 @@ inline void append_group_rows(std::vector<Row>& rows, const PackageView& view, c
 	}
 }
 
-// Fallback / default layout (nesting unproven): one flat list with TITLE
-// sections, the stock search box on, no navigation or FinishSelection buttons.
+// Default layout: one flat list with TITLE sections and the stock search box
+// on. Its only BUTTON rows open one-value INPUTBOX pages (open:val:); it has
+// no package/section navigation, Restore or FinishSelection buttons.
 inline Page build_flat_page(const std::vector<PackageView>& views)
 {
 	Page page;
 	page.title = "SCRIPT SETTINGS";
 	page.search = true;
 	page.empty_message = "NO PACKAGE SETTINGS FOUND";
-	bool first = true;
+	// No SPACER rows: under the stock scroll contract every row takes one 43 px
+	// slot of the 14 visible, and each package and section already starts with
+	// a TITLE row.
 	for (const auto& view : views)
 	{
 		if (view.declarations == nullptr) continue;
-		if (!first) page.rows.push_back(spacer());
-		first = false;
 		append_package_switches(page.rows, view, true);
 		for (const auto* group : ordered_groups(*view.declarations))
 		{
 			if (value_count(view, group->id) == 0) continue;
-			page.rows.push_back(spacer());
 			append_group_rows(page.rows, view, *group, true);
 		}
 	}

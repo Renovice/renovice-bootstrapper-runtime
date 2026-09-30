@@ -15,6 +15,14 @@
 
 local lotusUtilities = require("Lotus.Interface.LotusUtilities")
 
+-- Stock scroll contract (ThemedGenericSettings Update, 44.0.2 render
+-- L4740-4880): the list attaches its scroll bar, smooth scroll and mouse wheel
+-- only when every row has the same height and no row is an INPUTBOX. TITLE
+-- (stock 24) and SPACER (stock 8) therefore take the 44 px default of
+-- CHECKBOX, TOGGLE, BUTTON and INPUTCOUNT; the host keeps INPUTBOX rows on
+-- their own one-value pages.
+local UNIFORM_ROW_HEIGHT = 44
+
 local host = {
     resource = nil,
     getPage = nil,
@@ -75,9 +83,9 @@ local function buildRow(spec, types, movie, depth)
     local kind = spec.kind
     local row = nil
     if kind == "TITLE" then
-        row = { mLabel = spec.label, mType = types.TITLE }
+        row = { mLabel = spec.label, mType = types.TITLE, mHeight = UNIFORM_ROW_HEIGHT }
     elseif kind == "SPACER" then
-        row = { mLabel = "", mType = types.SPACER, mHeight = 32 }
+        row = { mLabel = "", mType = types.SPACER, mHeight = UNIFORM_ROW_HEIGHT }
     elseif kind == "CHECKBOX" then
         row = {
             mLabel = spec.label,
@@ -142,6 +150,7 @@ local function buildRow(spec, types, movie, depth)
             mSetting = spec.setting,
             mSubLabel = spec.subLabel,
             mTooltip = spec.tooltip,
+            mLocked = spec.locked == true,
             mCallback = function()
                 if action == nil then
                     return

@@ -5901,6 +5901,20 @@ settings_ui::Page select_script_settings_page(
 			}
 		}
 	}
+	else if (page_id.rfind("val:", 0) == 0)
+	{
+		// One-value INPUTBOX page (stock scroll contract: no INPUTBOX on lists).
+		const auto body = std::string_view(page_id).substr(4);
+		const auto slash = body.find('/');
+		if (slash != std::string_view::npos)
+		{
+			if (const auto* view = view_for(body.substr(0, slash)))
+			{
+				auto page = settings_ui::build_value_page(*view, body.substr(slash + 1));
+				if (!page.rows.empty()) return page;
+			}
+		}
+	}
 	found = false;
 	return {};
 }
@@ -6009,7 +6023,9 @@ int script_settings_page_callback(luau_State* state)
 			log_script_settings("RENOVICE Script Settings page FAIL reason=temporary-root-clear");
 		}
 		log_script_settings("RENOVICE Script Settings page PASS id=" + page_id
-			+ " rows=" + std::to_string(rows.size()) + " search=" + (page.search ? "1" : "0"));
+			+ " rows=" + std::to_string(rows.size()) + " search=" + (page.search ? "1" : "0")
+			+ " uniform=" + (settings_ui::stock_uniform_heights(page) ? "1" : "0")
+			+ " scroll=" + (settings_ui::stock_scroll_attached(page) ? "1" : "0"));
 		return 1;
 	}
 	catch (...)

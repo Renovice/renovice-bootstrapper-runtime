@@ -142,3 +142,69 @@ related). Release build `build_private.ps1`: `PRIVATE BUILD PASS flavor=main war
 product) in place, so it holds up to a repository path of about 200 characters. `verify_dependencies`/`verify_manifest`
 were not tested beyond MAX_PATH (git-based). `%TEMP%` itself must be short (it is 34 characters here). The Release
 build (Sun/clang under `int\`) was not made long-path safe; it is not a gate. U-1 stays UNRESOLVED (live).
+
+## Follow-up R2 (2026-09-30): stock scroll contract, one-value pages, member labels
+
+Trigger: live feedback on DLL `ed2a996d…` + bridge `9c1450ed…` (installed; rows render natively, settings load).
+(1) The flat list had no scroll bar, ran off the bottom of the screen and ignored the mouse wheel. (2) Member switches
+read "Exact replacement:" and "Mission tunables: Purgatory,". (3) A tooltip overlapped the next TITLE. (4) The Survival
+reward interval (150) and Lantern tier-up (90) showed an INPUTBOX, the warrior level an INPUTCOUNT. Offline only;
+nothing was deployed, pushed or written to a game folder.
+
+Stock evidence: 44.0.2 `Lotus_Interface_ThemedGenericSettings.lua_B` (`397f46de…2d3d`) rendered with
+`derecomp decompile-mod-u44` (`a788f061…`), render `aaaf0132…e767`; `LotusUtilities` (`236b511d…c106`) for the type
+enum. Pre-44 NSTM render (`RENOVICE_SCRIPTING/RESEARCH/NATIVE_SETTINGS_TOGGLE_MAP_2026-08-27/decompiled/…`,
+L4880-4940) has the same logic. Excerpt with line numbers: `evidence-r2/ThemedGenericSettings_44.0.2_scroll_contract_excerpt.luau`.
+
+| ID | Hypothesis | Result | Evidence (44.0.2 render lines) |
+|---|---|---|---|
+| R2-1 | The scroll bar needs uniform row heights and no INPUTBOX; our mixed rows (TITLE 24, SPACER 32, INPUTBOX 108, others 44) and the INPUTBOX editors switch it off | **TRUE** | `Update` (L4705-4880): `uniform = true`; per element `h = mHeight or v47[mType]` with `v47 = {44,44,44,44,24,108,8,44,87,84,44}` (L96-114; types from `LotusUtilities` L311-336: 5 = TITLE, 6 = INPUTBOX, 7 = SPACER). The flag stays true only while `h` equals the previous height and the row is neither INPUTBOX nor multi-line. Only when `UniformElementHeights` is true and there are more than 14 rows does it set `mVisibleElements = 14`, `AttachScrollBar("Container.ScrollBar", -5)`, `EnableSmoothScroll()` and the 600 px mask. Otherwise it hides the scroll bar and sets the mask to `GetMovieHeight()`. The layout (L1116-1146) then sizes the panel from the sum of every row height, so it runs off screen. The wheel handler `onKeyDown_MENU_MOUSE_Z` (L5523-5540) scrolls only when `mScrollBar` exists. |
+| R2-2 | The 560 px row fit is what decides overflow | FALSE | The `< 560` visible-count loop runs only in the non-uniform branch (L4823-4845), and its result is never used to attach the scroll bar. Non-uniform `CalculateY`/`CalculateScrollBarHeight` overrides exist (L4072-4145) but are unreachable from `Update`. |
+| R2-3 | The child-movie open bypasses the container sizing | FALSE | `Update` runs the same decision for every open; the bridge sets title, callbacks and the elements function exactly like V10. |
+| R2-4 | The element count is below a threshold | FALSE | The phase2i page had 21 rows (> 14); the count is only read after the uniform test. |
+| R2-5 | The search box changes the layout decision | FALSE | `ShowHideSearchBox` toggles the box; `Update` never reads it. |
+| R2-6 | No stock row type edits a float inside a uniform list | TRUE | GenericSettings has no SLIDER branch (design table); INPUTCOUNT steps by 1 and floors typed text (L4285-4320, L5560-5620); INPUTBOX always breaks uniformity. |
+| R2-7 | Member labels are cut by the page model, not the loader | TRUE | `append_package_switches` used `fit_words(label, 40)`; the loader allows 128. |
+| R2-8 | The tooltip overlap is stock | TRUE (static) | GenericSettings only sets `_T.gToolTip = mTooltip` on focus (L1692-1697); the shared tooltip owner (used by 20+ stock screens) draws it. No per-row layout exists to change; left as is. |
+| R2-9 | The two timers show INPUTBOX because the registry types them float | TRUE | Registry `survival.reward_interval` and `lantern.tier_up_interval`: `limits.integer=false`, `ui.type=float`, `ui.editor=INPUTBOX` (engine seconds, fractions valid). Per the design, float → INPUTBOX, int ≥ 0 → INPUTCOUNT; the generator is correct. Retyping them to int would remove a valid capability, so they stay float and now open a value page. |
+
+**Fix (native, no fake scrolling).**
+- Bridge (`ScriptSettingsBridgeV1.luau`, same name and host contract): `UNIFORM_ROW_HEIGHT = 44`; TITLE and SPACER get
+  `mHeight = 44`, the stock default of CHECKBOX, TOGGLE, BUTTON and INPUTCOUNT. BUTTON rows carry `mLocked` (the stock list
+  `mOnSelectedCallback` returns before `mCallback` for a locked row, L1905-1928). Bytes `9c1450ed…` → `2e337a43…` (5,441 B).
+- Page model (`settings_ui_core.hpp`): a float or negative-int value is a BUTTON with the editor label
+  (`Reward interval (stock 300 s)`), its current value as the sub-label (`150 s`) and action
+  `open:val:<Folder>/<id>`. That opens a one-value page `val:<Folder>/<id>` holding only the validated INPUTBOX. It
+  opens through the existing nested open path (`openPage`, depth + 1), its close only stages, and the root close still
+  applies. Int ≥ 0 (INPUTCOUNT) and enum (TOGGLE) stay inline. The flat page drops SPACER rows (each row now takes one
+  of the 14 visible 43 px slots, and every section starts with a TITLE). `stock_row_height`, `stock_uniform_heights`
+  and `stock_scroll_attached` model the stock decision. The host logs `page PASS … uniform=<0|1> scroll=<0|1>`.
+- Member switches: `member_row_label` keeps a label that fits. A longer one is cut at a word without trailing
+  `, ; : ( - /`. `member_tooltip` = full label, "Replaces a stock script." for replacements, the Off sentence, the file,
+  then `Sections: <label> (<n>), …` from the member's own declarations (compact `Sections: N (M values).` over budget).
+  There is no manifest schema change, so older DLLs accept the same packages.
+- Producer rule, now gated: member labels ≤ 40 (ability-editor Phase 2j, below).
+
+**Gates.**
+- `verify_addon_settings.ps1`: 137 → 147 regression checks. New: the stock scroll model; flat/root/package/group pages
+  uniform; phase2i flat page (19 rows) scrolls; float and negative-int BUTTONs and their one-row value pages; value
+  pages only for INPUTBOX values; flat BUTTONs only `open:val:`; member label cut and tooltip.
+- `-Package` adds 3 checks and prints `VALPAGE` and `SCROLL` lines: the flat page is uniform, every value BUTTON opens
+  exactly one INPUTBOX with the same label, and member labels fit 40.
+  - Missions phase2j: 163/163.
+  - Octavia and Frost (staged): 163/163 each. Frost's float now opens a value page.
+  - The old phase2i package fails only the member-label rule (negative control, expected).
+- `verify_script_settings_bridges.ps1`: pins the uniform heights, the `val:` page route and the log fields.
+- Full `build_private.ps1`: 29/29 gates. `PRIVATE BUILD PASS flavor=main warnings=0 errors=0`, 5,581,824 B,
+  `7594fbf2ad2b29bea6cd1b828c76c80573185914208afa725a263e7d6114c439`.
+
+**Limits (exact).**
+- The value BUTTON's sub-label shows the value as of the page build. The stock list is built once per open, so after
+  editing on the value page the root row keeps the old text until the next open (the staged value applies).
+- The one-value page uses the nested child open, which N-1 has not proven live. If a nested push fails, `openPage`
+  returns false and only float editing is unavailable.
+- Every row is a 43 px slot, so TITLE rows sit in a taller slot than stock's 24 px.
+- Live checks pending:
+  - the scroll bar, wheel and stick on the Missions page;
+  - the value page open, Confirm and staging;
+  - the look at 1080p and 1440p.
