@@ -1,0 +1,9 @@
+# Inputs of record for verify_script_settings_render.ps1 (R3, 2026-09-30).
+# stock:  Steam 2026.09.28.13.06 (44.0.2) bytecode, repos/toolchains/de-luau-toolchain/work/u44-rawhash-2026-09-29/stock/<stem>.lua_B
+# render: derecomp.exe decompile-mod-u44 <stock> <out> (derecomp 54cab5a8f197e1be23e096e9f009e1529c58c2a2ff7bbcadeea3ad8c1f370300)
+# fixture: ScriptSettingsBridgeV1.luau at fb9655e (compiles to the installed 2e337a43 bytes)
+stock	Lotus_Interface_ThemedGenericSettings	397f46de090dc55d31ba493dc22d91b17680e4a4d2341bb335450d5d07ab2d3d
+stock	EE_Interface_Components_List	2f5237c67640ead0bdca78e71b69ba5f44728159808184acca965327b651345c
+render	Lotus_Interface_ThemedGenericSettings	0a2f9877d8b40d676b553974f28623d668d9977f5341102b8a8b488082e37aae
+render	EE_Interface_Components_List	32434e82727bc0d0fbd2a03d52addd70e7811643452cd33be307eff881dd64af
+render	ScriptSettingsBridgeV1.r2-2e337a43	e947f065f0631f5d0a9cb1cd39cdbceaa5f61d6b9dc1eb022a4db9dbbc18fa6d

@@ -702,7 +702,7 @@ void phase1_contract(const std::filesystem::path& fixtures, const std::filesyste
 			if (matches(row, setting)) return row.label;
 		return "<missing>";
 	};
-	check(label_of("value:missions/survival.reward_interval") == "Reward interval (stock 300 s)"
+	check(label_of("value:missions/survival.reward_interval") == "Reward interval: 150 s (stock 300 s)"
 		&& label_of("custom:missions/survival.reward_interval") == "Custom Reward interval"
 		&& label_of("value:missions/purgatory.difficulty1.warrior_level") == "Difficulty 1 warrior level (stock 10)"
 		&& label_of("group:missions/survival") == "Custom Survival values",
@@ -739,12 +739,13 @@ void phase1_contract(const std::filesystem::path& fixtures, const std::filesyste
 	for (const auto& row : page.rows)
 		if (row.action == "open:val:Missions/survival.reward_interval") reward_button = &row;
 	const auto reward_page = build_value_page(view, "survival.reward_interval");
-	check(reward_button != nullptr && reward_button->kind == RowKind::Button && reward_button->sub_label == "150 s"
+	check(reward_button != nullptr && reward_button->kind == RowKind::Button
+		&& reward_button->label == "Reward interval: 150 s (stock 300 s)"
 		&& !reward_button->locked
 		&& reward_page.title == "REWARD INTERVAL" && reward_page.rows.size() == 1
 		&& reward_page.rows[0].kind == RowKind::InputBox && reward_page.rows[0].content == "150"
 		&& reward_page.rows[0].setting == "value:missions/survival.reward_interval" && reward_page.rows[0].validate,
-		"phase2i: the float Reward interval is a BUTTON (sub-label 150 s) that opens its one-row INPUTBOX page");
+		"phase2i: the float Reward interval is a BUTTON labelled with its value (no stock sub-label) that opens its one-row INPUTBOX page");
 }
 
 // -----------------------------------------------------------------------------
@@ -825,7 +826,7 @@ void ui_page_model()
 	const auto* float_editor = float_page.rows.empty() ? nullptr : &float_page.rows[0];
 	const auto* negative = negative_page.rows.empty() ? nullptr : &negative_page.rows[0];
 	check(float_button != nullptr && float_button->kind == RowKind::Button
-		&& float_button->label == "Pickup multiplier (stock 1.5x)" && float_button->sub_label == "2.5x"
+		&& float_button->label == "Pickup multiplier: 2.5x (stock 1.5x)"
 		&& float_button->setting == "action:open:val:Missions/survival.pickup_multiplier"
 		&& negative_button != nullptr && negative_button->kind == RowKind::Button
 		&& find_row(flat, "value:missions/survival.pickup_multiplier") == nullptr
@@ -909,8 +910,26 @@ void ui_page_model()
 	const auto root = build_root_page({view});
 	check(root.rows.size() >= 2 && root.rows[0].kind == RowKind::Title
 		&& root.rows[1].kind == RowKind::Button && root.rows[1].action == "open:pkg:Missions"
-		&& root.rows[1].sub_label == "5 values - 1 custom",
-		"nested L1: one BUTTON per package with a value summary");
+		&& root.rows[1].label == "Missions: 5 values - 1 custom",
+		"nested L1: one BUTTON per package with a value summary in its label");
+	{
+		// R3: BUTTON rows carry no stock sub-label; the detail is part of the
+		// 40-character label and the label, never the detail, is cut.
+		const auto cut = button_label("A very long mission section label that cannot fit", "12 values - 3 custom");
+		const auto plain = button_label("Restore all stock values", "");
+		const auto dropped = button("Section", "open:grp:X/y", std::string(36, 'd'), "Open Section.");
+		check(cut.size() <= maximum_row_label && cut.size() > 22 && cut.compare(cut.size() - 22, 22, ": 12 values - 3 custom") == 0
+			&& plain == "Restore all stock values"
+			&& dropped.label == "Section" && dropped.tooltip.rfind(std::string(36, 'd') + ". Open Section.", 0) == 0,
+			"R3 BUTTON label: '<label>: <detail>' within 40 characters, the label is cut and a detail that cannot fit opens the tooltip");
+		settings::ValueDecl long_value;
+		long_value.label = "Bonus damage per Cold status stack";
+		long_value.unit = "x";
+		long_value.stock = 0;
+		const auto long_label = value_button_label(long_value, 1.75);
+		check(long_label == "Bonus damage per Cold status: 1.75x",
+			"R3 value BUTTON: the current value always shows; the stock suffix goes first, then the label is cut at a word");
+	}
 	const auto package_page = build_package_page(view);
 	check(std::any_of(package_page.rows.begin(), package_page.rows.end(),
 			[](const Row& row) { return row.kind == RowKind::Button && row.action == "open:grp:Missions/survival"; })
@@ -1102,7 +1121,7 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 		if (row.kind == RowKind::InputCount) std::cout << "\tcount=" << settings::json::number_text(row.count);
 		if (row.kind == RowKind::InputBox) std::cout << "\tcontent=" << row.content;
 		if (row.kind == RowKind::Checkbox) std::cout << "\tvalue=" << (row.value ? "on" : "off");
-		if (row.kind == RowKind::Button) std::cout << "\taction=" << row.action << "\tsubLabel=" << row.sub_label;
+		if (row.kind == RowKind::Button) std::cout << "\taction=" << row.action;
 		if (row.locked) std::cout << "\tlocked";
 		if (!row.tooltip.empty()) std::cout << "\ttooltip=" << row.tooltip;
 		std::cout << '\n';
@@ -1130,8 +1149,12 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 			std::cout << '\t' << row_kind_name(value_page.rows[0].kind) << '\t' << value_page.rows[0].setting
 				<< '\t' << value_page.rows[0].label << "\tcontent=" << value_page.rows[0].content;
 		std::cout << '\n';
-		value_pages &= value_page.rows.size() == 1 && value_page.rows[0].kind == RowKind::InputBox
-			&& value_page.rows[0].label == row.label;
+		const auto* value_declaration = slash == std::string_view::npos ? nullptr
+			: declarations.value(body.substr(slash + 1));
+		value_pages &= value_declaration != nullptr && value_page.rows.size() == 1
+			&& value_page.rows[0].kind == RowKind::InputBox
+			&& value_page.rows[0].label == editor_label(*value_declaration)
+			&& row.label == value_button_label(*value_declaration, current_value(view, *value_declaration));
 	}
 	bool member_labels = true;
 	for (const auto& member : view.members)
@@ -1141,7 +1164,7 @@ void external_package(const std::filesystem::path& package_folder, const std::fi
 	check(!page.rows.empty(), label + "SCRIPT SETTINGS page has rows");
 	check(stock_uniform_heights(page),
 		label + "the flat page keeps the stock scroll contract (uniform 44 px rows, no INPUTBOX): it scrolls once it exceeds 14 rows");
-	check(value_pages, label + "every value-page BUTTON opens exactly one INPUTBOX with the same label");
+	check(value_pages, label + "every value-page BUTTON shows its current value and opens exactly one INPUTBOX for the same value");
 	check(view.members.size() < 2 || member_labels,
 		label + "every member label fits the 40-character row without cutting (package.json producer rule)");
 	check(labels_fit, label + "every row label fits the width budget (40 value / 48 title)");

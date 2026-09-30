@@ -87,7 +87,6 @@ struct Row
 	std::string tooltip;
 	std::string setting;
 	std::string action;
-	std::string sub_label;
 	std::string content;           // INPUTBOX text
 	bool value = false;            // CHECKBOX
 	double count = 0.0;            // INPUTCOUNT
@@ -345,15 +344,38 @@ inline Row checkbox(std::string label, std::string setting, bool value, std::str
 	return row;
 }
 
-inline Row button(std::string label, std::string action, std::string sub_label, std::string tooltip)
+// BUTTON rows never carry a stock sub-label (R3). The stock draw callback
+// (ThemedGenericSettings 44.0.2, source line 991) places mSubLabel at
+// `mButtonWidth - (mSubLabelOffset or 100)`, and stock screens that use it
+// always set mButtonWidth (ThemedTennoCustomization: 400). A BUTTON with a
+// sub-label and no width raised a nil arithmetic error that aborted the List
+// redraw and the panel layout (live, bridge 2e337a43). The detail (a current
+// value or a section summary) is therefore part of the label: "<label>:
+// <detail>" within the 40-character row, cutting the label, never the detail.
+inline std::string button_label(std::string_view label, std::string_view detail)
+{
+	const std::string base = clean(label);
+	const std::string text = clean(detail);
+	if (text.empty()) return fit_words(base, maximum_row_label);
+	const std::string full = base + ": " + text;
+	if (full.size() <= maximum_row_label) return full;
+	constexpr std::size_t minimum_label = 8;
+	if (text.size() + 2 + minimum_label <= maximum_row_label)
+		return fit_words(base, maximum_row_label - text.size() - 2) + ": " + text;
+	return fit_words(base, maximum_row_label);
+}
+
+inline Row button(std::string label, std::string action, std::string detail, std::string tooltip)
 {
 	Row row;
 	row.kind = RowKind::Button;
-	row.label = fit_words(std::move(label), maximum_row_label);
+	row.label = button_label(label, detail);
 	row.action = std::move(action);
 	row.setting = "action:" + row.action;
-	row.sub_label = fit_words(std::move(sub_label), maximum_row_label);
-	row.tooltip = bounded_tooltip(std::move(tooltip));
+	const std::string shown = clean(detail);
+	const bool detail_shown = shown.empty()
+		|| (row.label.size() >= shown.size() + 2 && row.label.compare(row.label.size() - shown.size() - 2, std::string::npos, ": " + shown) == 0);
+	row.tooltip = bounded_tooltip(detail_shown ? std::move(tooltip) : shown + ". " + tooltip);
 	return row;
 }
 
@@ -428,10 +450,22 @@ inline Row value_editor(const PackageView& view, const settings::ValueDecl& decl
 	return editor;
 }
 
+// Label of the BUTTON that opens a value page: "<label>: <current> (stock
+// <stock>)" when it fits the row, else "<label>: <current>" (the tooltip
+// always starts with the stock value). The value is as of this page build (the
+// stock list is built once per open).
+inline std::string value_button_label(const settings::ValueDecl& declaration, double current)
+{
+	const std::string value = with_unit(declaration, current);
+	const std::string with_stock = clean(declaration.label) + ": " + value + " (stock "
+		+ with_unit(declaration, declaration.stock) + ")";
+	if (with_stock.size() <= maximum_row_label) return with_stock;
+	return button_label(declaration.label, value);
+}
+
 // The per-value pair: "Custom <label>" CHECKBOX, then either the stock value
-// editor (TOGGLE, INPUTCOUNT: 44 px, list-safe) or a BUTTON with the same
-// label that opens the value's INPUTBOX page. The BUTTON's sub-label shows the
-// value as of this page build (the stock list is built once per open).
+// editor (TOGGLE, INPUTCOUNT: 44 px, list-safe) or a BUTTON showing the
+// current value (value_button_label) that opens the value's INPUTBOX page.
 inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, const settings::ValueDecl& declaration)
 {
 	const std::string key = folder_key(view.folder);
@@ -450,10 +484,9 @@ inline void append_value_rows(std::vector<Row>& rows, const PackageView& view, c
 	}
 	Row open;
 	open.kind = RowKind::Button;
-	open.label = editor_label(declaration);
+	open.label = value_button_label(declaration, current_value(view, declaration));
 	open.action = value_page_action(view, declaration);
 	open.setting = "action:" + open.action;
-	open.sub_label = fit_words(with_unit(declaration, current_value(view, declaration)), maximum_row_label);
 	open.tooltip = tooltip;
 	open.locked = declaration.lane != settings::Lane::Addon;
 	rows.push_back(std::move(open));

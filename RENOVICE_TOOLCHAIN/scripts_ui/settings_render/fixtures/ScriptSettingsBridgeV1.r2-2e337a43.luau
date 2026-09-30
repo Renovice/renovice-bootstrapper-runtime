@@ -79,23 +79,6 @@ local function textValidator(row, spec)
     end
 end
 
--- BUTTON label (R3). The stock draw callback (ThemedGenericSettings 44.0.2,
--- source line 991) places a BUTTON's mSubLabel at `mButtonWidth -
--- (mSubLabelOffset or 100)`; stock screens that use a sub-label always set
--- mButtonWidth (ThemedTennoCustomization: 400). Without it the draw raises a
--- nil arithmetic error, which aborts the List redraw and the panel layout. The
--- bridge therefore never builds mSubLabel: the host's value text (hosts before
--- R3 still send `subLabel`) is part of the label, and the SubLabel clip stays
--- hidden by the stock `else` branch.
-local function buttonLabel(spec)
-    local label = spec.label or ""
-    local detail = spec.subLabel
-    if type(detail) == "string" and detail ~= "" then
-        return label .. ": " .. detail
-    end
-    return label
-end
-
 local function buildRow(spec, types, movie, depth)
     local kind = spec.kind
     local row = nil
@@ -162,9 +145,10 @@ local function buildRow(spec, types, movie, depth)
     elseif kind == "BUTTON" then
         local action = spec.action
         row = {
-            mLabel = buttonLabel(spec),
+            mLabel = spec.label,
             mType = types.BUTTON,
             mSetting = spec.setting,
+            mSubLabel = spec.subLabel,
             mTooltip = spec.tooltip,
             mLocked = spec.locked == true,
             mCallback = function()

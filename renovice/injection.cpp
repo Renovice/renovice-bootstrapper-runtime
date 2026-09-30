@@ -6232,7 +6232,6 @@ struct SettingsRowView
 	const char* tooltip = nullptr;
 	const char* setting = nullptr;
 	const char* action = nullptr;
-	const char* sub_label = nullptr;
 	const char* content = nullptr;
 	const char* invalid = nullptr;
 	bool value = false;
@@ -6297,7 +6296,6 @@ void script_settings_page_leaf(luau_State* state, void* raw_context) noexcept
 			|| !raw_table_set_optional_string(state, "tooltip", row.tooltip)
 			|| !raw_table_set_optional_string(state, "setting", row.setting)
 			|| !raw_table_set_optional_string(state, "action", row.action)
-			|| !raw_table_set_optional_string(state, "subLabel", row.sub_label)
 			|| !raw_table_set_optional_string(state, "content", row.content)
 			|| !raw_table_set_optional_string(state, "invalid", row.invalid)
 			|| !raw_table_set_bool(state, -1, "value", row.value)
@@ -6492,7 +6490,6 @@ int script_settings_page_callback(luau_State* state)
 			view.tooltip = row.tooltip.empty() ? nullptr : row.tooltip.c_str();
 			view.setting = row.setting.empty() ? nullptr : row.setting.c_str();
 			view.action = row.action.empty() ? nullptr : row.action.c_str();
-			view.sub_label = row.sub_label.empty() ? nullptr : row.sub_label.c_str();
 			view.content = row.kind == settings_ui::RowKind::InputBox ? row.content.c_str() : nullptr;
 			view.invalid = row.invalid_message.empty() ? nullptr : row.invalid_message.c_str();
 			view.value = row.value;

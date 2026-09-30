@@ -208,3 +208,90 @@ L4880-4940) has the same logic. Excerpt with line numbers: `evidence-r2/ThemedGe
   - the scroll bar, wheel and stick on the Missions page;
   - the value page open, Confirm and staging;
   - the look at 1080p and 1440p.
+
+## Follow-up R3 (2026-09-30): BUTTON rows crashed the stock draw; stock-render regression harness
+
+Trigger: live session on DLL `731fdb11…` (branch `feat/lua-call-retire-r4-2026-09-30` `e935739`, includes R2 `fb9655e`) and
+bridge `2e337a43…`, with the full Missions package (`package.json` `abf62770…`, 281 values), Octavia and Frost installed.
+SCRIPT SETTINGS opened (`page PASS id=flat rows=627 search=1 uniform=1 scroll=1`). The search box sat above the panel,
+every float BUTTON row showed a white bar "OPTION <value>", rows were stale and out of order, and the game raised a
+script error. Offline only; nothing was deployed, pushed or written to a game folder. Branch
+`fix/settings-r3-button-render-2026-09-30` from `e935739`.
+
+EE.log (session of 2026-09-30 12:10): `ThemedGenericSettings.lua:991: attempt to perform arithmetic (sub) on nil and
+number`, first at 190.088 on open (stack 991, 724, 948, 1722, 1770, native call, 1599), again at 191.119 on scroll (991,
+724, 948, 1048, 1075, 161, 169, 384, 1751). `renovice_fault.log` holds only the armed line; there is no crash dump and no
+`Diagnostics\` record. The failure is the stock script error (EE "Application error messages"), not a native fault.
+
+Stock evidence: 44.0.2 `Lotus_Interface_ThemedGenericSettings.lua_B` (`397f46de…2d3d`) and
+`EE_Interface_Components_List.lua_B` (`2f5237c6…345c`), rendered with `derecomp decompile-mod-u44` (derecomp
+`54cab5a8…`). Source lines were mapped through the bytecode line table (per-prototype `lineinfo`/`abslineinfo`) to
+prototypes and word PCs, then to `derecomp ir-u44` and the render. Render closure `cN` is prototype `N-1`.
+
+| Stock line | File | Prototype (render) | What it is |
+|---|---|---|---|
+| 991 | ThemedGenericSettings | 46 (`c47`, the list `mElementDrawCallback`), word PCs 775-786 | BUTTON branch: `SetMemberNumber(clip, "SubLabel", 0, element.mButtonWidth - Ternary(mSubLabelOffset ~= nil, mSubLabelOffset, 100))` (render L2542-2567) |
+| 724 | List | 45 (`OnDraw`) | calls the element draw callback |
+| 948 | List | 54 (`Redraw`) | per-element draw loop |
+| 1722 | ThemedGenericSettings | 62 (populate, render L4698-4913) | `list:Redraw()`; the next statement `v49()` is the panel layout |
+| 1770 / 1599 | ThemedGenericSettings | 65 (interpolation end) / 59 (`Update`) | open path: `Update` -> movie tick -> populate |
+| 1048 / 1075 | List | 62 (`ScrollValueChangedCallback`) / 64 (scroll-bar closure in `AttachScrollBar`) | scroll path |
+
+| ID | Hypothesis | Result | Evidence |
+|---|---|---|---|
+| R3-1 | The nil operand at line 991 is `mButtonWidth` of a BUTTON row with `mSubLabel` | **TRUE** | The only arithmetic in PCs 775-786 is `SUB R7 = R8 (mButtonWidth) - R1`. ThemedGenericSettings never assigns `mButtonWidth`; the caller must. The only stock user of a BUTTON `mSubLabel` sets it (ThemedTennoCustomization `mButtonWidth = 400`). R2 made every float value a BUTTON with `mSubLabel = "<value>"` and no width |
+| R3-2 | The white "OPTION" bar is the aborted draw, not a wrong frame or type | **TRUE** | Frame `button` is set first (render L2513-2519) and the sub-label text just before the error (L2549). The label text (L3728-3744), the `.Btn` id and callbacks and the `Bg` `RectInnerColor` (L3688-3719) come after the type branch and never ran. "OPTION" is the SWF default label |
+| R3-3 | Stale rows are recycled clips whose draw was aborted | **TRUE** | One error aborts the whole `Redraw` loop: rows after the first BUTTON keep the previous owner's label and position, and a clip re-used by a BUTTON keeps its old label ("Frost package" with "1.75x"). The harness negative control reproduces both ("shows label 'Custom value 1' instead of its own", "background was never recoloured") |
+| R3-4 | The search box is outside the panel because the layout never ran | **TRUE (static)** | Populate is `v59(); list:Redraw(); v49()`. Only `v49` sizes `Container.BgFill`, positions `Container` and sets `Container.SearchBox` x = panel width - (200 + 2). The error inside `Redraw` skipped it on open |
+| R3-5 | "SetCallbacks on unknown clip …MenuEntryN.Btn" is caused by our rows | **FALSE** | Stock List `Redraw` duplicates a clip (`duplicateMovieClip`) and binds its `.Btn` callbacks in the same call (List render L2127-2150). The same warnings appear at 70.1 s and 81.8 s in the same session on opens without any error. `MenuEntry18…115` are the clips duplicated while scrolling. Benign and unchanged |
+| R3-6 | BUTTON rows cannot coexist with a scrolled uniform list | **FALSE** | Without `mSubLabel` the BUTTON branch runs no arithmetic (its `else` hides `SubLabel`). The harness scrolls 60 mixed rows (12 BUTTONs) through every position without an error |
+| R3-7 | The host scrambled the section order | **FALSE** | The page-model order is unchanged (packages, then ordered groups). The order on screen came from clips left at old positions by the aborted redraws |
+
+**Fix.**
+- Bridge (`ScriptSettingsBridgeV1.luau`, same name and host contract): it never builds `mSubLabel`. `buttonLabel(spec)`
+  folds a host `subLabel` into the label (`"<label>: <detail>"`), so the bridge alone is safe with DLL `731fdb11` and
+  older. Bytes `2e337a43…` -> `739d8177…` (5,572 B).
+- Page model (`settings_ui_core.hpp`) and host (`injection.cpp`): `Row::sub_label` and the `subLabel` descriptor field
+  are removed. `button_label(label, detail)` gives `"<label>: <detail>"` within 40 characters and cuts the label at a
+  word, never the detail; a detail that cannot fit opens the tooltip. Value BUTTONs use `value_button_label`:
+  `"Reward interval: 150 s (stock 300 s)"`, else `"<label>: <value>"` (the tooltip already starts with the stock value).
+  The value page INPUTBOX keeps `editor_label`. The nested root, package and group BUTTONs use the same rule.
+- Floats stay on their one-value INPUTBOX page (R2). The scroll bar, wheel and uniform heights are unchanged.
+
+**Gates.**
+- New `RENOVICE_TOOLCHAIN/scripts_ui/verify_script_settings_render.ps1` (in the `build_private.ps1` list). It runs the
+  bridge under test through the real stock renders (`settings_render/stock/*.u44.luau`, hashes in `STOCK_INPUTS.txt`,
+  re-rendered and compared when the corpus is present) with a recording Flash movie and engine stubs
+  (`settings_render/harness_*.luau`).
+  - Page: 60 rows (TITLE, CHECKBOX, INPUTCOUNT, TOGGLE, locked, 12 BUTTONs, two of them with a legacy `subLabel`).
+  - Flow: `PushChildMovie` -> `Initialize` -> the bridge's `Execute` calls -> `Update` ticks -> populate -> `Redraw` ->
+    draw -> layout. Then every scroll-bar position both ways (`ScrollValueChangedCallback`, the live crash path) and
+    the stock wheel handler.
+  - Checks: no Lua error; the stock list holds every row; `UniformElementHeights`, 14 visible rows and the scroll bar;
+    the layout ran (search box x inside the panel width); per drawn clip the stock frame for its type, its own label,
+    the background recoloured, no leftover sub-label, no clip shared. 8,825 checks PASS.
+  - Negative control: the R2 bridge source (`fixtures/ScriptSettingsBridgeV1.r2-2e337a43.luau`, which compiles to the
+    installed bytes) must fail with `attempt to perform arithmetic (sub) on nil and number` at render line 2566 (stock
+    line 991, the `mButtonWidth - offset` statement). It also shows the live symptoms: label never set ("OPTION"),
+    stale labels, no background.
+  - Harness-only render corrections (the fixtures stay the exact derecomp output; each patch must match exactly once):
+    (1) List `CreateList` pc 143 `SETLIST A=3 B=4 C=2` rendered as `c87v3 = {c87v4}` (a fresh table) instead of an
+    append; (2) List `Redraw` pc 308-311 by-value `CAPTURE` of R19/R21 rendered as shared locals the loop overwrites;
+    (3) DE VM `LENGTH` of nil emulated as 0 (`__de_len`): stock evaluates `#element.mAlignment` for every drawn TITLE,
+    and stock AllianceView draws TITLE rows without `mAlignment`, so the live VM cannot raise there. (1) and (2) are
+    toolchain defects, reported for a separate fix.
+- `verify_addon_settings.ps1`: 147 -> 149 regression checks (the BUTTON label rule; the value BUTTON label with and
+  without the stock suffix; D1, phase2i, value-page and nested checks updated). `-Package` with the installed packages
+  (read-only copies): Missions 165/165 (613 rows, 78 value BUTTONs, longest label 40), Frost 165/165 ("Bonus per Cold
+  stack: 50x (stock 0x)"), Octavia 165/165.
+
+**Limits (exact).**
+- The harness simulates the engine (Flash members, timers, the scroll-bar component, themed widgets). The stock script
+  logic is real. Passing it does not prove the live look.
+- R3-4 is static; the live search-box position after the layout runs is pending.
+- DE `#nil` = 0 is inferred from stock usage, not measured.
+- The Phase 0 probe bridge (`ScriptSettingsProbeP0.luau`, probe builds only) still builds BUTTONs with `mSubLabel` and no
+  `mButtonWidth`, so it would hit the same error. It is not part of the main build and was left unchanged.
+- Live checks pending: open SCRIPT SETTINGS; scroll to the end with the bar and the wheel; every row shows its own label;
+  float BUTTONs read "<label>: <value> (stock …)"; no Script Error in EE.log; the search box sits inside the panel; the
+  value page opens from a float BUTTON.
