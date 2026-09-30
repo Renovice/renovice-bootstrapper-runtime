@@ -1379,6 +1379,11 @@ void external_packages(const std::vector<ExternalPackage>& inputs, const std::fi
 //   EXPECTFILE <folder> <value id> enabled=<0|1> value=<number>
 //   EXPECTFILE <folder> file=unchanged
 //   EXPECTROW <step> <page id> <row key (action or setting)> <label>
+//   EXPECTPLAN <folder> <16-hex module key> values=<id[,id]> rows=<row=value[,row=value]> patches=<n>
+//     (merged R7 + R8, contract R9: the LIVE_LITERALS_V1 synthesis plan the
+//     written values file resolves to, through the exact live_literals_core
+//     resolution; with --corpus <dir> the module is also synthesized from its
+//     real stock bytes, which must pass size, SHA-256, preimage and diff checks)
 namespace tape
 {
 std::vector<std::string> split_tabs(const std::string& line)
@@ -1408,7 +1413,71 @@ std::string page_text(const Page& page)
 }
 }
 
-void run_tape(const std::vector<ExternalPackage>& inputs, const std::filesystem::path& plan_path, const std::filesystem::path& work)
+// R9: the synthesis plans of one written values file (the runtime's resolution).
+struct TapePlan
+{
+	std::string folder;
+	std::string key;
+	std::string values;
+	std::string rows;
+	std::size_t patches = 0;
+	std::string synthesis; // "pass sha256=<16 hex>", "fail <reason>" or "" (no corpus)
+};
+
+std::vector<TapePlan> tape_plans(const packages::Package& package, const std::string& text, const std::filesystem::path& corpus)
+{
+	std::vector<TapePlan> out;
+	if (!package.literal_recipes || !package.declarations) return out;
+	const auto& recipes = *package.literal_recipes;
+	const auto& declarations = *package.declarations;
+	settings::UserState state;
+	if (!settings::parse_values_file(text, "package:" + settings_ui::folder_key(package.folder), state).empty()) return out;
+	const auto evaluation = settings::evaluate(declarations, &state, {});
+	const auto resolution = live_literals::resolve_plans(recipes, declarations, &state, evaluation);
+	for (const auto& rejection : resolution.rejections)
+		std::cout << "TAPEPLANREJECT\t" << package.folder << '\t' << live_literals::hex64(rejection.key) << '\t' << rejection.value
+			<< '\t' << rejection.reason << '\n';
+	for (const auto& plan : resolution.plans)
+	{
+		TapePlan item;
+		item.folder = package.folder;
+		item.key = live_literals::hex64(plan.key);
+		for (const auto& id : plan.values) item.values += (item.values.empty() ? "" : ",") + id;
+		item.patches = plan.patches.size();
+		// Row values as the resolution chose them: a row's own applied value wins, else its applied master.
+		std::map<std::string, std::string> rows;
+		for (const auto& recipe : recipes.values)
+		{
+			if (recipe.module != plan.key || std::find(plan.values.begin(), plan.values.end(), recipe.id) == plan.values.end()) continue;
+			const auto entry = state.values.find(recipe.id);
+			if (entry == state.values.end()) continue;
+			for (const auto& drive : recipe.drives)
+			{
+				const double row = recipe.direct() ? entry->second.value
+					: live_literals::patch::row_value(entry->second.value, drive.scale, drive.integer_row);
+				if (recipe.direct() || rows.count(drive.row) == 0) rows[drive.row] = settings::json::number_text(row);
+			}
+		}
+		for (const auto& [row, value] : rows) item.rows += (item.rows.empty() ? "" : ",") + row + "=" + value;
+		if (!corpus.empty())
+		{
+			const auto bytes = read_text(corpus / plan.file);
+			const auto synthesis = live_literals::synthesize(plan, reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
+			item.synthesis = synthesis.error.empty()
+				? "pass sha256=" + settings::sha256_hex(std::string_view(reinterpret_cast<const char*>(synthesis.bytes.data()),
+					synthesis.bytes.size())).substr(0, 16)
+				: "fail " + synthesis.error;
+		}
+		std::cout << "TAPEPLAN\t" << item.folder << '\t' << item.key << "\tfile=" << plan.file << "\tvalues=" << item.values
+			<< "\trows=" << item.rows << "\tpatches=" << item.patches
+			<< (item.synthesis.empty() ? std::string() : "\tsynthesis=" + item.synthesis) << '\n';
+		out.push_back(std::move(item));
+	}
+	return out;
+}
+
+void run_tape(const std::vector<ExternalPackage>& inputs, const std::filesystem::path& plan_path, const std::filesystem::path& work,
+	const std::filesystem::path& corpus)
 {
 	std::shared_ptr<const packages::Snapshot> snapshot;
 	const auto views = scan_external(inputs, work, snapshot);
@@ -1423,7 +1492,7 @@ void run_tape(const std::vector<ExternalPackage>& inputs, const std::filesystem:
 		const auto fields = tape::split_tabs(line);
 		if (fields.empty() || fields[0].empty()) continue;
 		if (fields[0] == "STAGE" || fields[0] == "ACT") operations.push_back(fields);
-		else if (fields[0] == "EXPECTFILE" || fields[0] == "EXPECTROW") expectations.push_back(fields);
+		else if (fields[0] == "EXPECTFILE" || fields[0] == "EXPECTROW" || fields[0] == "EXPECTPLAN") expectations.push_back(fields);
 	}
 	Session session;
 	std::map<std::string, std::string> last; // page id -> page text at the previous step
@@ -1468,8 +1537,31 @@ void run_tape(const std::vector<ExternalPackage>& inputs, const std::filesystem:
 	}
 	std::cout << "TAPESTEPS\t" << step << '\n';
 	const auto applied = settings_ui::apply(session, views);
+	std::vector<TapePlan> plans;
+	for (const auto& package : applied.packages)
+	{
+		const auto* scanned = snapshot ? find_package(*snapshot, package.folder) : nullptr;
+		if (scanned == nullptr) continue;
+		const auto found = tape_plans(*scanned, settings::write_values_file(package.state, package.declarations), corpus);
+		plans.insert(plans.end(), found.begin(), found.end());
+	}
 	for (const auto& expectation : expectations)
 	{
+		if (expectation[0] == "EXPECTPLAN")
+		{
+			const auto plan = std::find_if(plans.begin(), plans.end(), [&](const TapePlan& item)
+				{
+					return expectation.size() == 6 && item.folder == expectation[1] && item.key == expectation[2];
+				});
+			const bool ok = plan != plans.end() && "values=" + plan->values == expectation[3] && "rows=" + plan->rows == expectation[4]
+				&& "patches=" + std::to_string(plan->patches) == expectation[5]
+				&& (plan->synthesis.empty() || plan->synthesis.rfind("pass", 0) == 0);
+			check(ok, "tape: the written values file resolves to the synthesis plan " + (expectation.size() > 2 ? expectation[2] : std::string())
+				+ " " + (expectation.size() > 5 ? expectation[3] + " " + expectation[4] + " " + expectation[5] : std::string())
+				+ (plan == plans.end() ? " (no plan)" : " (plan values=" + plan->values + " rows=" + plan->rows + " patches="
+					+ std::to_string(plan->patches) + (plan->synthesis.empty() ? std::string(", no corpus") : ", synthesis " + plan->synthesis) + ")"));
+			continue;
+		}
 		if (expectation[0] == "EXPECTROW" && expectation.size() == 5)
 		{
 			const auto key = std::make_pair(static_cast<std::size_t>(std::stoul(expectation[1])), expectation[2]);
@@ -1525,11 +1617,11 @@ int main(int argc, char** argv)
 	if (argc < 3)
 	{
 		std::cerr << "usage: verify_addon_settings <work dir> <phase2i fixture dir>"
-			" [--package <folder> [--settings <file>]]... [--tape <plan>]\n";
+			" [--package <folder> [--settings <file>]]... [--tape <plan>] [--corpus <stock dir>]\n";
 		return 2;
 	}
 	std::vector<ExternalPackage> packages_in;
-	std::filesystem::path plan;
+	std::filesystem::path plan, corpus;
 	for (int index = 3; index < argc; ++index)
 	{
 		const std::string_view flag = argv[index];
@@ -1537,6 +1629,7 @@ int main(int argc, char** argv)
 		else if (flag == "--settings" && index + 1 < argc && !packages_in.empty() && packages_in.back().values.empty())
 			packages_in.back().values = long_path(argv[++index]);
 		else if (flag == "--tape" && index + 1 < argc) plan = long_path(argv[++index]);
+		else if (flag == "--corpus" && index + 1 < argc) corpus = long_path(argv[++index]);
 		else
 		{
 			std::cerr << "unknown or misplaced argument: " << flag << '\n';
@@ -1558,7 +1651,7 @@ int main(int argc, char** argv)
 	phase1_contract(long_path(argv[2]), work / "phase2i");
 	ui_page_model();
 	if (!packages_in.empty() && plan.empty()) external_packages(packages_in, work / "external");
-	if (!plan.empty()) run_tape(packages_in, plan, work / "tape");
+	if (!plan.empty()) run_tape(packages_in, plan, work / "tape", corpus);
 	std::cout << (pass ? "ADDON SETTINGS PASS" : "ADDON SETTINGS FAIL") << '\n';
 	return pass ? 0 : 1;
 }

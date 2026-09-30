@@ -1,5 +1,16 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 Settings R7 + live literals R8 merged (contract R9) — staged as one combined set (not deployed)
+
+Branch `feat/settings-r7-r8-merged-2026-09-30` = R7 `6227cc0` + R8 `0b95779` (both from `b5a120b`: R5 fixes and REPLACEMENT_SETTINGS_V1). Generic; no mission or ability rule in shared code. **This entry supersedes the two staged R7 and R8 sets below for installation.**
+
+- **Merge.** Textual conflicts only in `settings_core.hpp` (both `ValueDecl` additions kept) and `settings_ui_core.hpp` (R7 kept; R8's three lines re-expressed). One predicate `baked_literal()` (literal lane, not a recipe value) selects the R7 built-choice path; `editable_in_game()` admits live literals to the value page, `stored:` and the Quick settings kept-value page. `packages.*`, `replacements.cpp`, `injection.*`, `build_private.ps1` and the gate scripts auto-merged unchanged.
+- **R9 (contract).** A live literal is an R7 value: stepper (int) or text box (float), "Reset to default", default = its stock, `enabled = value != stock` = "adds a patch". Range defaults (`default_label`, "60-80 s") are display only; a typed number sets every driven row to value x scale (the whole range becomes that number); typing the stock number is "default" (the game's range).
+- **Gates.** `verify_live_literals` part 5 (typed 20 → file → plan → synthesis = baked `fff653e0`), render gate section 1c on the real merged Missions package (Missions → Mobile Defense → Timers → Time per terminal 20, `EXPECTPLAN` + synthesis from the U44 stock), `verify_addon_settings -Package` with the installed values files (0 rejected), 37 build-listed gates PASS.
+- **Build.** Main DLL `39853b5f8159f589bde2f519a594c0c273f865e0f3a8bb5d5362650296b10d8e` (5,903,360 B), 0 warnings, 0 errors, 37 gate scripts; bridge `5635b1e2…` (R7, unchanged by the merge).
+
+**Deployment and every live check are pending.** Install set and live test: `work/staging/combined-r7-r8/README.md`. Rollback: installed R5 DLL `9bc0b68c…`, bridge `299cac5e…`, Missions package with its five baked replacements (copies in `work/staging/combined-r7-r8/rollback/`). [Record](../RESEARCH/SETTINGS_R7_R8_MERGE_2026-09-30/README.md).
+
 ## 2026-09-30 Settings R7: page tree, value/default model, Quick settings, no script switches — staged (not deployed)
 
 Branch `feat/settings-r7-hierarchy-2026-09-30` from `b5a120b` (contains R5 and REPLACEMENT_SETTINGS_V1; not R8 live literals). Generic; no mission or ability rule in shared code.

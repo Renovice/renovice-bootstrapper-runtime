@@ -20,7 +20,9 @@
 param(
     [string[]]$Package = @(),
     [string[]]$Settings = @(),
-    [string]$Tape = ''
+    [string]$Tape = '',
+    # With -Tape: the U44 stock corpus; EXPECTPLAN then also synthesizes each planned module (R9).
+    [string]$Corpus = ''
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -67,12 +69,13 @@ try {
     $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.cpp')
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
+    $literals = Join-Path $mirror 'renovice\live_literals.cpp' # LIVE_LITERALS_V1: packages.cpp attaches recipes
     $binary = Join-Path $scratch 'verify_addon_settings.exe'
     $objects = Join-Path $scratch 'obj'
     New-Item -ItemType Directory -Path $objects -Force | Out-Null
     Push-Location $objects
     try {
-        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner $literals 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
         $compileExit = $LASTEXITCODE
     }
     finally { Pop-Location }
@@ -86,6 +89,7 @@ try {
         }
     }
     if ($Tape -ne '') { $arguments += @('--tape', (ConvertTo-GateLongPath $Tape)) }
+    if ($Corpus -ne '') { $arguments += @('--corpus', (ConvertTo-GateLongPath $Corpus)) }
     & $binary @arguments
     if ($LASTEXITCODE -ne 0) { throw "ADDON SETTINGS GATE FAIL: checker failed: $LASTEXITCODE" }
 }

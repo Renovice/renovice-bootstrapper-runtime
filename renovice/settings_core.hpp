@@ -501,7 +501,20 @@ struct ValueDecl
 	double default_value = 0.0;
 	std::string default_label;
 	std::string quick;
+	// LIVE_LITERALS_V1 (live_literals_core.hpp): a literal value from the
+	// package's literals.json recipe. The host synthesizes the module at apply,
+	// so the value is typeable in game. Never set by the package.json parser.
+	// Its default is its declared stock (R7 `default` is addon-lane only; R9).
+	bool live_literal = false;
 };
+
+// Values the player can type in SCRIPT SETTINGS: addon-lane values and live
+// literal values. Other literal values (baked replacements) and metadata
+// values stay read-only there.
+inline bool editable_in_game(const ValueDecl& declaration) noexcept
+{
+	return declaration.lane == Lane::Addon || declaration.live_literal;
+}
 
 // The value that means "leave it as the author/game intends": the declared
 // default, else the stock.

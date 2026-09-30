@@ -899,7 +899,7 @@ end
 -- page path, older layout) with the Back-route message, closing pages with
 -- Confirm, Back (Exit) and Close. Every host call must be the planned one.
 -- ---------------------------------------------------------------------------
-local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0 }
+local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0, r9 = 0 }
 if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
     local messages = {}
     rawset(UTIL, "ShowMessage", function(message) messages[#messages + 1] = tostring(message) end)
@@ -1157,6 +1157,25 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
     end
     if timers ~= nil then closeR7(timers, "Confirm", 4, survival, "Timers page") end
     if survival ~= nil then closeR7(survival, "Exit", 3, missions, "Survival page") end
+
+    -- g) R9 (merged R7 + R8): a live literal value (LIVE_LITERALS_V1 recipe) is a normal typeable row. Mobile Defense ->
+    --    Timers -> Time per terminal shows its range default, opens a stepper, 20 is typed and applied with Confirm.
+    local md = missions and pressLabel(missions, "Mobile Defense", "r9", 3)
+    local mdTimers = md and pressLabel(md, "Timers", "r9", 4)
+    if mdTimers ~= nil then
+        expectLabel(mdTimers, "Time per terminal", "Time per terminal: 60-80 s (default)", "r9 Timers before the edit")
+        local terminal = pressLabel(mdTimers, "Time per terminal", "r9", 5)
+        if terminal ~= nil then
+            setCount(terminal, 20)
+            closeR7(terminal, "Confirm", 5, mdTimers, "r9 time per terminal")
+            expectLabel(mdTimers, "Time per terminal", "Time per terminal: 20 s", "r9 Timers after the edit")
+            closeR7(mdTimers, "Exit", 4, md, "r9 Timers page")
+            expectLabel(md, "Timers", "Timers: 1 changed", "r9 Mobile Defense after the edit")
+            closeR7(md, "Confirm", 3, missions, "r9 Mobile Defense page")
+            expectLabel(missions, "Mobile Defense", "Mobile Defense: 1 changed", "r9 Missions after the edit")
+            r7Report.r9 = 1
+        end
+    end
     if missions ~= nil then closeR7(missions, "Close", 2, root, "Missions page") end
 
     -- e) Frost (no path): Back with an invalid value shows the stock message; an edit; Reset all.
@@ -1192,7 +1211,7 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
 end
 print("R7REPORT\tcalls=" .. r7Report.calls .. " returns=" .. r7Report.returns .. " refreshed=" .. r7Report.refreshed
     .. " inplace=" .. r7Report.inplace .. " messages=" .. r7Report.messages .. " max_depth=" .. r7Report.maxDepth
-    .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches)
+    .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches .. " r9=" .. r7Report.r9)
 
 for index = 1, #HARNESS.errors do
     print("ERROR\t" .. HARNESS.errors[index])

@@ -346,6 +346,15 @@ inline const settings::EnumOption* built_option(const settings::ValueDecl& decla
 	return nullptr;
 }
 
+// A literal value built into a replacement file (a two-choice enum, or a
+// switch in packages before R7). A live literal (LIVE_LITERALS_V1 recipe value)
+// is not baked: it behaves like an addon value with its stock as the default
+// (CONTRACT_PHASE1 R9).
+inline bool baked_literal(const settings::ValueDecl& declaration) noexcept
+{
+	return declaration.lane == settings::Lane::Literal && !declaration.live_literal;
+}
+
 inline bool group_enabled(const settings::UserState& state, std::string_view group)
 {
 	const auto found = state.groups.find(std::string(group));
@@ -376,7 +385,7 @@ inline bool entry_applies(const PackageView& view, const settings::ValueDecl& de
 	if (view.file_malformed || view.state.use_stock || !group_enabled(view.state, declaration.group)) return false;
 	const auto* entry = entry_of(view, declaration);
 	if (entry == nullptr || !entry->enabled) return false;
-	if (declaration.lane == settings::Lane::Literal) return true;
+	if (baked_literal(declaration)) return true;
 	double number = 0.0;
 	return stored_number(view, declaration, number);
 }
@@ -384,7 +393,7 @@ inline bool entry_applies(const PackageView& view, const settings::ValueDecl& de
 // The value the player currently gets (what the rows show).
 inline double current_value(const PackageView& view, const settings::ValueDecl& declaration)
 {
-	if (declaration.lane == settings::Lane::Literal)
+	if (baked_literal(declaration))
 	{
 		if (!entry_applies(view, declaration)) return declaration.stock;
 		if (const auto* built = built_option(declaration)) return built->value;
@@ -452,7 +461,7 @@ inline constexpr std::string_view live_stock_sentence = " A changed value applie
 inline std::string editor_tooltip(const settings::ValueDecl& declaration)
 {
 	std::string text = "Default " + default_text(declaration) + ".";
-	if (declaration.lane == settings::Lane::Literal)
+	if (baked_literal(declaration))
 	{
 		text += " Built into the mission script; applies at the next mission.";
 		return bounded_tooltip(text);
@@ -752,7 +761,7 @@ inline Page build_quick_page(const PackageView& view)
 		page.rows.push_back(checkbox(value->quick, "active:" + key + "/" + value->id, quick_on(view, *value),
 			"On: " + kept + ". Off: the default (" + default_text(*value) + "); your number is kept. "
 				+ description(*value)));
-		const std::string target = value->lane == settings::Lane::Literal
+		const std::string target = !settings::editable_in_game(*value)
 			? "open:val:" + view.folder + "/" + value->id
 			: "open:qval:" + view.folder + "/" + value->id;
 		// "<mission>: <kept value>", the part of the quick label before its colon.
@@ -781,7 +790,10 @@ inline Row value_editor(const PackageView& view, const settings::ValueDecl& decl
 	editor.minimum = declaration.minimum;
 	editor.maximum = declaration.maximum;
 	editor.integer = declaration.type != settings::ValueType::Float;
-	editor.locked = declaration.lane == settings::Lane::Metadata;
+	// Editable: addon values, live literal values and a baked literal's
+	// choices (enum); metadata values stay read-only.
+	editor.locked = declaration.lane == settings::Lane::Metadata
+		|| (baked_literal(declaration) && declaration.type != settings::ValueType::Enum);
 	editor.invalid_message = fit_words(clean(declaration.label), 40) + ": enter "
 		+ (editor.integer ? "a whole number" : "a number") + " from "
 		+ display_number(declaration.minimum) + " to "
@@ -824,9 +836,9 @@ inline Page build_value_page(const PackageView& view, std::string_view value_id,
 	if (view.declarations == nullptr) return page;
 	const auto* declaration = view.declarations->value(value_id);
 	if (declaration == nullptr) return page;
-	if (kept && (declaration->quick.empty() || declaration->lane != settings::Lane::Addon)) return page;
+	if (kept && (declaration->quick.empty() || !settings::editable_in_game(*declaration))) return page;
 	page.title = fit_words(upper(declaration->label), maximum_title_label);
-	if (declaration->lane == settings::Lane::Literal && declaration->type != settings::ValueType::Enum)
+	if (baked_literal(*declaration) && declaration->type != settings::ValueType::Enum)
 	{
 		page.rows.push_back(checkbox("Use the built value", "active:" + folder_key(view.folder) + "/" + declaration->id,
 			entry_applies(view, *declaration), description(*declaration) + " " + editor_tooltip(*declaration)));
@@ -1181,7 +1193,7 @@ inline std::string stage(
 	if (parsed.prefix == "active")
 	{
 		if (value.kind != StagedValue::Kind::Bool) return "wrong-type";
-		const bool legacy_literal = declaration->lane == settings::Lane::Literal
+		const bool legacy_literal = baked_literal(*declaration)
 			&& declaration->type != settings::ValueType::Enum;
 		if (declaration->quick.empty() && !legacy_literal) return "unknown-setting";
 		if (declaration->lane == settings::Lane::Metadata) return "read-only-row";
@@ -1192,9 +1204,9 @@ inline std::string stage(
 	else if (parsed.prefix == "value" || parsed.prefix == "stored")
 	{
 		if (declaration->lane == settings::Lane::Metadata) return "read-only-row";
-		if (declaration->lane == settings::Lane::Literal && declaration->type != settings::ValueType::Enum)
+		if (baked_literal(*declaration) && declaration->type != settings::ValueType::Enum)
 			return "read-only-row";
-		if (parsed.prefix == "stored" && (declaration->quick.empty() || declaration->lane != settings::Lane::Addon))
+		if (parsed.prefix == "stored" && (declaration->quick.empty() || !settings::editable_in_game(*declaration)))
 			return "unknown-setting";
 		double number = 0.0;
 		if (value.kind == StagedValue::Kind::Number) number = value.number;

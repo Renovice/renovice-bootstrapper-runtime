@@ -2,8 +2,13 @@
   "build": "2026.09.28.13.06",
   "format": "RENOVICE_SCRIPT_SETTINGS_V1",
   "groups": {
+    "arbitration_advanced": true,
+    "archimedea": true,
+    "archwing": true,
     "capture": true,
     "coh_destroy_targets": true,
+    "coh_excavation": true,
+    "coh_nemesis": true,
     "colonistdoor_advanced": true,
     "control_area_deimos": true,
     "control_area_plains": true,
@@ -11,12 +16,14 @@
     "defense": true,
     "disruption": true,
     "disruption_advanced": true,
+    "entrati_swarm": true,
     "entrati_swarm_advanced": true,
     "escalation": true,
     "excavation": true,
     "faceoff": true,
     "faceoff_advanced": true,
     "fivefates": true,
+    "hijack": true,
     "infested_salvage": true,
     "infested_salvage_advanced": true,
     "lantern": true,
@@ -24,22 +31,68 @@
     "loopdefend": true,
     "loopdefend_advanced": true,
     "mobiledefense": true,
+    "multidefend": true,
+    "netracell": true,
     "orphix": true,
     "orphix_advanced": true,
     "purgatory": true,
     "purgatory_advanced": true,
+    "purge": true,
     "purge_advanced": true,
+    "pursuit": true,
     "sentientcapture": true,
     "sentientmd": true,
     "shrine": true,
     "survival": true,
     "survival_advanced": true,
     "void_cascade": true,
-    "void_flood": true
+    "void_flood": true,
+    "void_flood_advanced": true,
+    "wf1999def": true
   },
   "package": "package:missions",
   "use_stock": false,
   "values": {
+    "arbitration.resurrection_score_cap": {
+      "enabled": false,
+      "value": 25
+    },
+    "archimedea.eda_alchemy": {
+      "enabled": false,
+      "value": 2
+    },
+    "archimedea.eda_disruption": {
+      "enabled": false,
+      "value": 8
+    },
+    "archimedea.eda_mirror_defense_waves": {
+      "enabled": false,
+      "value": 4
+    },
+    "archimedea.eda_survival_minutes": {
+      "enabled": false,
+      "value": 10
+    },
+    "archimedea.eta_defense_waves": {
+      "enabled": false,
+      "value": 6
+    },
+    "archimedea.eta_survival_minutes": {
+      "enabled": false,
+      "value": 10
+    },
+    "archwing.fomorian_emp_timer": {
+      "enabled": false,
+      "value": 30
+    },
+    "capture.bleedout_timer.fail_timer": {
+      "enabled": false,
+      "value": 60
+    },
+    "capture.bleedout_timer.grace": {
+      "enabled": false,
+      "value": 20
+    },
     "capture.target_health_player_mult.p1": {
       "enabled": false,
       "value": 1
@@ -71,6 +124,14 @@
     "coh_destroy_targets.required_by_players.p4": {
       "enabled": false,
       "value": 60
+    },
+    "coh_excavation.dig_duration": {
+      "enabled": false,
+      "value": 45
+    },
+    "coh_nemesis.spawn_interval": {
+      "enabled": false,
+      "value": 15
     },
     "colonistdoor.navbridge_thresholds.b1": {
       "enabled": false,
@@ -140,6 +201,50 @@
       "enabled": false,
       "value": 22
     },
+    "defection.squads_required": {
+      "enabled": false,
+      "value": 4
+    },
+    "defection.squads_required.sortie": {
+      "enabled": false,
+      "value": 5
+    },
+    "defense.circle_wave_count": {
+      "enabled": false,
+      "value": 1
+    },
+    "defense.duviri_wave_count": {
+      "enabled": false,
+      "value": 3
+    },
+    "defense.first_wave_delay": {
+      "enabled": false,
+      "value": 6
+    },
+    "defense.inter_wave_sleep": {
+      "enabled": false,
+      "value": 6
+    },
+    "defense.max_enemies.p1": {
+      "enabled": false,
+      "value": 10
+    },
+    "defense.max_enemies.p2": {
+      "enabled": false,
+      "value": 20
+    },
+    "defense.max_enemies.p3": {
+      "enabled": false,
+      "value": 26
+    },
+    "defense.max_enemies.p4": {
+      "enabled": false,
+      "value": 29
+    },
+    "defense.nightmare_wave_count": {
+      "enabled": false,
+      "value": 3
+    },
     "defense.simultaneous_enemies_duviri.max.p1": {
       "enabled": false,
       "value": 12
@@ -156,13 +261,133 @@
       "enabled": false,
       "value": 35
     },
+    "defense.simultaneous_enemies_infested.max.p1": {
+      "enabled": false,
+      "value": 10
+    },
+    "defense.simultaneous_enemies_infested.max.p2": {
+      "enabled": false,
+      "value": 20
+    },
+    "defense.simultaneous_enemies_infested.max.p3": {
+      "enabled": false,
+      "value": 26
+    },
+    "defense.simultaneous_enemies_infested.max.p4": {
+      "enabled": false,
+      "value": 29
+    },
+    "defense.simultaneous_enemies_max.p1": {
+      "enabled": false,
+      "value": 10
+    },
+    "defense.simultaneous_enemies_max.p2": {
+      "enabled": false,
+      "value": 20
+    },
+    "defense.simultaneous_enemies_max.p3": {
+      "enabled": false,
+      "value": 26
+    },
+    "defense.simultaneous_enemies_max.p4": {
+      "enabled": false,
+      "value": 29
+    },
+    "defense.special_mission_default_waves": {
+      "enabled": false,
+      "value": 6
+    },
     "disruption.boss_health_multiplier": {
       "enabled": false,
       "value": 0.7
     },
+    "disruption.default_round_count": {
+      "enabled": false,
+      "value": 4
+    },
     "disruption.initial_spawn_delay": {
       "enabled": false,
       "value": 10
+    },
+    "disruption.interval_between_rounds": {
+      "enabled": false,
+      "value": 20
+    },
+    "disruption.interval_between_rounds.relic": {
+      "enabled": false,
+      "value": 10
+    },
+    "disruption.max_enemies.p1": {
+      "enabled": false,
+      "value": 10
+    },
+    "disruption.max_enemies.p2": {
+      "enabled": false,
+      "value": 25
+    },
+    "disruption.max_enemies.p3": {
+      "enabled": false,
+      "value": 30
+    },
+    "disruption.max_enemies.p4": {
+      "enabled": false,
+      "value": 35
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p1": {
+      "enabled": false,
+      "value": 8
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p2": {
+      "enabled": false,
+      "value": 12
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p3": {
+      "enabled": false,
+      "value": 20
+    },
+    "disruption.max_enemies_by_players.entrati_lab.p4": {
+      "enabled": false,
+      "value": 25
+    },
+    "disruption.max_enemies_by_players.sentient.p1": {
+      "enabled": false,
+      "value": 6
+    },
+    "disruption.max_enemies_by_players.sentient.p2": {
+      "enabled": false,
+      "value": 8
+    },
+    "disruption.max_enemies_by_players.sentient.p3": {
+      "enabled": false,
+      "value": 10
+    },
+    "disruption.max_enemies_by_players.sentient.p4": {
+      "enabled": false,
+      "value": 12
+    },
+    "disruption.max_enemies_by_players.standard.p1": {
+      "enabled": false,
+      "value": 10
+    },
+    "disruption.max_enemies_by_players.standard.p2": {
+      "enabled": false,
+      "value": 25
+    },
+    "disruption.max_enemies_by_players.standard.p3": {
+      "enabled": false,
+      "value": 30
+    },
+    "disruption.max_enemies_by_players.standard.p4": {
+      "enabled": false,
+      "value": 35
+    },
+    "disruption.round_timeout": {
+      "enabled": false,
+      "value": 180
+    },
+    "disruption.sortie_round_count": {
+      "enabled": false,
+      "value": 8
     },
     "entrati_swarm.eximus_by_scale.cap.area1": {
       "enabled": false,
@@ -196,6 +421,50 @@
       "enabled": false,
       "value": 0.08
     },
+    "entrati_swarm.tears_per_stage.stage1": {
+      "enabled": false,
+      "value": 8
+    },
+    "entrati_swarm.tears_per_stage.stage2": {
+      "enabled": false,
+      "value": 10
+    },
+    "entrati_swarm.tears_per_stage.stage3": {
+      "enabled": false,
+      "value": 12
+    },
+    "entrati_swarm.tears_per_stage.stage4": {
+      "enabled": false,
+      "value": 15
+    },
+    "entrati_swarm.tears_per_stage.stage5": {
+      "enabled": false,
+      "value": 15
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage1": {
+      "enabled": false,
+      "value": 10
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage2": {
+      "enabled": false,
+      "value": 15
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage3": {
+      "enabled": false,
+      "value": 20
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage4": {
+      "enabled": false,
+      "value": 15
+    },
+    "entrati_swarm.tears_per_stage_challenge.stage5": {
+      "enabled": false,
+      "value": 15
+    },
+    "escalation.crate_timer": {
+      "enabled": false,
+      "value": 120
+    },
     "escalation.keys_per_players.p1": {
       "enabled": false,
       "value": 2
@@ -212,9 +481,25 @@
       "enabled": false,
       "value": 5
     },
+    "excavation.dig_duration": {
+      "enabled": false,
+      "value": 100
+    },
+    "excavation.dig_duration_elite_alert": {
+      "enabled": false,
+      "value": 140
+    },
+    "excavation.dig_duration_old_world_salvage": {
+      "enabled": false,
+      "value": 60
+    },
     "excavation.dig_time": {
       "enabled": false,
       "value": 50
+    },
+    "excavation.duviri_excavation_count": {
+      "enabled": false,
+      "value": 3
     },
     "faceoff.assassination.enemy_health_mult_p1": {
       "enabled": false,
@@ -404,6 +689,14 @@
       "enabled": false,
       "value": 180.0
     },
+    "hijack.payload_health": {
+      "enabled": false,
+      "value": 10000
+    },
+    "hijack.payload_health.goal_mission": {
+      "enabled": false,
+      "value": 3000
+    },
     "infested_salvage.spawn_caps_by_players.max_ai.p1": {
       "enabled": false,
       "value": 15
@@ -452,6 +745,14 @@
       "enabled": false,
       "value": 2
     },
+    "lantern.boss_spawn_time": {
+      "enabled": false,
+      "value": 900
+    },
+    "lantern.extraction_limit": {
+      "enabled": false,
+      "value": 180
+    },
     "lantern.lamp_decay.b": {
       "enabled": false,
       "value": 2.2
@@ -471,6 +772,10 @@
     "lantern.max_tier": {
       "enabled": false,
       "value": 5.0
+    },
+    "lantern.min_score": {
+      "enabled": false,
+      "value": 300
     },
     "lantern.num_enemies.p1": {
       "enabled": false,
@@ -720,9 +1025,109 @@
       "enabled": false,
       "value": 2.0
     },
+    "loopdefend.phase_duration": {
+      "enabled": false,
+      "value": 150
+    },
+    "loopdefend.phase_duration_jade": {
+      "enabled": false,
+      "value": 60
+    },
+    "mobiledefense.console_count": {
+      "enabled": false,
+      "value": 3
+    },
+    "mobiledefense.enemy_counts.max.p1": {
+      "enabled": false,
+      "value": 10
+    },
+    "mobiledefense.enemy_counts.max.p2": {
+      "enabled": false,
+      "value": 16
+    },
+    "mobiledefense.enemy_counts.max.p3": {
+      "enabled": false,
+      "value": 22
+    },
+    "mobiledefense.enemy_counts.max.p4": {
+      "enabled": false,
+      "value": 28
+    },
+    "mobiledefense.enemy_counts.min.p1": {
+      "enabled": false,
+      "value": 7
+    },
+    "mobiledefense.enemy_counts.min.p2": {
+      "enabled": false,
+      "value": 12
+    },
+    "mobiledefense.enemy_counts.min.p3": {
+      "enabled": false,
+      "value": 17
+    },
+    "mobiledefense.enemy_counts.min.p4": {
+      "enabled": false,
+      "value": 22
+    },
+    "mobiledefense.max_enemies.p1": {
+      "enabled": false,
+      "value": 10
+    },
+    "mobiledefense.max_enemies.p2": {
+      "enabled": false,
+      "value": 16
+    },
+    "mobiledefense.max_enemies.p3": {
+      "enabled": false,
+      "value": 22
+    },
+    "mobiledefense.max_enemies.p4": {
+      "enabled": false,
+      "value": 28
+    },
     "mobiledefense.time_per_terminal": {
       "enabled": false,
       "value": 20
+    },
+    "mobiledefense.total_time.maximum": {
+      "enabled": false,
+      "value": 240
+    },
+    "mobiledefense.total_time.minimum": {
+      "enabled": false,
+      "value": 180
+    },
+    "multidefend.defend_time": {
+      "enabled": false,
+      "value": 240
+    },
+    "multidefend.defend_time.max_d0": {
+      "enabled": false,
+      "value": 120
+    },
+    "multidefend.defend_time.max_d1": {
+      "enabled": false,
+      "value": 240
+    },
+    "multidefend.defend_time.min_d0": {
+      "enabled": false,
+      "value": 30
+    },
+    "multidefend.defend_time.min_d1": {
+      "enabled": false,
+      "value": 120
+    },
+    "multidefend.station_count": {
+      "enabled": false,
+      "value": 4
+    },
+    "netracell.power_required.base": {
+      "enabled": false,
+      "value": 200
+    },
+    "netracell.power_required.per_extra_player": {
+      "enabled": false,
+      "value": 100
     },
     "orphix.max_rounds_railjack": {
       "enabled": false,
@@ -747,6 +1152,10 @@
     "orphix.score_add_per_round": {
       "enabled": false,
       "value": 50.0
+    },
+    "orphix.sortie_rounds": {
+      "enabled": false,
+      "value": 12
     },
     "orphix.spawn_interval": {
       "enabled": false,
@@ -788,6 +1197,18 @@
       "enabled": false,
       "value": 50
     },
+    "purgatory.enemy_cap": {
+      "enabled": false,
+      "value": 10
+    },
+    "purgatory.initial_time": {
+      "enabled": false,
+      "value": 60
+    },
+    "purgatory.pickup_time_bonus": {
+      "enabled": false,
+      "value": 5.0
+    },
     "purgatory.reward_kill_threshold.t1": {
       "enabled": false,
       "value": 25
@@ -812,6 +1233,18 @@
       "enabled": false,
       "value": 150
     },
+    "purgatory.spawn_interval": {
+      "enabled": false,
+      "value": 5
+    },
+    "purgatory.spawn_interval.max": {
+      "enabled": false,
+      "value": 5
+    },
+    "purgatory.spawn_interval.min": {
+      "enabled": false,
+      "value": 3
+    },
     "purge.alert_tiers.tier1_multiplier": {
       "enabled": false,
       "value": 2
@@ -824,9 +1257,25 @@
       "enabled": false,
       "value": 4
     },
+    "purge.max_enemy_count": {
+      "enabled": false,
+      "value": 50
+    },
+    "pursuit.phase_timer": {
+      "enabled": false,
+      "value": 60
+    },
     "sentientcapture.swarm.area_swarm_size": {
       "enabled": false,
       "value": 8
+    },
+    "sentientmd.area_count": {
+      "enabled": false,
+      "value": 3
+    },
+    "sentientmd.defend_time": {
+      "enabled": false,
+      "value": 120
     },
     "sentientmd.max_sim_ai.p1": {
       "enabled": false,
@@ -1108,6 +1557,10 @@
       "enabled": false,
       "value": 1.2
     },
+    "survival.duviri_fixed_length": {
+      "enabled": false,
+      "value": 300
+    },
     "survival.kuva_level_enrage.enrageTime": {
       "enabled": false,
       "value": 600.0
@@ -1208,9 +1661,45 @@
       "enabled": false,
       "value": 90
     },
+    "void_flood.curse_count.curseCountNormal": {
+      "enabled": false,
+      "value": 2
+    },
+    "void_flood.curse_count.curseCountSteelPath": {
+      "enabled": false,
+      "value": 4
+    },
+    "void_flood.curse_count.playerCapacity": {
+      "enabled": false,
+      "value": 100.0
+    },
+    "void_flood.fill_timer.curveScaleV": {
+      "enabled": false,
+      "value": 0.92
+    },
+    "void_flood.fill_timer.timeToFillMax": {
+      "enabled": false,
+      "value": 200
+    },
+    "void_flood.fill_timer.timeToFillMin": {
+      "enabled": false,
+      "value": 60.0
+    },
+    "void_flood.fractures_per_round.duviri": {
+      "enabled": false,
+      "value": 5
+    },
     "void_flood.fractures_per_round.normal": {
       "enabled": true,
       "value": 4
+    },
+    "void_flood.fractures_per_round.shadowgrapher": {
+      "enabled": false,
+      "value": 3
+    },
+    "wf1999def.drone_count.spawn_interval": {
+      "enabled": false,
+      "value": 5
     }
   }
 }

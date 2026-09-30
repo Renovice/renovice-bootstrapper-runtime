@@ -216,13 +216,14 @@ try {
     $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\replacements\verify_replacement_settings.cpp')
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\replacements\verify_replacement_settings.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
+    $literals = Join-Path $mirror 'renovice\live_literals.cpp' # LIVE_LITERALS_V1: packages.cpp attaches recipes
     $store = Join-Path $mirror 'renovice\replacement_settings.cpp'
     $binary = Join-Path $scratch 'verify_replacement_settings.exe'
     $objects = Join-Path $scratch 'obj'
     New-Item -ItemType Directory -Path $objects -Force | Out-Null
     Push-Location $objects
     try {
-        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner $store 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner $store $literals 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
         $compileExit = $LASTEXITCODE
     }
     finally { Pop-Location }

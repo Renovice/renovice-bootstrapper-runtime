@@ -1,5 +1,6 @@
 #pragma once
 
+#include "live_literals_core.hpp"
 #include "packages_core.hpp"
 
 #include <cstdint>
@@ -56,6 +57,13 @@ struct Package
 	// settings_reason; a rejection is local to the settings capability).
 	std::shared_ptr<const settings::Declarations> declarations;
 	std::string settings_reason;
+	// LIVE_LITERALS_V1 (live_literals.hpp): the parsed literals.json recipe (its
+	// values are merged into `declarations`), or nullptr with literals_reason
+	// (recipe-local: the rest of the package is unaffected). literal_plans:
+	// the current values resolved into module patch plans (committing scans).
+	std::shared_ptr<const live_literals::Recipes> literal_recipes;
+	std::string literals_reason;
+	std::vector<live_literals::ModulePlan> literal_plans;
 };
 
 struct Snapshot

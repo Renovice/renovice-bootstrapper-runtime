@@ -1,43 +1,8 @@
 {
-  "description": "RENOVICE universal mission editor output for client build 2026.09.28.13.06. One Scripts row for every generated Lua mission change. Every value is declared in settings; CustomScripts/Settings/Missions.json selects which values apply.",
+  "description": "RENOVICE mission editor output for client build 2026.09.28.13.06. Script-literal values (literals.json) need the LIVE_LITERALS_V1 bootstrapper; older DLLs ignore that file and keep those values stock. CustomScripts/Settings/Missions.json holds the chosen values.",
   "members": {
-    "8a0b0819de60df01 (missions_exact-replacement).lua_B": {
-      "label": "Control Area (Cambion Drift) replacement",
-      "settings": {
-        "values": {
-          "control_area_deimos.duration": {
-            "applies": "next_mission",
-            "group": "control_area_deimos",
-            "label": "Hold-zone time (Cambion)",
-            "lane": "literal",
-            "max": 32767,
-            "min": 1,
-            "options": [
-              {
-                "label": "90 s",
-                "value": 90
-              },
-              {
-                "label": "30 s",
-                "value": 30
-              }
-            ],
-            "path": [
-              "Control Area",
-              "Cambion Drift (Deimos)"
-            ],
-            "quick": "Control Area (Cambion): hold time",
-            "row": "Hold-zone time",
-            "scope": "Seconds to hold the zone in Cambion Drift Control Area bounties. Necralisk bounties, including endless Area Defense.",
-            "stock": 90,
-            "type": "enum",
-            "unit": "s"
-          }
-        }
-      }
-    },
     "Missions.targets.addon.lua_B": {
-      "label": "Mission values: 21 sections",
+      "label": "Mission values: 23 sections",
       "settings": {
         "values": {
           "capture.target_health_player_mult.p1": {
@@ -187,6 +152,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once"
             ],
             "row": "Solo",
@@ -205,6 +171,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once"
             ],
             "row": "Duo",
@@ -223,6 +190,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once"
             ],
             "row": "Trio",
@@ -241,6 +209,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once"
             ],
             "row": "Squad",
@@ -258,6 +227,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Hard nodes"
             ],
@@ -276,6 +246,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Hard nodes"
             ],
@@ -294,6 +265,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Hard nodes"
             ],
@@ -312,6 +284,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Hard nodes"
             ],
@@ -330,6 +303,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Easy nodes"
             ],
@@ -348,6 +322,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Easy nodes"
             ],
@@ -366,6 +341,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Easy nodes"
             ],
@@ -384,6 +360,7 @@
             "min": 1,
             "path": [
               "Defection",
+              "Enemies",
               "Max enemies at once",
               "Easy nodes"
             ],
@@ -402,6 +379,7 @@
             "min": 1,
             "path": [
               "Defense",
+              "Enemies",
               "Duviri: max enemies at once"
             ],
             "row": "Solo",
@@ -419,6 +397,7 @@
             "min": 1,
             "path": [
               "Defense",
+              "Enemies",
               "Duviri: max enemies at once"
             ],
             "row": "Duo",
@@ -436,6 +415,7 @@
             "min": 1,
             "path": [
               "Defense",
+              "Enemies",
               "Duviri: max enemies at once"
             ],
             "row": "Trio",
@@ -453,6 +433,7 @@
             "min": 1,
             "path": [
               "Defense",
+              "Enemies",
               "Duviri: max enemies at once"
             ],
             "row": "Squad",
@@ -1714,6 +1695,7 @@
             "min": 1,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Max Eximus at once"
             ],
             "row": "Area 1",
@@ -1731,6 +1713,7 @@
             "min": 1,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Max Eximus at once"
             ],
             "row": "Area 2",
@@ -1748,6 +1731,7 @@
             "min": 1,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Max Eximus at once"
             ],
             "row": "Area 3",
@@ -1765,6 +1749,7 @@
             "min": 1,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Max Eximus at once"
             ],
             "row": "Area 4",
@@ -1782,6 +1767,7 @@
             "min": 0,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Eximus chance"
             ],
             "row": "Area 1",
@@ -1799,6 +1785,7 @@
             "min": 0,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Eximus chance"
             ],
             "row": "Area 2",
@@ -1816,6 +1803,7 @@
             "min": 0,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Eximus chance"
             ],
             "row": "Area 3",
@@ -1833,6 +1821,7 @@
             "min": 0,
             "path": [
               "Entrati Swarm",
+              "Advanced",
               "Eximus chance"
             ],
             "row": "Area 4",
@@ -1850,6 +1839,7 @@
             "min": 1,
             "path": [
               "Exterminate",
+              "Objectives",
               "1999 Escalation: keys needed"
             ],
             "row": "Solo",
@@ -1867,6 +1857,7 @@
             "min": 1,
             "path": [
               "Exterminate",
+              "Objectives",
               "1999 Escalation: keys needed"
             ],
             "row": "Duo",
@@ -1884,6 +1875,7 @@
             "min": 1,
             "path": [
               "Exterminate",
+              "Objectives",
               "1999 Escalation: keys needed"
             ],
             "row": "Trio",
@@ -1901,6 +1893,7 @@
             "min": 1,
             "path": [
               "Exterminate",
+              "Objectives",
               "1999 Escalation: keys needed"
             ],
             "row": "Squad",
@@ -4192,6 +4185,230 @@
             "type": "int",
             "unit": ""
           },
+          "mobiledefense.max_enemies.p1": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Solo",
+            "scope": "Mobile Defense enemies alive at once with 1 player, easy and hard nodes. The variants below override it.",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.max_enemies.p2": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Duo",
+            "scope": "Mobile Defense enemies alive at once with 2 players, easy and hard nodes. The variants below override it.",
+            "stock": 16,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.max_enemies.p3": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Trio",
+            "scope": "Mobile Defense enemies alive at once with 3 players, easy and hard nodes. The variants below override it.",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.max_enemies.p4": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Max enemies at once (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once"
+            ],
+            "row": "Squad",
+            "scope": "Mobile Defense enemies alive at once with 4 players, easy and hard nodes. The variants below override it.",
+            "stock": 28,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p1": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Hard nodes: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Hard nodes"
+            ],
+            "row": "Solo",
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 1 player. Overrides the value above for this case.",
+            "stock": 10,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p2": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Hard nodes: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Hard nodes"
+            ],
+            "row": "Duo",
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 2 players. Overrides the value above for this case.",
+            "stock": 16,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p3": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Hard nodes: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Hard nodes"
+            ],
+            "row": "Trio",
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 3 players. Overrides the value above for this case.",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.max.p4": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Hard nodes: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Hard nodes"
+            ],
+            "row": "Squad",
+            "scope": "Mobile Defense enemies alive at once on the hardest nodes with 4 players. Overrides the value above for this case.",
+            "stock": 28,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p1": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Easy nodes: max enemies (solo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Easy nodes"
+            ],
+            "row": "Solo",
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 1 player. Overrides the value above for this case.",
+            "stock": 7,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p2": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Easy nodes: max enemies (duo)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Easy nodes"
+            ],
+            "row": "Duo",
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 2 players. Overrides the value above for this case.",
+            "stock": 12,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p3": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Easy nodes: max enemies (trio)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Easy nodes"
+            ],
+            "row": "Trio",
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 3 players. Overrides the value above for this case.",
+            "stock": 17,
+            "type": "int",
+            "unit": ""
+          },
+          "mobiledefense.enemy_counts.min.p4": {
+            "applies": "live_next_read",
+            "group": "mobiledefense",
+            "label": "Easy nodes: max enemies (squad)",
+            "lane": "addon",
+            "max": 32767,
+            "min": 1,
+            "path": [
+              "Mobile Defense",
+              "Enemies",
+              "Max enemies at once",
+              "Easy nodes"
+            ],
+            "row": "Squad",
+            "scope": "Mobile Defense enemies alive at once on the easiest nodes with 4 players. Overrides the value above for this case.",
+            "stock": 22,
+            "type": "int",
+            "unit": ""
+          },
           "sentientmd.max_sim_ai.p1": {
             "applies": "live_next_read",
             "group": "sentientmd",
@@ -4666,6 +4883,7 @@
             "min": 1,
             "path": [
               "Purge",
+              "Advanced",
               "Alert missions: spawn speed"
             ],
             "row": "Tier 1",
@@ -4683,6 +4901,7 @@
             "min": 1,
             "path": [
               "Purge",
+              "Advanced",
               "Alert missions: spawn speed"
             ],
             "row": "Tier 2",
@@ -4700,6 +4919,7 @@
             "min": 1,
             "path": [
               "Purge",
+              "Advanced",
               "Alert missions: spawn speed"
             ],
             "row": "Tier 3",
@@ -5307,145 +5527,124 @@
             "stock": 10,
             "type": "int",
             "unit": ""
-          }
-        }
-      }
-    },
-    "a807aae359ffc1eb (missions_exact-replacement).lua_B": {
-      "label": "Mobile Defense (script replacement)",
-      "settings": {
-        "values": {
-          "mobiledefense.time_per_terminal": {
-            "applies": "next_mission",
-            "default_label": "60-80 s",
-            "group": "mobiledefense",
-            "label": "Time per terminal",
-            "lane": "literal",
-            "max": 10922,
-            "min": 1,
-            "options": [
-              {
-                "label": "60-80 s",
-                "value": 80
-              },
-              {
-                "label": "20 s",
-                "value": 20
-              }
-            ],
+          },
+          "void_flood.fill_timer.timeToFillMax": {
+            "applies": "live_next_read",
+            "group": "void_flood",
+            "label": "Tank fill time",
+            "lane": "addon",
+            "max": 20000,
+            "min": 0,
             "path": [
-              "Mobile Defense",
+              "Void Flood",
               "Timers"
             ],
-            "quick": "Mobile Defense: time per terminal",
-            "row": "Time per terminal",
-            "scope": "Upload time of each Mobile Defense terminal on every node. The default depends on node difficulty (78-104 s on Archwing against Grineer).",
-            "stock": 80,
-            "type": "enum",
+            "row": "Tank fill time",
+            "scope": "Starting seconds to fill a Void Flood tank, it shrinks every 3 fractures down to the shortest fill time.",
+            "stock": 200,
+            "type": "int",
             "unit": "s"
-          }
-        }
-      }
-    },
-    "b3a5a18d68d61e16 (missions_exact-replacement).lua_B": {
-      "label": "Control Area (Plains) replacement",
-      "settings": {
-        "values": {
-          "control_area_plains.duration": {
-            "applies": "next_mission",
-            "group": "control_area_plains",
-            "label": "Hold-zone time",
-            "lane": "literal",
-            "max": 32767,
-            "min": 1,
-            "options": [
-              {
-                "label": "90 s",
-                "value": 90
-              },
-              {
-                "label": "30 s",
-                "value": 30
-              }
-            ],
-            "path": [
-              "Control Area",
-              "Plains of Eidolon (Cetus)"
-            ],
-            "quick": "Control Area (Plains): hold time",
-            "row": "Hold-zone time",
-            "scope": "Seconds to hold the zone in Plains of Eidolon Control Area bounties. Cetus and Narmer bounties on the Plains.",
-            "stock": 90,
-            "type": "enum",
-            "unit": "s"
-          }
-        }
-      }
-    },
-    "f7444e3c621ff018 (missions_exact-replacement).lua_B": {
-      "label": "Excavation (script replacement)",
-      "settings": {
-        "values": {
-          "excavation.dig_time": {
-            "applies": "next_mission",
-            "default_label": "60-140 s",
-            "group": "excavation",
-            "label": "Dig time per excavator",
-            "lane": "literal",
-            "max": 32767,
-            "min": 1,
-            "options": [
-              {
-                "label": "60-140 s",
-                "value": 100
-              },
-              {
-                "label": "50 s",
-                "value": 50
-              }
-            ],
-            "path": [
-              "Excavation"
-            ],
-            "quick": "Excavation: dig time",
-            "row": "Excavator dig time",
-            "scope": "Seconds each excavator digs in every Excavation variant. The default is 100 s, 140 s on Elite Alerts and 60 s in Old World Salvage.",
-            "stock": 100,
-            "type": "enum",
-            "unit": "s"
-          }
-        }
-      }
-    },
-    "fc711ff621a75552 (missions_exact-replacement).lua_B": {
-      "label": "Void Flood (script replacement)",
-      "settings": {
-        "values": {
-          "void_flood.fractures_per_round.normal": {
-            "applies": "next_mission",
+          },
+          "void_flood.fill_timer.timeToFillMin": {
+            "applies": "live_next_read",
             "group": "void_flood",
-            "label": "Fractures per round",
-            "lane": "literal",
-            "max": 32767,
+            "label": "Shortest tank fill time",
+            "lane": "addon",
+            "max": 6000,
             "min": 1,
-            "options": [
-              {
-                "label": "3",
-                "value": 3
-              },
-              {
-                "label": "4",
-                "value": 4
-              }
-            ],
             "path": [
-              "Void Flood"
+              "Void Flood",
+              "Timers"
             ],
-            "quick": "Void Flood: fractures per round",
-            "row": "Fractures per round",
-            "scope": "Void fractures opened per round in Void Flood (not Duviri). Duviri Void Flood uses 5.",
+            "row": "Shortest tank fill time",
+            "scope": "Shortest seconds to fill a Void Flood tank.",
+            "stock": 60,
+            "type": "float",
+            "unit": "s"
+          },
+          "void_flood.fill_timer.curveScaleV": {
+            "applies": "live_next_read",
+            "group": "void_flood_advanced",
+            "label": "Fill time shrink",
+            "lane": "addon",
+            "max": 1000,
+            "min": 0,
+            "path": [
+              "Void Flood",
+              "Advanced"
+            ],
+            "row": "Fill time shrink",
+            "scope": "Multiplier applied to the Void Flood fill time every 3 fractures.",
+            "stock": 0.92,
+            "type": "float",
+            "unit": "x"
+          },
+          "void_flood.curse_count.curseCountNormal": {
+            "applies": "live_next_read",
+            "group": "void_flood_advanced",
+            "label": "Curses",
+            "lane": "addon",
+            "max": 1000,
+            "min": 1,
+            "path": [
+              "Void Flood",
+              "Advanced"
+            ],
+            "row": "Curses",
+            "scope": "Curses in Void Flood.",
+            "stock": 2,
+            "type": "int",
+            "unit": ""
+          },
+          "void_flood.curse_count.curseCountSteelPath": {
+            "applies": "live_next_read",
+            "group": "void_flood_advanced",
+            "label": "Steel Path: curses",
+            "lane": "addon",
+            "max": 1000,
+            "min": 1,
+            "path": [
+              "Void Flood",
+              "Advanced"
+            ],
+            "row": "Steel Path: curses",
+            "scope": "Curses in Steel Path Void Flood.",
+            "stock": 4,
+            "type": "int",
+            "unit": ""
+          },
+          "void_flood.curse_count.playerCapacity": {
+            "applies": "live_next_read",
+            "group": "void_flood_advanced",
+            "label": "Player Void energy capacity",
+            "lane": "addon",
+            "max": 10000,
+            "min": 1,
+            "path": [
+              "Void Flood",
+              "Advanced"
+            ],
+            "row": "Void energy capacity",
+            "scope": "Void energy a player can carry in Void Flood (unit from the script name).",
+            "stock": 100,
+            "type": "float",
+            "unit": ""
+          },
+          "void_flood.fractures_per_round.shadowgrapher": {
+            "applies": "live_next_read",
+            "group": "void_flood_advanced",
+            "label": "Shadowgrapher: fractures at once",
+            "lane": "addon",
+            "max": 1000,
+            "min": 1,
+            "path": [
+              "Void Flood",
+              "Advanced"
+            ],
+            "row": "Shadowgrapher: fractures",
+            "scope": "Most fractures open at once in the Shadowgrapher variant of Void Flood.",
             "stock": 3,
-            "type": "enum",
+            "type": "int",
             "unit": ""
           }
         }
@@ -5498,29 +5697,6 @@
         "id": "colonistdoor_advanced",
         "label": "Colonist Door: advanced",
         "order": 95
-      },
-      {
-        "aliases": [
-          "Bounty",
-          "Free Roam",
-          "MT_LANDSCAPE",
-          "Cambion Drift"
-        ],
-        "id": "control_area_deimos",
-        "label": "Control Area (Cambion Drift)",
-        "order": 100
-      },
-      {
-        "aliases": [
-          "Bounty",
-          "Free Roam",
-          "Cetus",
-          "MT_LANDSCAPE",
-          "Plains of Eidolon"
-        ],
-        "id": "control_area_plains",
-        "label": "Control Area (Plains)",
-        "order": 120
       },
       {
         "aliases": [
@@ -5653,23 +5829,6 @@
         "id": "entrati_swarm_advanced",
         "label": "Entrati Swarm: advanced",
         "order": 225
-      },
-      {
-        "aliases": [
-          "Excavator",
-          "MT_EXCAVATE",
-          "Hieracon",
-          "Tikal",
-          "Cholistan",
-          "Kiliken",
-          "Augustus",
-          "Valefor",
-          "Everest",
-          "Despina"
-        ],
-        "id": "excavation",
-        "label": "Excavation",
-        "order": 230
       },
       {
         "aliases": [
@@ -5959,6 +6118,17 @@
         "id": "void_flood",
         "label": "Void Flood",
         "order": 490
+      },
+      {
+        "aliases": [
+          "Zariman",
+          "MT_CORRUPTION",
+          "Everview Arc",
+          "Void Flood"
+        ],
+        "id": "void_flood_advanced",
+        "label": "Void Flood: advanced",
+        "order": 495
       }
     ]
   }

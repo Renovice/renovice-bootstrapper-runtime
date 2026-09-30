@@ -93,4 +93,14 @@ void publish_replacement_settings_accessor(
 	const std::uint32_t* name_handle,
 	std::uint64_t key,
 	const char* trigger) noexcept;
+// LIVE_LITERALS_V1 / R5-C: after a VM-local module refresh of `key` (stock
+// content key), registers the refreshed module's prototype graph as another
+// live identity of that key, exactly as a natural load does, so target addons
+// bound to the stock key keep matching the replaced module. No-op for keys no
+// target addon declares.
+void remember_refreshed_target_module(
+	luau_State* state,
+	void* manager,
+	const std::uint32_t* name_handle,
+	std::uint64_t key) noexcept;
 }

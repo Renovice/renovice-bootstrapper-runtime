@@ -2,6 +2,7 @@
 
 #include "config.hpp"
 #include "injection.hpp"
+#include "live_literals.hpp"
 #include "packages.hpp"
 #include "replacement_settings.hpp"
 #include "script_control.hpp"
@@ -275,6 +276,32 @@ std::vector<std::uint64_t> changed_keys(const Snapshot& previous, const Snapshot
 	return result;
 }
 
+// LIVE_LITERALS_V1: the plan snapshot of this transaction. Recipe keys join the
+// available keys (stock body and loader context are captured at the natural
+// load); a module owned by a byte replacement keeps that owner.
+std::shared_ptr<const live_literals::PlanSnapshot> build_literal_plans(
+	const Snapshot& bytes, KeySet* available_keys, const char* trigger)
+{
+	const auto package_snapshot = packages::candidate();
+	auto plans = live_literals::build_snapshot(package_snapshot.get(),
+		[&](std::uint64_t key) { return bytes.find(key) != bytes.end(); }, trigger);
+	if (available_keys != nullptr)
+		for (const auto key : plans->recipe_keys) available_keys->emplace(key);
+	return plans;
+}
+
+// The replacement bytes of `key` in this generation: a byte replacement, else
+// the module synthesized from its captured stock body (nullptr: stock).
+std::shared_ptr<const std::vector<unsigned char>> effective_replacement(
+	const Snapshot& bytes, const live_literals::PlanSnapshot& plans, std::uint64_t key,
+	const std::vector<unsigned char>& original, const char* source)
+{
+	if (const auto found = bytes.find(key); found != bytes.end())
+		return std::make_shared<const std::vector<unsigned char>>(found->second);
+	if (original.empty()) return nullptr;
+	return live_literals::synthesized(plans, key, original.data(), original.size(), source);
+}
+
 bool read_name_handle(void* descriptor, std::uint32_t (&output)[2]) noexcept
 {
 	if (descriptor == nullptr || diagnostics::bad_read_ptr(descriptor, 0x60)) return false;
@@ -325,7 +352,8 @@ long long undump_detour(
 {
 	const auto original = reinterpret_cast<Undump>(undump_hook.original);
 	const auto snapshot = active_replacements.load(std::memory_order_acquire);
-	if (!snapshot->empty() && body != nullptr && body_size > 0
+	const auto literal_plans = live_literals::active();
+	if ((!snapshot->empty() || !literal_plans->plans.empty()) && body != nullptr && body_size > 0
 		&& body_size < static_cast<long long>(maximum_replacement_size))
 	{
 		const auto key = body_key(std::string_view(
@@ -356,6 +384,31 @@ long long undump_detour(
 			}
 			return result;
 		}
+		// LIVE_LITERALS_V1: this undump consumes the stock body of a module with
+		// a committed plan; synthesize from exactly these bytes (stock size,
+		// SHA-256 and every preimage verified; any failure: stock bytes).
+		if (const auto synthesized = live_literals::synthesized(
+			*literal_plans, key, body, static_cast<std::size_t>(body_size), "undump"))
+		{
+			const auto result = original(
+				state,
+				arg2,
+				arg3,
+				arg4,
+				const_cast<unsigned char*>(synthesized->data()),
+				static_cast<long long>(synthesized->size()),
+				mode
+			);
+			if (!active_module_loads.empty())
+			{
+				auto& active = active_module_loads.back();
+				if (active.target_valid && active.identity.key == key)
+				{
+					active.replacement_undumped = true;
+				}
+			}
+			return result;
+		}
 	}
 	return original(state, arg2, arg3, arg4, body, body_size, mode);
 }
@@ -369,7 +422,8 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 	{
 		return InitialiseResult::Failed;
 	}
-	if (snapshot.empty() && !observe_undumps)
+	auto literal_plans = build_literal_plans(snapshot, available_keys.get(), "startup");
+	if (snapshot.empty() && literal_plans->recipe_keys.empty() && !observe_undumps)
 	{
 		conout << "RENOVICE Lua replacements disabled: no .lua_B files found" << std::endl;
 		return InitialiseResult::Disabled;
@@ -398,6 +452,7 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 
 	active_replacements.store(std::make_shared<Snapshot>(std::move(snapshot)), std::memory_order_release);
 	available_replacement_keys.store(std::move(available_keys), std::memory_order_release);
+	live_literals::publish(std::move(literal_plans));
 	undump_hook.detour = reinterpret_cast<void*>(&undump_detour);
 	undump_hook.target = target;
 	try
@@ -407,12 +462,14 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 	catch (const std::exception& ex)
 	{
 		active_replacements.store(std::make_shared<Snapshot>(), std::memory_order_release);
+		live_literals::publish(nullptr);
 		conout << "RENOVICE Lua replacement hook failed closed: " << ex.what() << std::endl;
 		return InitialiseResult::Failed;
 	}
 	if (!undump_hook.isCreated())
 	{
 		active_replacements.store(std::make_shared<Snapshot>(), std::memory_order_release);
+		live_literals::publish(nullptr);
 		conout << "RENOVICE Lua replacement hook failed closed: trampoline creation failed" << std::endl;
 		return InitialiseResult::Failed;
 	}
@@ -439,14 +496,24 @@ bool prepare_reload()
 	auto available_keys = std::make_shared<KeySet>();
 	if (!load_snapshot(
 		config::custom_scripts_directory(), *candidate, available_keys.get())) return false;
+	auto literal_plans = build_literal_plans(*candidate, available_keys.get(), "F9");
 	const auto previous = active_replacements.load(std::memory_order_acquire);
 	prepared_changed_keys = changed_keys(*previous, *candidate);
+	{
+		// LIVE_LITERALS_V1: a changed plan is a changed replacement key.
+		const auto literal_changed = live_literals::changed_keys(*live_literals::active(), *literal_plans);
+		prepared_changed_keys.insert(prepared_changed_keys.end(), literal_changed.begin(), literal_changed.end());
+		std::sort(prepared_changed_keys.begin(), prepared_changed_keys.end());
+		prepared_changed_keys.erase(
+			std::unique(prepared_changed_keys.begin(), prepared_changed_keys.end()), prepared_changed_keys.end());
+	}
 	if (!subsystem_enabled.load(std::memory_order_acquire))
 	{
-		if (candidate->empty())
+		if (candidate->empty() && literal_plans->plans.empty())
 		{
 			prepared_replacements = std::move(candidate);
 			prepared_available_replacement_keys = std::move(available_keys);
+			live_literals::prepare(std::move(literal_plans));
 			return true;
 		}
 		conout << "RENOVICE Lua replacement reload rejected: enabling undump hook requires restart" << std::endl;
@@ -454,6 +521,7 @@ bool prepare_reload()
 	}
 	prepared_replacements = std::move(candidate);
 	prepared_available_replacement_keys = std::move(available_keys);
+	live_literals::prepare(std::move(literal_plans));
 	return true;
 }
 
@@ -467,6 +535,7 @@ void commit_prepared_reload()
 			std::move(prepared_available_replacement_keys), std::memory_order_release);
 	}
 	committed_changed_keys = std::move(prepared_changed_keys);
+	live_literals::commit_prepared();
 }
 
 void discard_prepared_reload()
@@ -474,6 +543,7 @@ void discard_prepared_reload()
 	prepared_replacements.reset();
 	prepared_available_replacement_keys.reset();
 	prepared_changed_keys.clear();
+	live_literals::discard_prepared();
 }
 
 void begin_module_load(void* manager, void* descriptor, std::uint64_t observed_body_key)
@@ -601,12 +671,19 @@ void complete_module_load(void* manager, void* descriptor)
 			unresolved != unresolved_refreshes.end())
 		{
 			unresolved_generation = unresolved->second;
+			bool literal_held_stock = false;
 			if (!active.replacement_undumped)
 			{
 				const auto snapshot = active_replacements.load(std::memory_order_acquire);
-				const auto replacement = snapshot->find(active.identity.key);
-				const auto payload = select_hot_reload_payload(
-					true, replacement != snapshot->end(), !target.original.empty());
+				const auto literal_plans = live_literals::active();
+				const auto replacement = effective_replacement(
+					*snapshot, *literal_plans, active.identity.key, target.original, "refresh");
+				// LIVE_LITERALS_V1: a plan whose synthesis failed closed leaves the
+				// stock body that this load just undumped; no stock refresh is due.
+				literal_held_stock = replacement == nullptr
+					&& literal_plans->plans.count(active.identity.key) != 0;
+				const auto payload = literal_held_stock ? HotReloadPayload::None
+					: select_hot_reload_payload(true, replacement != nullptr, !target.original.empty());
 				if (payload != HotReloadPayload::None)
 				{
 					PendingRefresh pending;
@@ -615,14 +692,14 @@ void complete_module_load(void* manager, void* descriptor)
 					pending.name_handle[0] = active.name_handle[0];
 					pending.name_handle[1] = active.name_handle[1];
 					pending.restoring_stock = payload == HotReloadPayload::Original;
-					pending.bytes = std::make_shared<const std::vector<unsigned char>>(
-						pending.restoring_stock ? target.original : replacement->second);
+					pending.bytes = pending.restoring_stock
+						? std::make_shared<const std::vector<unsigned char>>(target.original) : replacement;
 					pending.generation = unresolved_generation;
 					enqueue_pending_locked(std::move(pending));
 					queued_unresolved = true;
 				}
 			}
-			if (active.replacement_undumped || queued_unresolved)
+			if (active.replacement_undumped || queued_unresolved || literal_held_stock)
 			{
 				unresolved_refreshes.erase(unresolved);
 			}
@@ -719,6 +796,7 @@ bool reexecute_changed_loaded(luau_State* state)
 	std::size_t unresolved = 0;
 	std::uint64_t generation = 0;
 	const auto snapshot = active_replacements.load(std::memory_order_acquire);
+	const auto literal_plans = live_literals::active();
 	{
 		std::lock_guard lock(loaded_targets_mutex);
 		generation = next_refresh_generation++;
@@ -732,10 +810,11 @@ bool reexecute_changed_loaded(luau_State* state)
 				++unavailable;
 				continue;
 			}
-			const auto replacement = snapshot->find(key);
+			const auto replacement = effective_replacement(
+				*snapshot, *literal_plans, key, target->second.original, "refresh");
 			const auto payload = select_hot_reload_payload(
 				true,
-				replacement != snapshot->end(),
+				replacement != nullptr,
 				!target->second.original.empty());
 			if (payload == HotReloadPayload::None)
 			{
@@ -743,8 +822,8 @@ bool reexecute_changed_loaded(luau_State* state)
 				continue;
 			}
 			const bool restoring = payload == HotReloadPayload::Original;
-			auto bytes = std::make_shared<const std::vector<unsigned char>>(
-				restoring ? target->second.original : replacement->second);
+			auto bytes = restoring
+				? std::make_shared<const std::vector<unsigned char>>(target->second.original) : replacement;
 			if (target->second.contexts.empty())
 			{
 				unresolved_refreshes[key] = generation;
@@ -851,6 +930,14 @@ bool drain_pending_for_vm(luau_State* state)
 			<< " thread=" << owner_thread
 			<< std::endl;
 		if (!current) ++failures;
+		// LIVE_LITERALS_V1 / R5-C: a refreshed module of a target-addon key gets
+		// its new prototype graph registered under the same (stock) key, so the
+		// addon's hooks keep matching (no-op for keys no addon targets).
+		if (current)
+		{
+			injection::remember_refreshed_target_module(
+				state, const_cast<void*>(job.identity.manager), job.name_handle, job.identity.key);
+		}
 		// REPLACEMENT_SETTINGS_V1: a refreshed replacement gets the accessor in
 		// its load environment before its root can run (no-op without an entry).
 		if (current && !job.restoring_stock)

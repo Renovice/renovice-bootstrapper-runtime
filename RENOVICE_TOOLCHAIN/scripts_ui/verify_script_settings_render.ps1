@@ -319,6 +319,9 @@ foreach ($name in @('Missions', 'Frost', 'Octavia')) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
     $manifestPath = Join-Path $r7Fixture "$name\package.json"
     Copy-Item -LiteralPath $manifestPath -Destination $dir
+    # Merged R7 + R8 (R9): the real Missions package carries its live literal recipe.
+    $recipePath = Join-Path $r7Fixture "$name\literals.json"
+    if (Test-Path -LiteralPath $recipePath -PathType Leaf) { Copy-Item -LiteralPath $recipePath -Destination $dir }
     $manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
     foreach ($member in $manifest.members.PSObject.Properties.Name) {
         $bytes = New-Object System.Collections.Generic.List[byte]
@@ -354,7 +357,9 @@ $plan = @(
     "STAGE`tvalue:missions/survival.reward_interval`ttext`t60`trestage",
     "ACT`treset:Missions/value:survival.reward_interval",
     "STAGE`tvalue:missions/survival.capsule_interval`ttext`t60`trestage",
-    "ACT`tresetall:Missions/node:19.0.0",
+    "ACT`tresetall:Missions/node:26.0.0",
+    # R9 (merged R7 + R8): Mobile Defense -> Timers -> Time per terminal, a live literal (stepper), typed 20.
+    "STAGE`tvalue:missions/mobiledefense.time_per_terminal`tnumber`t20`trestage",
     "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t250`trestage",
     "STAGE`tvalue:frost/ice_wave.bonus_per_cold_stack`ttext`t60`trestage",
     "ACT`tresetall:Frost"
@@ -362,16 +367,25 @@ $plan = @(
 )
 $tapeExpect = @(
     "EXPECTROW`t3`tquick:Missions`topen:qval:Missions/survival.reward_interval`tSurvival: 45 s",
-    "EXPECTROW`t13`tnode:Missions/14.0.0`topen:val:Missions/loopdefend.max_enemies.p4`tSquad: 40",
-    "EXPECTROW`t13`tpkg:Missions`topen:node:Missions/14`tMirror Defense: 1 changed",
-    "EXPECTROW`t15`tnode:Missions/19.0`topen:val:Missions/survival.reward_interval`tTime between rewards: 300 s (default)",
-    "EXPECTROW`t17`tnode:Missions/19.0.0`topen:val:Missions/survival.capsule_interval`tTime between capsules: 90 s (default)",
-    "EXPECTROW`t19`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 60x",
-    "EXPECTROW`t20`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 50x (default)",
+    "EXPECTROW`t13`tnode:Missions/19.1.0`topen:val:Missions/loopdefend.max_enemies.p4`tSquad: 40",
+    "EXPECTROW`t13`tpkg:Missions`topen:node:Missions/19`tMirror Defense: 1 changed",
+    "EXPECTROW`t15`tnode:Missions/26.0`topen:val:Missions/survival.reward_interval`tTime between rewards: 300 s (default)",
+    "EXPECTROW`t17`tnode:Missions/26.0.0`topen:val:Missions/survival.capsule_interval`tTime between capsules: 90 s (default)",
+    "EXPECTROW`t0`tnode:Missions/20.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 60-80 s (default)",
+    "EXPECTROW`t0`tquick:Missions`topen:qval:Missions/mobiledefense.time_per_terminal`tMobile Defense: 20 s",
+    "EXPECTROW`t18`tnode:Missions/20.0`topen:val:Missions/mobiledefense.time_per_terminal`tTime per terminal: 20 s",
+    "EXPECTROW`t18`tpkg:Missions`topen:node:Missions/20`tMobile Defense: 1 changed",
+    "EXPECTROW`t20`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 60x",
+    "EXPECTROW`t21`tpkg:Frost`topen:val:Frost/ice_wave.bonus_per_cold_stack`tBonus per Cold stack: 50x (default)",
     "EXPECTFILE`tMissions`tloopdefend.max_enemies.p4`tenabled=1`tvalue=40",
     "EXPECTFILE`tMissions`tsurvival.reward_interval`tenabled=0`tvalue=300",
     "EXPECTFILE`tMissions`tsurvival.capsule_interval`tenabled=0`tvalue=90",
     "EXPECTFILE`tFrost`tice_wave.bonus_per_cold_stack`tenabled=0`tvalue=50",
+    "EXPECTFILE`tMissions`tmobiledefense.time_per_terminal`tenabled=1`tvalue=20",
+    # R9: the written file resolves to the LIVE_LITERALS_V1 plans (and, with the stock corpus, synthesizes): the master
+    # sets both total-time rows to 20 x 3 = 60 s (20 s per terminal on every node); Void Flood 4 from the shipped file.
+    "EXPECTPLAN`tMissions`ta807aae359ffc1eb`tvalues=mobiledefense.time_per_terminal`trows=mobiledefense.total_time.maximum=60,mobiledefense.total_time.minimum=60`tpatches=2",
+    "EXPECTPLAN`tMissions`tfc711ff621a75552`tvalues=void_flood.fractures_per_round.normal`trows=void_flood.fractures_per_round.normal=4`tpatches=1",
     "EXPECTFILE`tOctavia`tfile=unchanged"
 )
 $planFile = Join-Path $scratch 'r7_tape_plan.txt'
@@ -379,11 +393,17 @@ $planFile = Join-Path $scratch 'r7_tape_plan.txt'
 $previousPreference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-    $tapeOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1') -Package ($packageDirs -join ';') -Settings ($settingsFiles -join ';') -Tape $planFile 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    # R9: with the U44 stock corpus the tape also synthesizes every planned module (size, SHA-256, preimages, diff).
+    $corpusDir = Join-Path (Split-Path -Parent $workspaceRepos) 'shared\corpus\de-luau-u44.0.2-authoring'
+    $corpusArgs = if (Test-Path -LiteralPath (Join-Path $corpusDir 'Lotus_Scripts_MobileDefense.lua_B') -PathType Leaf) { @('-Corpus', $corpusDir) } else { @() }
+    $tapeOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1') -Package ($packageDirs -join ';') -Settings ($settingsFiles -join ';') -Tape $planFile @corpusArgs 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
     $tapeExit = $LASTEXITCODE
 }
 finally { $ErrorActionPreference = $previousPreference }
-$tapeOutput | Where-Object { $_ -like 'TAPEOP*' -or $_ -like 'TAPESTEPS*' -or $_ -like 'FAIL*' -or ($_ -like 'PASS*' -and $_.Contains('tape')) } | ForEach-Object { Write-Output "R7-TAPE`t$_" }
+$tapeOutput | Where-Object { $_ -like 'TAPEOP*' -or $_ -like 'TAPESTEPS*' -or $_ -like 'TAPEPLAN*' -or $_ -like 'FAIL*' -or ($_ -like 'PASS*' -and $_.Contains('tape')) } | ForEach-Object { Write-Output "R7-TAPE`t$_" }
+$synthesized = @($tapeOutput | Where-Object { $_ -like "TAPEPLAN`tMissions`ta807aae359ffc1eb`t*" -and $_.Contains("`tsynthesis=pass") })
+if ($corpusArgs.Count -gt 0) { Require ($synthesized.Count -eq 1) "R9: the Mobile Defense plan of the written values file synthesizes from the real U44 stock bytes (stock size, SHA-256, every preimage, permitted diff)" }
+else { Write-Output "INFO`tU44 stock corpus absent: the R9 plan is checked without synthesis" }
 Require ($tapeExit -eq 0 -and ($tapeOutput -contains 'ADDON SETTINGS PASS') -and @($tapeOutput | Where-Object { $_ -like 'FAIL*' }).Count -eq 0) "R7 host tape: the fixture packages pass the scanner and page model, every planned call is applied and every EXPECTROW/EXPECTFILE holds ($($tapeExpect.Count) checks)"
 $steps = @{}
 $pageOrder = @{}
@@ -424,6 +444,7 @@ Require ([int]$r7Report['refreshed'] -ge 14 -and (Get-Category $r7 'r7-refresh')
 Require ([int]$r7Report['inplace'] -eq 2) "R7: 'Reset all to defaults' re-reads its page in place (Missions Life support, Frost) and the page stays open"
 Require ([int]$r7Report['messages'] -eq 1 -and (Get-Category $r7 'r7-validate') -eq 0) "R7: Back with an out-of-range value shows the row's stock message (Frost 250)"
 Require ([int]$r7Report['switches'] -eq 0 -and (Get-Category $r7 'r7-switch') -eq 0) "R7: no page the player opens holds a package, member, 'Use stock values', section or Custom switch"
+Require ([int]$r7Report['r9'] -eq 1) "R9: Missions -> Mobile Defense -> Timers -> Time per terminal (live literal, range default '60-80 s (default)') opens a stepper, 20 is typed and applied, and the rows read 'Time per terminal: 20 s', 'Timers: 1 changed', 'Mobile Defense: 1 changed'"
 
 # 2. Negative control R3: the installed bridge 739d8177 on the same page
 # reproduces the live R4 defects.
