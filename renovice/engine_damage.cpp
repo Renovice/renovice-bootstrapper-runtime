@@ -43,6 +43,10 @@ std::atomic_bool enabled = false;
 std::atomic<std::uint64_t> sequence = 0, generation = 0;
 std::atomic_bool budget_reported = false, failure_reported = false;
 bool installed = false;
+// Exact running build (engine_damage_builds.hpp) and its install-time codec
+// admission. Process-owned: set once by install(), before `enabled`.
+std::atomic<const BuildRegistration*> registration = nullptr;
+std::atomic<const char*> pool_degraded_reason = nullptr, raw_degraded_reason = nullptr;
 std::atomic<TypeResolver> type_resolver = nullptr;
 thread_local Source active_source;
 thread_local bool active_source_present = false;
@@ -55,42 +59,54 @@ template<class T> bool read(std::uintptr_t address, T& output) noexcept {
         reinterpret_cast<const void*>(address), &output, sizeof(output), &copied)
         && copied == sizeof(output);
 }
-std::optional<double> integer_getter(std::uintptr_t object, std::size_t slot) noexcept {
+// A decoded value or the exact reason it is unavailable (never a guess).
+struct Reading { std::optional<double> value; const char* reason = nullptr; };
+Reading integer_getter(std::uintptr_t object, std::size_t slot, FieldCodec codec) noexcept {
     // The observed getter is an integer decode, NOT a float reinterpretation.
-    // Accept only that exact accessor instruction shape; never call an unknown
-    // virtual method or assume that an arbitrary subtype shares its fields.
+    // Accept only the registered build's exact accessor shape at this actual
+    // vtable slot; never call an unknown virtual method or assume that an
+    // arbitrary subtype shares its fields.
     std::uintptr_t table = 0, function = 0;
-    std::array<unsigned char, 24> code{};
-    if (!read(object, table) || !read(table + slot, function) || !read(function, code)) return {};
-    constexpr std::array<unsigned char, 17> tail{
-        0x8b,0x01,0xc1,0xc0,0x13,0x48,0xc1,0xf9,0x03,
-        0x33,0xc1,0x35,0xa3,0x98,0x51,0xc5,0xc3};
-    if (code[0] != 0x48 || code[1] != 0x81 || code[2] != 0xc1
-        || !std::equal(tail.begin(), tail.end(), code.begin() + 7)) return {};
+    std::array<std::uint8_t, integer_accessor_size> code{};
+    if (!read(object, table) || !read(table + slot, function) || !read(function, code))
+        return {{}, "accessor-unreadable"};
     std::uint32_t offset = 0, encoded = 0;
-    std::memcpy(&offset, code.data() + 3, sizeof(offset));
-    if (offset > 0x10000 || !read(object + offset, encoded)) return {};
-    return decode_integer(encoded, object + offset);
+    if (!match_integer_accessor(code.data(), codec, offset)) return {{}, "accessor-shape-mismatch"};
+    if (offset > 0x10000) return {{}, "accessor-offset-out-of-range"};
+    if (!read(object + offset, encoded)) return {{}, "field-unreadable"};
+    return {decode_integer(encoded, object + offset, codec), nullptr};
 }
-struct Pools { std::optional<double> health, shield, overguard; };
-Pools pools(std::uintptr_t control, std::uintptr_t target) noexcept {
-    return {integer_getter(target, 0x340), integer_getter(control, 0x2b8),
-        integer_getter(control, 0x328)};
+struct Pools { Reading health, shield, overguard; };
+Pools pools(const BuildRegistration& build, std::uintptr_t control, std::uintptr_t target) noexcept {
+    if (const auto reason = pool_degraded_reason.load(std::memory_order_acquire))
+        return {{{}, reason}, {{}, reason}, {{}, reason}};
+    const auto& layout = build.layout;
+    return {target ? integer_getter(target, layout.target_health_slot, build.integer_codec)
+                   : Reading{{}, "target-unreadable"},
+        integer_getter(control, layout.control_shield_slot, build.integer_codec),
+        integer_getter(control, layout.control_overguard_slot, build.integer_codec)};
 }
-std::optional<double> base_amount(std::uintptr_t packet) noexcept {
+Reading base_amount(const BuildRegistration& build, std::uintptr_t packet) noexcept {
+    // Mirrors the registered UpgradedValue evaluator's base term: the override
+    // flag returns a separate value (not a base), the cached flag uses the plain
+    // float, otherwise the float codec; the addition field is added to either.
+    if (const auto reason = raw_degraded_reason.load(std::memory_order_acquire)) return {{}, reason};
+    const auto& layout = build.layout;
     std::uint8_t flags = 0;
     float addition = 0, cached = 0;
     std::uint32_t encoded = 0;
-    const auto value = packet + 0x60;
-    if (!read(value + 0x30, flags) || !read(value + 0x14, addition)) return {};
-    if (flags & 0x20) {
-        if (!read(value + 0x24, cached)) return {};
+    const auto value = packet + layout.packet_value;
+    if (!read(value + layout.value_flags, flags) || !read(value + layout.value_addition, addition))
+        return {{}, "value-unreadable"};
+    if (flags & layout.value_override_flag) return {{}, "value-override-flag-set"};
+    if (flags & layout.value_cached_flag) {
+        if (!read(value + layout.value_cached, cached)) return {{}, "value-unreadable"};
     } else {
-        if (!read(value + 0x0c, encoded)) return {};
-        cached = decode_float(encoded, value + 0x0c);
+        if (!read(value + layout.value_encoded, encoded)) return {{}, "value-unreadable"};
+        cached = decode_float(encoded, value + layout.value_encoded, build.float_codec);
     }
     const double result = static_cast<double>(cached) + addition;
-    return std::isfinite(result) ? std::optional<double>{result} : std::nullopt;
+    return std::isfinite(result) ? Reading{result, nullptr} : Reading{{}, "value-non-finite"};
 }
 std::string quote(std::string_view text) {
     std::ostringstream out; out << '"';
@@ -108,6 +124,11 @@ void number(std::ostream& out, const std::optional<double>& value) {
     if (value && std::isfinite(*value)) out << std::setprecision(17) << *value;
     else out << "null";
 }
+void reason(std::ostream& out, const char* before, const char* after = nullptr) {
+    const char* value = before ? before : after;
+    if (value) out << '"' << value << '"';
+    else out << "null";
+}
 std::optional<double> loss(const std::optional<double>& before, const std::optional<double>& after) {
     if (!before || !after) return {};
     return (std::max)(0.0, *before - *after);
@@ -116,10 +137,11 @@ void emit(const char* phase, std::uint64_t id, std::uint64_t parent,
     std::uint64_t capture_generation, std::size_t slot,
     std::uintptr_t control, std::uintptr_t target, std::uintptr_t packet,
     const Source& source, std::string_view target_type, const Pools& before, const Pools* after,
-    const std::optional<double>& raw, const std::array<float, 20>& fractions,
-    bool fractions_known, std::uint64_t begin_tick) {
+    const Reading& raw, const std::array<float, damage_fraction_count>& fractions,
+    bool fractions_known, std::uint64_t begin_tick, std::string_view layout) {
     std::ostringstream out;
-    out << "RENOVICE ENGINE_DAMAGE json={\"Schema\":1,\"Build\":\"V82\",\"Phase\":" << quote(phase)
+    out << "RENOVICE ENGINE_DAMAGE json={\"Schema\":1,\"Build\":\"V82-codec\",\"Layout\":" << quote(layout)
+        << ",\"Phase\":" << quote(phase)
         << ",\"Pid\":" << GetCurrentProcessId() << ",\"Thread\":" << GetCurrentThreadId()
         << ",\"Generation\":" << capture_generation << ",\"Correlation\":" << id
         << ",\"ParentCorrelation\":" << parent << ",\"HandlerSlot\":" << slot
@@ -132,17 +154,21 @@ void emit(const char* phase, std::uint64_t id, std::uint64_t parent,
         << ",\"TargetType\":" << quote(target_type)
         << ",\"DamageControl\":" << quote(pointer(control)) << ",\"Packet\":" << quote(pointer(packet))
         << ",\"BeginTickMs\":" << begin_tick << ",\"TickMs\":" << GetTickCount64()
-        << ",\"ObservedRaw\":"; number(out, raw);
-    out << ",\"HealthBefore\":"; number(out, before.health);
-    out << ",\"ShieldBefore\":"; number(out, before.shield);
-    out << ",\"OverguardBefore\":"; number(out, before.overguard);
+        << ",\"ObservedRaw\":"; number(out, raw.value);
+    out << ",\"RawReason\":"; reason(out, raw.reason);
+    out << ",\"HealthBefore\":"; number(out, before.health.value);
+    out << ",\"ShieldBefore\":"; number(out, before.shield.value);
+    out << ",\"OverguardBefore\":"; number(out, before.overguard.value);
+    out << ",\"HealthReason\":"; reason(out, before.health.reason, after ? after->health.reason : nullptr);
+    out << ",\"ShieldReason\":"; reason(out, before.shield.reason, after ? after->shield.reason : nullptr);
+    out << ",\"OverguardReason\":"; reason(out, before.overguard.reason, after ? after->overguard.reason : nullptr);
     if (after) {
-        const auto hp_loss = loss(before.health, after->health);
-        const auto shield_loss = loss(before.shield, after->shield);
-        const auto og_loss = loss(before.overguard, after->overguard);
-        out << ",\"HealthAfter\":"; number(out, after->health);
-        out << ",\"ShieldAfter\":"; number(out, after->shield);
-        out << ",\"OverguardAfter\":"; number(out, after->overguard);
+        const auto hp_loss = loss(before.health.value, after->health.value);
+        const auto shield_loss = loss(before.shield.value, after->shield.value);
+        const auto og_loss = loss(before.overguard.value, after->overguard.value);
+        out << ",\"HealthAfter\":"; number(out, after->health.value);
+        out << ",\"ShieldAfter\":"; number(out, after->shield.value);
+        out << ",\"OverguardAfter\":"; number(out, after->overguard.value);
         out << ",\"HealthLoss\":"; number(out, hp_loss);
         out << ",\"ShieldLoss\":"; number(out, shield_loss);
         out << ",\"OverguardLoss\":"; number(out, og_loss);
@@ -169,7 +195,8 @@ void adapter(std::size_t slot, void* control_pointer, void* packet_pointer, bool
     const auto stock = [&] { stock_called = true; original(control_pointer, packet_pointer); };
     if (!enabled.load(std::memory_order_acquire)) { stock(); return; }
     const auto flags = configuration.load(std::memory_order_acquire);
-    if (!flags || !requested(*flags)) { stock(); return; }
+    const auto build = registration.load(std::memory_order_acquire);
+    if (!flags || !build || !requested(*flags)) { stock(); return; }
     for (auto* frame = active_frame; frame; frame = frame->previous) {
         if (frame->control == control_pointer && frame->packet == packet_pointer) {
             stock(); return;
@@ -180,14 +207,14 @@ void adapter(std::size_t slot, void* control_pointer, void* packet_pointer, bool
     const Source empty_source{};
     const Source& source = active_source_present ? active_source : empty_source;
     std::uintptr_t target = 0;
-    read(control + 0x28, target);
+    if (!read(control + build->layout.control_target, target)) target = 0;
     std::string target_type;
     if (const auto resolver = type_resolver.load(std::memory_order_acquire)) target_type = resolver(target);
     if (!selected(*flags, source.body, source.path, source.name, source.method, target_type)) {
         stock(); return;
     }
-    std::array<float, 20> fractions{};
-    const bool fractions_known = read(packet, fractions);
+    std::array<float, damage_fraction_count> fractions{};
+    const bool fractions_known = read(packet + build->layout.packet_fractions, fractions);
     if (flags->diagnostics_damage_type_filter_set && (!fractions_known
         || !std::isfinite(fractions[flags->diagnostics_damage_type])
         || fractions[flags->diagnostics_damage_type] == 0)) {
@@ -202,8 +229,8 @@ void adapter(std::size_t slot, void* control_pointer, void* packet_pointer, bool
             + std::to_string(limit), config::DiagnosticsMode::battle);
         stock(); return;
     }
-    const auto before = pools(control, target);
-    const auto raw = base_amount(packet);
+    const auto before = pools(*build, control, target);
+    const auto raw = base_amount(*build, packet);
     const auto capture_generation = generation.load(std::memory_order_acquire);
     const auto begin_tick = GetTickCount64();
     const auto parent = active_frame ? active_frame->id : 0;
@@ -215,7 +242,8 @@ void adapter(std::size_t slot, void* control_pointer, void* packet_pointer, bool
     } scope(&frame);
     auto report = [&](const char* phase, const Pools* after) noexcept {
         try { emit(phase, id, parent, capture_generation, slot, control, target,
-            packet, source, target_type, before, after, raw, fractions, fractions_known, begin_tick); }
+            packet, source, target_type, before, after, raw, fractions, fractions_known, begin_tick,
+            build->label); }
         catch (...) {
             if (!failure_reported.exchange(true)) config::diagnostic_log(
                 "RENOVICE ENGINE_DAMAGE build=V80 event=failed reason=record-formatting",
@@ -224,7 +252,7 @@ void adapter(std::size_t slot, void* control_pointer, void* packet_pointer, bool
     };
     report("begin", nullptr);
     stock();
-    const auto after = pools(control, target);
+    const auto after = pools(*build, control, target);
     report("end", &after);
 }
 template<std::size_t Slot> void bridge(void* control, void* packet) {
@@ -247,10 +275,35 @@ constexpr std::array<const char*, 3> patterns{
     "40 55 56 57 48 8D AC 24 90 FC FF FF 48 81 EC 70 04 00 00 48 8B 05 ? ? ? ? 48 33 C4",
     "40 53 48 81 EC E0 02 00 00 48 8B 05 ? ? ? ? 48 33 C4 48 89 84 24 D0 02 00 00 48 8B D9 48 8D 4C 24 20 E8 ? ? ? ? 48 8B 03"};
 #endif
+#if defined(RENOVICE_ENGINE_DAMAGE_TEST)
+CodecAdmission test_admission;
+#endif
+// One operational line per process when the registered codec is not in the
+// loaded image. Correlation, target, source and fractions keep recording; only
+// the decoded fields are null, each with this exact reason.
+void report_codec_admission(const BuildRegistration& build, const CodecAdmission& admission) {
+    pool_degraded_reason.store(admission.pool_reason, std::memory_order_release);
+    raw_degraded_reason.store(admission.raw_reason, std::memory_order_release);
+    if (!admission.pool_reason && !admission.raw_reason) return;
+    std::string reasons;
+    for (const char* reason : {admission.pool_reason, admission.raw_reason}) {
+        if (!reason) continue;
+        if (!reasons.empty()) reasons += ',';
+        reasons += reason;
+    }
+    config::diagnostic_log("RENOVICE ENGINE_DAMAGE build=V80 event=degraded reason=" + reasons
+        + " layout=\"" + std::string(build.label) + "\" decoded-fields=null records=kept",
+        config::DiagnosticsMode::errors);
+}
 bool install() {
 #if defined(RENOVICE_ENGINE_DAMAGE_TEST)
     // The standalone harness exercises the production observer and ABI with
-    // deterministic fake stock functions; image detours are verified separately.
+    // deterministic fake stock functions and selects `registration` itself;
+    // image detours and codec presence are verified by separate gates. The
+    // harness supplies the admission its fixture image would produce.
+    const auto build = registration.load(std::memory_order_acquire);
+    if (!build) return false;
+    report_codec_admission(*build, test_admission);
     installed = true;
     return true;
 #else
@@ -259,19 +312,12 @@ bool install() {
     soup::FileReader image{std::filesystem::path(image_path)};
     if (!image.s) return false;
     const auto digest = soup::string::bin2hexLower(soup::sha256::hash(image));
-    // Exact executable -> exact RVAs. Sideloadify 1.1.0 leaves executable code identical, so each
-    // build lists its Steam and sideloadified digest with the same addresses. Unknown builds fail closed.
-    std::array<std::uintptr_t, 3> registered_rvas{};
-    if (digest == "45fa6ad0769cc8ca7fa7e0ffdee65c0c0932e11744146781ad18c45b16e4a81c"
-        || digest == "87fc60ce65e015c6c8d4be5ac353538c37392efb6793dd17f0a17cf126d3fb5c")
-        registered_rvas = {0xd2cb0, 0xa10cf0, 0x7088a0}; // 44.0.0 2026.09.24.13.29
-    else if (digest == "00cf876132443b8e2bcb7450d05c89d0f8695ec51c5881976f784233dbc94374"
-        || digest == "0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33")
-        registered_rvas = {0x7267c0, 0xfb24b0, 0x1f5d80}; // 44.0.2 2026.09.28.13.06
-    else if (digest == "cca46d604a498cd95f0d28e3e8f3eee8833f5d362666a8e5c820c535f7c2af93")
-        registered_rvas = {0x1ee140, 0xc60240, 0xa255b0}; // 43 2026.08.19.11.06
-    else
-        return false;
+    // Exact executable -> exact RVAs, codecs and layout (engine_damage_builds.hpp).
+    // Sideloadify 1.1.0 leaves executable code identical, so each build lists its
+    // Steam and sideloadified digest with the same entry. Unknown builds fail closed.
+    const auto build = registration_for_digest(digest);
+    if (!build) return false;
+    const auto& registered_rvas = build->handler_rvas;
     const auto range = soup::Module(nullptr).range;
     std::array<void*, 3> targets{};
     const auto base = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
@@ -281,6 +327,9 @@ bool install() {
         targets[i] = hits[0].as<void*>();
         if (reinterpret_cast<std::uintptr_t>(targets[i]) - base != registered_rvas[i]) return false;
     }
+    // Codec admission reads the mapped image once; a missing key degrades the
+    // decoded fields only and never blocks the hooks or the other records.
+    const auto admission = admit_codec(*build, range.base.as<const std::uint8_t*>(), range.size);
     // Whole bundle validation/creation precedes publication. There is no RVA fallback.
     try {
         for (std::size_t i = 0; i < 2; ++i) {
@@ -315,9 +364,12 @@ bool install() {
         }
         return false;
     }
+    report_codec_admission(*build, admission);
+    registration.store(build, std::memory_order_release);
     installed = true;
-    config::diagnostic_log("RENOVICE ENGINE_DAMAGE build=V80 event=installed handlers=3 build-hash-and-unique-signatures=PASS lifecycle=process-owned",
-        config::DiagnosticsMode::battle);
+    config::diagnostic_log("RENOVICE ENGINE_DAMAGE build=V80 event=installed handlers=3 build-hash-and-unique-signatures=PASS layout=\""
+        + std::string(build->label) + "\" codec=" + (admission.pool_reason || admission.raw_reason ? "degraded" : "registered-and-present")
+        + " lifecycle=process-owned", config::DiagnosticsMode::battle);
     return true;
 #endif
 }

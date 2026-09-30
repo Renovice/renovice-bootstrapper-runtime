@@ -92,6 +92,15 @@ $budgetAt = $trace.IndexOf('addon_trace_sequence.fetch_add(', [StringComparison]
 if ($rateAt -lt 0 -or $budgetAt -le $rateAt -or -not $trace.Contains('diagnostic_per_hit_event(event)') -or -not $trace.Contains('event=trace.rate-limited')) {
     throw 'Unified diagnostics FAIL: per-hit trace lines are not rate limited before the shared budget with a suppression summary'
 }
+# Per-hit addon results (2026-09-30): own bounded limiter before their own budget, never the shared one.
+$hitRateAt = $trace.IndexOf('addon_hit_result_rate_limiter.admit(event, GetTickCount64())', [StringComparison]::Ordinal)
+$hitBudgetAt = $trace.IndexOf('addon_hit_result_sequence.fetch_add(', [StringComparison]::Ordinal)
+if ($hitRateAt -lt 0 -or $hitBudgetAt -le $hitRateAt -or -not $trace.Contains('diagnostic_hit_result_event(event)') -or -not $trace.Contains('hit-result-budget-exhausted')) {
+    throw 'Unified diagnostics FAIL: per-hit addon results do not have their own bounded lane and budget'
+}
+foreach ($marker in @('addon_hit_result_sequence.store(0, std::memory_order_relaxed);', 'addon_hit_result_rate_limiter.reset();')) {
+    if (([regex]::Matches($injection, [regex]::Escape($marker))).Count -ne 3) { throw "Unified diagnostics FAIL: hit-result lane is not reset at every trace-budget boundary: $marker" }
+}
 
 $hookOnce = Get-SourceRegion $injection "void log_native_hook_once(`n`tluau_State* state," 'void dispatch_target_hook(' 'log_native_hook_once'
 $identityAt = $hookOnce.IndexOf('native_hook_event_identity(', [StringComparison]::Ordinal)

@@ -4,15 +4,22 @@
 #include <cstdint>
 #include <string_view>
 #include "config_core.hpp"
+#include "engine_damage_builds.hpp"
 
 namespace renovice::engine_damage {
-inline std::int32_t decode_integer(std::uint32_t encoded, std::uintptr_t address) noexcept {
-    return std::bit_cast<std::int32_t>(std::rotl(encoded, 19)
-        ^ static_cast<std::uint32_t>(address >> 3) ^ 0xc55198a3u);
+// Codecs are per build (engine_damage_builds.hpp); there is no default key.
+inline std::uint32_t decode_bits(std::uint32_t encoded, std::uintptr_t address, FieldCodec codec) noexcept {
+    return std::rotl(encoded, codec.rotate) ^ static_cast<std::uint32_t>(address >> 3) ^ codec.key;
 }
-inline float decode_float(std::uint32_t encoded, std::uintptr_t address) noexcept {
-    return std::bit_cast<float>(std::rotl(encoded, 30)
-        ^ static_cast<std::uint32_t>(address >> 3) ^ 0x635bf253u);
+inline std::int32_t decode_integer(std::uint32_t encoded, std::uintptr_t address, FieldCodec codec) noexcept {
+    return std::bit_cast<std::int32_t>(decode_bits(encoded, address, codec));
+}
+inline float decode_float(std::uint32_t encoded, std::uintptr_t address, FieldCodec codec) noexcept {
+    return std::bit_cast<float>(decode_bits(encoded, address, codec));
+}
+// Inverse, for regression fixtures only.
+inline std::uint32_t encode_bits(std::uint32_t value, std::uintptr_t address, FieldCodec codec) noexcept {
+    return std::rotr(value ^ static_cast<std::uint32_t>(address >> 3) ^ codec.key, codec.rotate);
 }
 inline bool requested(const config::Flags& flags) noexcept {
     return flags.diagnostics_damage_capture == config::DamageCaptureMode::engine

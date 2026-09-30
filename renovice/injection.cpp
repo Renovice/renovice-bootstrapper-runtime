@@ -3502,6 +3502,11 @@ std::atomic<std::uint64_t> addon_trace_sequence = 0;
 std::atomic_bool addon_trace_suppression_logged = false;
 std::mutex addon_trace_rate_mutex;
 DiagnosticEventRateLimiter addon_trace_rate_limiter;
+// Hit-result lane (dispatch.results): own limiter and own budget, both guarded
+// by addon_trace_rate_mutex / reset at the same F9 and bridge boundaries.
+std::atomic<std::uint64_t> addon_hit_result_sequence = 0;
+std::atomic_bool addon_hit_result_suppression_logged = false;
+DiagnosticEventRateLimiter addon_hit_result_rate_limiter{diagnostic_hit_result_lines_per_window};
 std::atomic<std::uint64_t> addon_trace_attempts = 0;
 std::atomic<std::uint64_t> native_ingress_trace_sequence = 0;
 std::atomic_bool native_ingress_trace_suppression_logged = false;
@@ -3547,14 +3552,26 @@ void trace_addon(luau_State* state, std::uint64_t key, const char* event,
 		// Per-hit lanes in trace mode: at most diagnostic_rate_lines_per_window
 		// lines per event name per window, with one suppression summary per
 		// window (non-trace modes already admit only error events). Suppressed
-		// lines never consume the shared event budget.
-		if (mode == config::DiagnosticsMode::trace && diagnostic_per_hit_event(event))
+		// lines never consume the shared event budget. Per-hit addon results
+		// (battle and trace) use their own limiter and their own budget so a
+		// measurement run keeps every hit up to diagnostic_hit_result_lines_per_window.
+		const bool hit_result = diagnostic_hit_result_event(event);
+		DiagnosticRateDecision decision;
+		bool rate_limited_lane = false;
+		if (hit_result)
 		{
-			DiagnosticRateDecision decision;
-			{
-				std::lock_guard lock(addon_trace_rate_mutex);
-				decision = addon_trace_rate_limiter.admit(event, GetTickCount64());
-			}
+			std::lock_guard lock(addon_trace_rate_mutex);
+			decision = addon_hit_result_rate_limiter.admit(event, GetTickCount64());
+			rate_limited_lane = true;
+		}
+		else if (mode == config::DiagnosticsMode::trace && diagnostic_per_hit_event(event))
+		{
+			std::lock_guard lock(addon_trace_rate_mutex);
+			decision = addon_trace_rate_limiter.admit(event, GetTickCount64());
+			rate_limited_lane = true;
+		}
+		if (rate_limited_lane)
+		{
 			if (decision.report.pending)
 			{
 				std::ostringstream summary;
@@ -3564,20 +3581,26 @@ void trace_addon(luau_State* state, std::uint64_t key, const char* event,
 					<< " admitted=" << decision.report.admitted
 					<< " suppressed=" << decision.report.suppressed
 					<< " untracked_dropped=" << decision.report.untracked_dropped
-					<< " limit_per_window=" << diagnostic_rate_lines_per_window;
+					<< " limit_per_window=" << decision.report.limit
+					<< " lane=" << (hit_result ? "hit-results" : "per-hit");
 				config::diagnostic_log(summary.str(), mode);
 			}
 			if (!decision.admit) return;
 		}
-		const auto sequence = addon_trace_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+		const auto sequence = hit_result
+			? addon_hit_result_sequence.fetch_add(1, std::memory_order_relaxed) + 1
+			: addon_trace_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
 		const auto limit = flags.diagnostics_max_events;
 		if (sequence > limit)
 		{
-			if (!addon_trace_suppression_logged.exchange(true, std::memory_order_relaxed))
+			auto& suppression_logged = hit_result
+				? addon_hit_result_suppression_logged : addon_trace_suppression_logged;
+			if (!suppression_logged.exchange(true, std::memory_order_relaxed))
 			{
 				std::ostringstream suppressed;
 				suppressed << "RENOVICE ADDON_TRACE build=V79 event=trace.suppressed"
-					<< " reason=event-budget-exhausted limit=" << limit;
+					<< " reason=" << (hit_result ? "hit-result-budget-exhausted" : "event-budget-exhausted")
+					<< " limit=" << limit;
 				config::diagnostic_log(suppressed.str(), mode);
 			}
 			return;
@@ -3585,6 +3608,7 @@ void trace_addon(luau_State* state, std::uint64_t key, const char* event,
 		std::ostringstream out;
 		out << "RENOVICE ADDON_TRACE build=V79 pid=" << GetCurrentProcessId()
 			<< " tick_ms=" << GetTickCount64() << " seq=" << sequence
+			<< (hit_result ? " lane=hit-results" : "")
 			<< " attempt=" << addon_trace_attempt << " thread=" << GetCurrentThreadId()
 			<< " key=0x" << std::hex << key << std::dec
 			<< " state=" << state << " vm=" << (state ? state->global_state : nullptr);
@@ -4018,7 +4042,10 @@ enum class SharedCallbackLeafStage : std::uint8_t
 	capture_result,
 };
 
-constexpr std::size_t shared_callback_result_capacity = 8;
+// Bounded copy of callback results (traced afterDamage results use all of
+// them; other callers request one). 12 leaves room for per-hit before/after
+// pairs such as Overguard in addition to the original eight fields.
+constexpr std::size_t shared_callback_result_capacity = 12;
 constexpr std::size_t shared_callback_error_field_count = 10;
 constexpr const char* shared_callback_error_fields[shared_callback_error_field_count]{
 	"message", "Message", "error", "Error", "what", "reason",
@@ -4369,7 +4396,7 @@ bool call_value(
 	std::string* traced_results = nullptr
 )
 {
-	constexpr int traced_result_count = 8;
+	constexpr int traced_result_count = static_cast<int>(shared_callback_result_capacity);
 	const int requested_results = traced_results == nullptr ? 0 : traced_result_count;
 	SharedCallbackOutcome outcome;
 	const bool invoked = invoke_shared_callback(
@@ -7351,7 +7378,8 @@ void dispatch_target_hook(
 				label = std::string("hook=") + hook_name + " addon=" + addon.name + " registry=" + addon.registry_key;
 				trace_addon(state, target_key, "dispatch.enter", label, arguments, argument_count);
 			}
-			const bool trace_results = diagnostics_mode == config::DiagnosticsMode::trace
+			// Per-hit results: battle and trace modes (own bounded lane in trace_addon).
+			const bool trace_results = diagnostic_hit_results_requested(diagnostics_mode)
 				&& std::strcmp(hook_name, "afterDamage") == 0;
 			std::string results;
 			const bool passed = call_value(
@@ -8058,9 +8086,12 @@ bool prepare_target_shared_table(
 		diagnostic_trace_callback_failure_logged.store(false, std::memory_order_relaxed);
 		addon_trace_sequence.store(0, std::memory_order_relaxed);
 		addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		addon_hit_result_sequence.store(0, std::memory_order_relaxed);
+		addon_hit_result_suppression_logged.store(false, std::memory_order_relaxed);
 		{
 			std::lock_guard rate_lock(addon_trace_rate_mutex);
 			addon_trace_rate_limiter.reset();
+			addon_hit_result_rate_limiter.reset();
 		}
 		native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
 		native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);
@@ -8083,9 +8114,12 @@ bool prepare_target_shared_table(
 		diagnostic_trace_callback_failure_logged.store(false, std::memory_order_relaxed);
 		addon_trace_sequence.store(0, std::memory_order_relaxed);
 		addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		addon_hit_result_sequence.store(0, std::memory_order_relaxed);
+		addon_hit_result_suppression_logged.store(false, std::memory_order_relaxed);
 		{
 			std::lock_guard rate_lock(addon_trace_rate_mutex);
 			addon_trace_rate_limiter.reset();
+			addon_hit_result_rate_limiter.reset();
 		}
 		native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
 		native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);
@@ -17961,9 +17995,12 @@ void drain(luau_State* state)
 		automatic_damage_failed_vms.clear(); // An explicit F9 commit permits a fresh attempt.
 		addon_trace_sequence.store(0, std::memory_order_relaxed);
 		addon_trace_suppression_logged.store(false, std::memory_order_relaxed);
+		addon_hit_result_sequence.store(0, std::memory_order_relaxed);
+		addon_hit_result_suppression_logged.store(false, std::memory_order_relaxed);
 		{
 			std::lock_guard rate_lock(addon_trace_rate_mutex);
 			addon_trace_rate_limiter.reset();
+			addon_hit_result_rate_limiter.reset();
 		}
 		native_ingress_trace_sequence.store(0, std::memory_order_relaxed);
 		native_ingress_trace_suppression_logged.store(false, std::memory_order_relaxed);

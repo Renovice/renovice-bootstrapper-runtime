@@ -337,6 +337,7 @@ foreach ($group in $grouped) {
         RequestedRaw = if ($null -ne $damageInput) { Read-TraceArgumentAfterField -Line $damageInput.Line -Field 'requestedRaw' } else { $null }
         ObservedRaw = if ($null -ne $damageInput) { Read-TraceArgumentAfterField -Line $damageInput.Line -Field 'observedRaw' } else { $null }
         InstalledRaw = if ($null -ne $math) { Read-TraceArgumentAfterField -Line $math.Line -Field 'installedRaw' } else { $null }
+        DecodeLayout = $null; RawReason = $null; HealthReason = $null; ShieldReason = $null; OverguardReason = $null
         RestoredRaw = if ($null -ne $math) { Read-TraceArgumentAfterField -Line $math.Line -Field 'restoredRaw' } else { $null }
         ReportedRaw = if ($null -ne $math) { Read-TraceArgumentAfterField -Line $math.Line -Field 'reportedRaw' } else { $null }
         VisiblePoolLoss = if ($null -ne $math) { Read-TraceArgumentAfterField -Line $math.Line -Field 'visiblePoolLoss' } else { $null }
@@ -366,6 +367,10 @@ foreach ($group in $nativeGroups) {
     $complete = $begins.Count -eq 1 -and $ends.Count -eq 1 -and
         $begin.Target -ceq $end.Target -and $begin.Packet -ceq $end.Packet
     $getEnd = { param($field) if ($null -ne $end) { $end.$field } else { $null } }
+    # Per-build codec records (2026-09-30) name their layout and the exact reason for each null
+    # decoded field; older records have neither.
+    $optional = { param($record, $field) if ($null -ne $record -and $record.PSObject.Properties[$field]) { $record.$field } else { $null } }
+    $reasonRecord = if ($null -ne $end) { $end } else { $begin }
     $transactions.Add([pscustomobject]@{
         Build=$first.Build; Correlation=$first.Correlation; Label='AUTO_ENGINE_DAMAGE'
         Complete=$complete; DuplicateEventCount=([Math]::Max(0,$begins.Count-1)+[Math]::Max(0,$ends.Count-1))
@@ -380,6 +385,9 @@ foreach ($group in $nativeGroups) {
         SourceAbility=$null; SourceAbilityKnown=$false; Calculation='native-handler-observed-input-and-pool-delta'
         ModifierName='none'; ModifierValue=1; StockRaw=$null; Multiplier=1
         RequestedRaw=$begin.ObservedRaw; ObservedRaw=$begin.ObservedRaw; InstalledRaw=$begin.ObservedRaw
+        DecodeLayout=(& $optional $begin 'Layout'); RawReason=(& $optional $begin 'RawReason')
+        HealthReason=(& $optional $reasonRecord 'HealthReason'); ShieldReason=(& $optional $reasonRecord 'ShieldReason')
+        OverguardReason=(& $optional $reasonRecord 'OverguardReason')
         RestoredRaw=$null; ReportedRaw=$null; DamageProfile=$begin.DamageFractions
         HealthBefore=$begin.HealthBefore; HealthAfter=(& $getEnd 'HealthAfter'); HealthLoss=(& $getEnd 'HealthLoss')
         ShieldBefore=$begin.ShieldBefore; ShieldAfter=(& $getEnd 'ShieldAfter'); ShieldLoss=(& $getEnd 'ShieldLoss')

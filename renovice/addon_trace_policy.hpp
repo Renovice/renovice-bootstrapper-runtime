@@ -199,12 +199,29 @@ inline bool diagnostic_error_event(std::string_view event) noexcept
 		|| event.find("failed") != std::string_view::npos;
 }
 
+// Per-hit addon results (`dispatch.results`, afterDamage only) are battle data:
+// the value an addon computed for one engine-reported hit. They are emitted in
+// battle and trace modes through their own bounded lane (below), so a
+// measurement run neither needs full trace chatter nor loses hits to the
+// generic 32-per-second per-hit limit or the shared event budget.
+inline bool diagnostic_hit_result_event(std::string_view event) noexcept
+{
+	return event == "dispatch.results";
+}
+
+inline bool diagnostic_hit_results_requested(config::DiagnosticsMode mode) noexcept
+{
+	return mode == config::DiagnosticsMode::battle
+		|| mode == config::DiagnosticsMode::trace;
+}
+
 inline bool diagnostic_runtime_event_allowed(
 	config::DiagnosticsMode mode,
 	std::string_view event) noexcept
 {
 	if (mode == config::DiagnosticsMode::off) return false;
 	if (mode == config::DiagnosticsMode::trace) return true;
+	if (diagnostic_hit_result_event(event)) return diagnostic_hit_results_requested(mode);
 	return diagnostic_error_event(event);
 }
 
@@ -355,6 +372,10 @@ inline bool diagnostic_per_hit_event(std::string_view event) noexcept
 inline constexpr std::uint64_t diagnostic_rate_window_ms = 1000;
 inline constexpr std::uint32_t diagnostic_rate_lines_per_window = 32;
 inline constexpr std::size_t diagnostic_rate_event_slots = 64;
+// Hit-result lane: its own per-window limit and its own event budget
+// (Flags::diagnostics_max_events, reset with the shared one at F9/bridge
+// change). Bounded; a window that drops lines still yields one summary.
+inline constexpr std::uint32_t diagnostic_hit_result_lines_per_window = 1024;
 
 struct DiagnosticRateReport
 {
@@ -364,6 +385,7 @@ struct DiagnosticRateReport
 	std::uint32_t admitted = 0;
 	std::uint64_t suppressed = 0;
 	std::uint64_t untracked_dropped = 0;
+	std::uint32_t limit = 0;
 };
 
 struct DiagnosticRateDecision
@@ -379,6 +401,12 @@ struct DiagnosticRateDecision
 class DiagnosticEventRateLimiter
 {
 public:
+	explicit DiagnosticEventRateLimiter(
+		std::uint32_t lines_per_window = diagnostic_rate_lines_per_window) noexcept
+		: lines_per_window_(lines_per_window) {}
+
+	std::uint32_t lines_per_window() const noexcept { return lines_per_window_; }
+
 	DiagnosticRateDecision admit(std::string_view event, std::uint64_t now_ms) noexcept
 	{
 		DiagnosticRateDecision decision;
@@ -398,7 +426,7 @@ public:
 			slot->admitted = 0;
 			slot->suppressed = 0;
 		}
-		if (slot->admitted < diagnostic_rate_lines_per_window)
+		if (slot->admitted < lines_per_window_)
 		{
 			++slot->admitted;
 			decision.admit = true;
@@ -463,6 +491,7 @@ private:
 		out.admitted = slot.admitted;
 		out.suppressed = slot.suppressed;
 		out.untracked_dropped = untracked_dropped_;
+		out.limit = lines_per_window_;
 		untracked_dropped_ = 0;
 	}
 
@@ -484,6 +513,7 @@ private:
 
 	Slot slots_[diagnostic_rate_event_slots]{};
 	std::uint64_t untracked_dropped_ = 0;
+	std::uint32_t lines_per_window_ = diagnostic_rate_lines_per_window;
 };
 
 struct DamagePerformanceWindow

@@ -1,5 +1,21 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-09-30 ENGINE_DAMAGE per-build codec for 44.0.2 + per-hit result lane staged (not deployed)
+
+Branch `fix/engine-damage-codec-44.0.2-2026-09-30` (from `fb9655e`, the R2 settings editor). Diagnostics only. Stock damage, gameplay, Pluto and the addon lanes are unchanged.
+
+- **Defect.** On 44.0.2 every `ENGINE_DAMAGE` record had null pools and a garbage `ObservedRaw`, because the lane kept the U43 codec and slots (Mallet note, 8,069/8,069 records). 44.0.0 had the same stale values.
+- **Registration.** `renovice/engine_damage_builds.hpp` holds, per exact build, the digests, handler RVAs, UpgradedValue evaluator RVA, integer and float codecs (rotate + key) and every layout offset. There is no fallback.
+  - 44.0.x: integer rol19 / `0xAC7E8740`; float **rol17** / `0x8637D1B6` (U43 was rol30, so the rotate changed too); slots health `0x350`, shield `0x2c8`, Overguard `0x338`.
+  - The other offsets are unchanged: `control+0x28`, packet `+0x60` UpgradedValue (`+0x0c/+0x14/+0x24/+0x30`, cached `0x20`), fractions `+0`. The newly registered override flag is `0x10` → `+0x20`.
+  - All values were derived from the exact 43, 44.0.0 and 44.0.2 images (Lua binding vtable calls, the accessors at the slots, handler0 and the evaluator).
+- **Fail closed.** Every read checks the registered accessor bytes. At install, `admit_codec()` checks the loaded image; on failure it logs one `event=degraded` line, and every decoded field is null with an exact `…Reason`. Records keep correlation, target and source. New record fields: `Layout`, `RawReason`, `HealthReason`, `ShieldReason`, `OverguardReason` (the analyzer passes them through).
+- **Per-hit addon results.** `dispatch.results` (afterDamage) has its own lane: 1,024 lines per second, its own `DiagnosticsMaxEvents` budget and summaries, reset at the same 3 boundaries. It is emitted in **battle** mode too. Traced callback results go from 8 to 12.
+- **Gates.** New `verify_engine_damage_codec.ps1` (key presence, evaluator and slot accessors per registered image, 3/3 covered; the pre-fix negative control fails). `verify_native_damage.ps1` is extended (known-answer vectors and a decoded sample per build) and is now in `build_private.ps1`. Injection core and unified diagnostics gates are extended. 31/31 gates PASS.
+- **Build.** Main DLL `9e44f885ab891eb76273cc4162129ab69ab481b20dbc6d081d8dc3df23cf3aab` (5,601,280 B), 0 warnings, 0 errors. Bridge `2e337a43…` unchanged. Staged in `work/staging/editor-phase2-3/`; the R2 set is in `older/r2-7594fbf2/`.
+
+**Deployment and the live check are pending.** Live acceptance: for one hit on a surviving enemy, the native end record's `HealthLoss + ShieldLoss + OverguardLoss` equals the addon's `dispatch.results` `result3` for the same target, with `Layout:"44.0.2 2026.09.28.13.06"` and no `event=degraded`. Rollback is `7594fbf2…`. [Record](../RESEARCH/ENGINE_DAMAGE_CODEC_2026-09-30/README.md).
+
 ## 2026-09-30 In-game settings editor: Phase 0 probe, ADDON_SETTINGS_V1 and SCRIPT SETTINGS staged (not deployed)
 
 Branch `feat/ingame-settings-editor-2026-09-30` (from `3ca9564`). Generic changes only; no target-specific code.

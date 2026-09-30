@@ -263,20 +263,36 @@ int main(int argc, char** argv)
 	{
 		using namespace renovice::engine_damage;
 		constexpr std::uintptr_t address = 0x21cf2593d5cull;
-		const auto encode = [](std::int32_t value, std::uintptr_t location) {
-			return std::rotr(std::bit_cast<std::uint32_t>(value)
-				^ static_cast<std::uint32_t>(location >> 3) ^ 0xc55198a3u, 19);
-		};
-		check(decode_integer(encode(1000,address),address) == 1000
-			&& decode_integer(encode(867,address),address) == 867
-			&& decode_integer(encode(1000,address),address) - decode_integer(encode(867,address),address) == 133
-			&& decode_integer(encode(-47,address),address) == -47,
-			"native integer getter records 133 damage and negative health without float reinterpretation or thresholds");
-		const float base = 500.5f;
-		const auto encoded_base = std::rotr(std::bit_cast<std::uint32_t>(base)
-			^ static_cast<std::uint32_t>(address >> 3) ^ 0x635bf253u, 30);
-		check(decode_float(encoded_base,address) == base,
-			"native UpgradedValue decode preserves fractional damage input");
+		// Every registered build: its own codec (engine_damage_builds.hpp), independent inverse.
+		for (const auto& build : registered_builds)
+		{
+			const auto encode = [&](std::int32_t value, std::uintptr_t location) {
+				return std::rotr(std::bit_cast<std::uint32_t>(value)
+					^ static_cast<std::uint32_t>(location >> 3) ^ build.integer_codec.key,
+					build.integer_codec.rotate);
+			};
+			const auto codec = build.integer_codec;
+			check(decode_integer(encode(1000,address),address,codec) == 1000
+				&& decode_integer(encode(867,address),address,codec) == 867
+				&& decode_integer(encode(1000,address),address,codec) - decode_integer(encode(867,address),address,codec) == 133
+				&& decode_integer(encode(-47,address),address,codec) == -47,
+				"native integer getter records 133 damage and negative health without float reinterpretation or thresholds");
+			const float base = 500.5f;
+			const auto encoded_base = std::rotr(std::bit_cast<std::uint32_t>(base)
+				^ static_cast<std::uint32_t>(address >> 3) ^ build.float_codec.key, build.float_codec.rotate);
+			check(decode_float(encoded_base,address,build.float_codec) == base,
+				"native UpgradedValue decode preserves fractional damage input");
+		}
+		const auto* current = registration_for_digest(
+			"0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33");
+		check(current != nullptr && current->integer_codec == FieldCodec{19, 0xac7e8740u}
+				&& current->float_codec == FieldCodec{17, 0x8637d1b6u}
+				&& current->layout.target_health_slot == 0x350 && current->layout.control_shield_slot == 0x2c8
+				&& current->layout.control_overguard_slot == 0x338
+				&& registration_for_digest("00cf876132443b8e2bcb7450d05c89d0f8695ec51c5881976f784233dbc94374") == current
+				&& registration_for_digest("") == nullptr
+				&& registration_for_digest("0000000000000000000000000000000000000000000000000000000000000000") == nullptr,
+			"44.0.2 registration carries its own codecs and slots; unknown digests have no fallback");
 		renovice::config::Flags flags;
 		flags.diagnostics_damage_capture = renovice::config::DamageCaptureMode::engine;
 		check(!requested(flags), "native diagnostics off performs no capture");
@@ -355,6 +371,16 @@ int main(int argc, char** argv)
 			&& diagnostic_runtime_event_allowed(
 				renovice::config::DiagnosticsMode::trace, "native.call.return"),
 			"battle mode keeps explicit bridge records and runtime errors without full hook chatter");
+		check(diagnostic_hit_result_event("dispatch.results")
+				&& !diagnostic_hit_result_event("dispatch.return")
+				&& diagnostic_runtime_event_allowed(renovice::config::DiagnosticsMode::battle, "dispatch.results")
+				&& diagnostic_runtime_event_allowed(renovice::config::DiagnosticsMode::trace, "dispatch.results")
+				&& !diagnostic_runtime_event_allowed(renovice::config::DiagnosticsMode::errors, "dispatch.results")
+				&& !diagnostic_runtime_event_allowed(renovice::config::DiagnosticsMode::off, "dispatch.results")
+				&& !diagnostic_runtime_event_allowed(renovice::config::DiagnosticsMode::battle, "dispatch.enter")
+				&& diagnostic_hit_results_requested(renovice::config::DiagnosticsMode::battle)
+				&& !diagnostic_hit_results_requested(renovice::config::DiagnosticsMode::errors),
+			"per-hit addon results are battle data: battle and trace emit them, errors/off do not");
 		check(diagnostic_trace_selected(
 				trace_flags, 0x08faf07b504d058full,
 				"native.call.provider.enter",
@@ -786,6 +812,27 @@ int main(int argc, char** argv)
 			full.reset();
 			check(full.admit("damage.overflow", 12).admit && full.untracked_dropped() == 0,
 				"reset (F9 / bridge change) clears windows and drop counts");
+			// Hit-result lane: own bound, larger than the generic per-hit limit, still bounded and summarized.
+			DiagnosticEventRateLimiter hits{diagnostic_hit_result_lines_per_window};
+			std::uint32_t hit_admitted = 0;
+			for (std::uint32_t i = 0; i != 1344; ++i)
+				hit_admitted += hits.admit("dispatch.results", 5000 + i % 1000).admit ? 1u : 0u;
+			check(hits.lines_per_window() == diagnostic_hit_result_lines_per_window
+					&& diagnostic_hit_result_lines_per_window > diagnostic_rate_lines_per_window
+					&& hit_admitted == diagnostic_hit_result_lines_per_window,
+				"hit-result lane admits its own bounded per-window limit");
+			const auto hit_summary = hits.admit("dispatch.results", 6000);
+			check(hit_summary.admit && hit_summary.report.pending
+					&& hit_summary.report.limit == diagnostic_hit_result_lines_per_window
+					&& hit_summary.report.suppressed == 1344 - diagnostic_hit_result_lines_per_window,
+				"hit-result lane reports one summary with its own limit and suppressed count");
+			DiagnosticEventRateLimiter mallet_rate{diagnostic_hit_result_lines_per_window};
+			std::uint32_t mallet_admitted = 0;
+			for (std::uint32_t beat = 0; beat != 20; ++beat)
+				for (std::uint32_t hit = 0; hit != 40; ++hit)
+					mallet_admitted += mallet_rate.admit("dispatch.results", 10000 + beat * 500 + hit).admit ? 1u : 0u;
+			check(mallet_admitted == 800,
+				"a Mallet-rate run (40 hits per beat, 2 beats per second) loses no hit results");
 		}
 
 		struct ProtoIdentity
