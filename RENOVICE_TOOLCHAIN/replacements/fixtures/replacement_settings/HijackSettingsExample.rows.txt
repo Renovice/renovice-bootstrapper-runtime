@@ -1,0 +1,10 @@
+PAGE	title=SCRIPT SETTINGS	search=0
+ROW	TITLE		HIJACK SETTINGS EXAMPLE
+ROW	CHECKBOX	package:hijacksettingsexample	Hijack Settings Example package	value=on	tooltip=Turns the whole package on or off (same switch as the SCRIPTS row).
+ROW	CHECKBOX	stock:hijacksettingsexample	Use stock values	value=off	tooltip=On: every value of this package is stock. Your custom values are kept for later.
+ROW	TITLE		HIJACK
+ROW	CHECKBOX	group:hijacksettingsexample/hijack	Custom Hijack values	value=on	tooltip=Off: every value in Hijack is stock. Your custom values are kept.
+ROW	CHECKBOX	custom:hijacksettingsexample/hijack.payload_health	Custom Payload health	value=on	tooltip=Off: the stock value is used. Stock 10000 HP. Range 1000 to 200000. Hijack missions without a goal event (goal events keep 3000). Applies: at the next mission.
+ROW	BUTTON	action:open:val:HijackSettingsExample/hijack.payload_health	Payload health: 20000 HP	action=open:val:HijackSettingsExample/hijack.payload_health	tooltip=Stock 10000 HP. Range 1000 to 200000. Hijack missions without a goal event (goal events keep 3000). Applies: at the next mission.
+VALPAGE	open:val:HijackSettingsExample/hijack.payload_health	title=PAYLOAD HEALTH	rows=1	INPUTCOUNT	value:hijacksettingsexample/hijack.payload_health	Payload health (stock 10000 HP)	content=
+VALROW	open:val:HijackSettingsExample/hijack.payload_health	INPUTCOUNT	value:hijacksettingsexample/hijack.payload_health	Payload health (stock 10000 HP)	count=20000	min=1000	max=200000	validate	integer	invalid=Payload health: enter a whole number from 1000 to 200000.	tooltip=Stock 10000 HP. Range 1000 to 200000. Hijack missions without a goal event (goal events keep 3000). Applies: at the next mission.

@@ -371,6 +371,16 @@ Require ($bridgeText.Contains('stage(value, setting, "click")')) "R5: a value-ch
 Require ($bridgeText.Contains('local function refreshRows(context)') -and $bridgeText.Contains('pcall(onClosed)')) "R5: a child page close refreshes its parent from the host model"
 Require ($bridgeText.Contains('eeUtilities.ShowMessage(message)') -and $bridgeText.Contains('if flag ~= nil then')) "R5: Back with an invalid value shows the row's stock message"
 
+# 4b. REPLACEMENT_SETTINGS_V1 (2026-09-30): the rows of a replacement member's
+# values (example package HijackSettingsExample; the rows file is pinned against
+# the page model by RENOVICE_TOOLCHAIN/replacements/verify_replacement_settings.ps1).
+$replacementRows = Join-Path (Split-Path -Parent $PSScriptRoot) 'replacements\fixtures\replacement_settings\HijackSettingsExample.rows.txt'
+$replacementPage = ConvertTo-HarnessPage $replacementRows
+$replacementRun = Invoke-Harness $bridgeSource 'replacement' $replacementPage.Text
+$replacementReport = Get-Report $replacementRun
+Require ($replacementRun.Exit -eq 0 -and @($replacementRun.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0 -and @($replacementRun.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "replacement-member value rows render through the stock list and value page ($($replacementPage.Rows) rows)"
+Require ([int]$replacementReport['pages'] -eq $replacementPage.ExpectedPages -and $replacementPage.ValuePages -ge 1) "replacement-member value BUTTON opens its one-value page ($($replacementReport['pages'])/$($replacementPage.ExpectedPages))"
+
 # 5. Optional: a real package's rows (read-only copy), current bridge.
 if (-not [string]::IsNullOrWhiteSpace($PageRows)) {
     $page = ConvertTo-HarnessPage $PageRows

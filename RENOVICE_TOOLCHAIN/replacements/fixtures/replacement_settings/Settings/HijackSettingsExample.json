@@ -1,0 +1,12 @@
+{
+  "format": "RENOVICE_SCRIPT_SETTINGS_V1",
+  "package": "package:hijacksettingsexample",
+  "build": "2026.09.28.13.06",
+  "use_stock": false,
+  "groups": {
+    "hijack": true
+  },
+  "values": {
+    "hijack.payload_health": { "enabled": true, "value": 20000, "stock": 10000 }
+  }
+}

@@ -83,4 +83,14 @@ bool execute_native_module_refresh(
 	void* manager,
 	void* descriptor
 );
+// REPLACEMENT_SETTINGS_V1: attaches the read-only RENOVICE_SCRIPT_SETTINGS
+// accessor to the load environment of the replacement module named by
+// `name_handle` in this VM, when the committed snapshot holds settings for
+// `key`. No VM write without an entry. Only at a non-nested loader or F9
+// boundary; a foreign value under the name is never overwritten.
+void publish_replacement_settings_accessor(
+	luau_State* state,
+	const std::uint32_t* name_handle,
+	std::uint64_t key,
+	const char* trigger) noexcept;
 }

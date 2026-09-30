@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "injection.hpp"
 #include "packages.hpp"
+#include "replacement_settings.hpp"
 #include "script_control.hpp"
 
 #include <atomic>
@@ -106,6 +107,18 @@ struct ActiveModuleLoad
 // Loader calls may nest when a module requires another module. A stack keeps
 // positive undump evidence attached to the exact outer/inner loader call.
 thread_local std::vector<ActiveModuleLoad> active_module_loads;
+
+// REPLACEMENT_SETTINGS_V1: the natural load that completed last on this
+// thread, when its undump consumed replacement bytes. The loader detour reads
+// it only after the stock Loader returned successfully (never after a stock
+// error, when no VM operation is allowed) to attach the settings accessor.
+struct CompletedReplacementLoad
+{
+	void* descriptor = nullptr;
+	std::uint64_t key = 0;
+	std::uint32_t name_handle[2]{};
+};
+thread_local CompletedReplacementLoad completed_replacement_load_record;
 
 bool ascii_iequals(std::string_view lhs, std::string_view rhs) noexcept
 {
@@ -530,6 +543,14 @@ void complete_module_load(void* manager, void* descriptor)
 	}
 	auto active = active_module_loads.back();
 	active_module_loads.pop_back();
+	completed_replacement_load_record = {};
+	if (active.descriptor == descriptor && active.target_valid && active.replacement_undumped)
+	{
+		completed_replacement_load_record.descriptor = descriptor;
+		completed_replacement_load_record.key = active.identity.key;
+		completed_replacement_load_record.name_handle[0] = active.name_handle[0];
+		completed_replacement_load_record.name_handle[1] = active.name_handle[1];
+	}
 	if (active.descriptor != descriptor)
 	{
 		conout << "RENOVICE F9 natural-load evidence mismatch: nested descriptor order" << std::endl;
@@ -644,6 +665,47 @@ void complete_module_load(void* manager, void* descriptor)
 	}
 }
 
+// REPLACEMENT_SETTINGS_V1: after an F9 commit, attach the accessor to every
+// replacement module this VM already loaded whose member now has settings
+// (for example declarations added without a byte change). Exact VM and owner
+// thread only; contexts of other VMs get it at their next load or refresh.
+static void publish_settings_accessors_for_loaded(luau_State* state)
+{
+	const auto snapshot = replacement_settings::committed();
+	if (snapshot == nullptr || snapshot->entries.empty() || state == nullptr
+		|| state->global_state == nullptr) return;
+	struct Job
+	{
+		std::uint64_t key = 0;
+		std::uint32_t name_handle[2]{};
+	};
+	std::vector<Job> jobs;
+	const auto owner_thread = static_cast<std::uint32_t>(GetCurrentThreadId());
+	{
+		std::lock_guard lock(loaded_targets_mutex);
+		for (const auto& entry : snapshot->entries)
+		{
+			const auto target = loaded_targets.find(entry.key);
+			if (target == loaded_targets.end()) continue;
+			for (const auto& context : target->second.contexts)
+			{
+				if (context.global_state != state->global_state
+					|| context.owner_thread != owner_thread) continue;
+				Job job;
+				job.key = entry.key;
+				job.name_handle[0] = context.name_handle[0];
+				job.name_handle[1] = context.name_handle[1];
+				jobs.push_back(job);
+			}
+		}
+	}
+	for (const auto& job : jobs)
+	{
+		injection::publish_replacement_settings_accessor(
+			state, job.name_handle, job.key, "F9-commit");
+	}
+}
+
 bool reexecute_changed_loaded(luau_State* state)
 {
 	if (state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
@@ -715,6 +777,7 @@ bool reexecute_changed_loaded(luau_State* state)
 	}
 
 	const bool immediate_pass = drain_pending_for_vm(state);
+	publish_settings_accessors_for_loaded(state);
 	std::size_t pending = 0;
 	{
 		std::lock_guard lock(loaded_targets_mutex);
@@ -788,6 +851,13 @@ bool drain_pending_for_vm(luau_State* state)
 			<< " thread=" << owner_thread
 			<< std::endl;
 		if (!current) ++failures;
+		// REPLACEMENT_SETTINGS_V1: a refreshed replacement gets the accessor in
+		// its load environment before its root can run (no-op without an entry).
+		if (current && !job.restoring_stock)
+		{
+			injection::publish_replacement_settings_accessor(
+				state, job.name_handle, job.identity.key, "F9-refresh");
+		}
 	}
 
 	std::size_t pending = 0;
@@ -801,5 +871,16 @@ bool drain_pending_for_vm(luau_State* state)
 	conout << summary.str() << std::endl;
 	config::log(summary.str());
 	return failures == 0;
+}
+
+bool completed_replacement_load(
+	void* descriptor, std::uint64_t& key, std::uint32_t (&name_handle)[2]) noexcept
+{
+	const auto& record = completed_replacement_load_record;
+	if (descriptor == nullptr || record.descriptor != descriptor || record.key == 0) return false;
+	key = record.key;
+	name_handle[0] = record.name_handle[0];
+	name_handle[1] = record.name_handle[1];
+	return true;
 }
 }

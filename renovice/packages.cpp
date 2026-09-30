@@ -1,6 +1,7 @@
 #include "packages.hpp"
 
 #include "config.hpp"
+#include "replacement_settings_core.hpp"
 #include "script_control.hpp"
 
 #include <algorithm>
@@ -432,7 +433,11 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 				}
 			}
 		}
-		else if (settings::member_declares_values(declarations, member.filename))
+		// REPLACEMENT_SETTINGS_V1: a replacement member that declares addon-lane
+		// values also gets a delivery (read through RENOVICE_SCRIPT_SETTINGS);
+		// addon members keep the ADDON_SETTINGS_V1 rule unchanged.
+		if (replacement_settings::member_receives_delivery(
+			member.kind == MemberKind::Replacement, declarations, member.filename))
 		{
 			member.delivery = settings::member_delivery(
 				declarations, usable, evaluation, member.filename);

@@ -359,6 +359,96 @@ the SCRIPTS bridge (`…ScriptsSettingsBridgeV10.lua_B`) and the optional SCRIPT
 SETTINGS bridge (`…ScriptSettingsBridgeV1.lua_B`). They never appear in SCRIPTS
 and never run as one-shots; unknown reserved names are ignored.
 
+## Script settings in a full replacement (REPLACEMENT_SETTINGS_V1)
+
+Since bootstrapper `feat/replacement-settings-2026-09-30` (2026-09-30), a
+**replacement member of a package** can read SCRIPT SETTINGS values too. Loose
+replacement files get no settings.
+
+**Declare** the values exactly as for an addon member: same `settings.values`
+schema, validation, labels, stock values, SCRIPT SETTINGS rows and values file.
+Use `"lane": "addon"` (the default); that lane means "read at run time by the
+script". A replacement that declares only `literal` values is unchanged (it is
+still switched by the literal-lane gate and reads nothing).
+
+**Read** them with the global function `RENOVICE_SCRIPT_SETTINGS`:
+
+```lua
+local COMPILED = 10000          -- the value compiled into the replacement
+local value = COMPILED
+local accessor = RENOVICE_SCRIPT_SETTINGS          -- nil on older DLLs
+if accessor ~= nil then
+    local settings = accessor()                    -- nil: no settings for this module
+    local entry = settings ~= nil and settings["hijack.payload_health"] or nil
+    if entry ~= nil and entry.enabled == true and entry.stock == COMPILED
+        and entry.value ~= nil then
+        value = entry.value
+    end
+end
+```
+
+- `RENOVICE_SCRIPT_SETTINGS()` returns a **fresh** table
+  `{ [id] = { enabled = true, value = <number>, stock = <declared stock> } }`
+  (the same shape as an addon's `context.settings`), or nothing (`nil`).
+- It returns `nil` when the member has no readable declarations, the package's
+  declarations were rejected, or the module is not a staged package member. An
+  empty table means the values file is missing or malformed, `use_stock` is on,
+  or every value is off: keep your compiled values.
+- Optional argument: `RENOVICE_SCRIPT_SETTINGS("<16-hex content key>")` names
+  the replacement explicitly. Without it the accessor uses the key it was bound
+  to. It exists for the case where two replacements share one module
+  environment (the accessor is then unbound and needs the key).
+- The table is yours; changing it changes nothing else. Treat values as
+  read-only input.
+
+**Where the accessor comes from.** At the natural load of a replacement whose
+member has settings, right after DE's Loader has undumped the replacement and
+before its root can run, the bootstrapper stores a C function under the DE
+native-name hash of `RENOVICE_SCRIPT_SETTINGS` in the module's **load
+environment** (the environment of the loaded root closure). That is where the
+live-proven generic target dispatcher lives, and module code resolves globals
+through it; a VM-global install is not visible to module code (V26/V27
+records). The first live read by a replacement root is still pending. The same happens after an F9 refresh to
+replacement bytes, and at every F9 commit for replacement modules this VM has
+already loaded. It never overwrites a value it does not own under that name
+(`RENOVICE REPLACEMENT SETTINGS ACCESSOR REJECT … action=rejected-foreign-value`).
+A replacement without declarations: no entry, no VM write, byte-for-byte as
+before.
+
+**Lifetime.**
+
+| Where your code reads | When a changed value applies |
+|---|---|
+| In a function, on each call (`RENOVICE_SCRIPT_SETTINGS()` inside the function) | **Live**: from the next call after the F9 / SCRIPT SETTINGS apply that committed it. |
+| In the root chunk, stored in a local | At the **next root execution** of the module (for mission scripts: the next mission). The running instance keeps the values it read. |
+
+- Every call reads the **committed** generation (startup scan, or the last
+  successful F9). A prepared F9 that rolls back is never visible.
+- Replacement bytes are unchanged by a settings apply, so no module refresh is
+  triggered; there is no `activate`/`cleanup` for a replacement.
+- Each call builds a new table (a few microseconds). Do not call it every
+  frame; read it where the value is used once, or once per instance.
+- Declare `applies` to match: `live_next_read` for per-call reads,
+  `next_mission` for root-time reads.
+
+**Fail closed.** Every failure keeps the compiled values: no declarations,
+rejected declarations, malformed values file, disabled package or member, loose
+file, a load before `DE_VM_AUTHORITY PASS` (the accessor appears at that
+module's next load), or a load nested inside RENOVICE's own chunk execution
+(`… ACCESSOR DEFER … reason=nested-renovice-execution`).
+
+**Log lines** (operational): `RENOVICE REPLACEMENT SETTINGS ENTRY|COMMIT`
+(startup and F9, only when some package has such a member),
+`RENOVICE REPLACEMENT SETTINGS ACCESSOR PASS|REJECT|FAIL|DEFER trigger=load|F9-refresh|F9-commit …`
+(once per install, never for an accessor that is already correct), and at most
+16 `RENOVICE REPLACEMENT SETTINGS CALL FAIL` lines. With Diagnostics on, one
+`RENOVICE REPLACEMENT SETTINGS READ key=… serial=… values=N` line per key and
+committed generation proves the replacement called the accessor.
+
+**Example and gate.** `RENOVICE_TOOLCHAIN/replacements/fixtures/replacement_settings/`
+(Hijack payload health, content key `fb346b59e2b7687a`) and
+`RENOVICE_TOOLCHAIN/replacements/verify_replacement_settings.ps1`.
+
 ## Module instances and environments
 
 DE loads a module and later runs its root in a runtime environment. That

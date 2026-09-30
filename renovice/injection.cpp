@@ -17,6 +17,7 @@
 #include "vm_memory_evidence.hpp"
 #include "generation_ownership.hpp"
 #include "packages.hpp"
+#include "replacement_settings.hpp"
 #include "replacements.hpp"
 #include "riven.hpp"
 #include "script_control.hpp"
@@ -16274,6 +16275,466 @@ bool activate_target_addons(
 	bool* deferred = nullptr
 );
 
+// BEGIN REPLACEMENT_SETTINGS_ACCESSOR (REPLACEMENT_SETTINGS_V1, 2026-09-30)
+// Read-only SCRIPT SETTINGS accessor for exact content-key replacement members
+// of a script package. Contract: renovice/replacement_settings_core.hpp and
+// OpenWF/CustomScripts/HOW_TO_ADD_SCRIPTS.md "Script settings in a
+// replacement". The accessor is a C closure stored under the DE native-name
+// hash of RENOVICE_SCRIPT_SETTINGS in the replacement module's load
+// environment (the environment the loader gave the undumped root closure),
+// installed at the natural load, before the root can run. This is the same
+// environment publication the generic target dispatcher uses; a VM-global
+// install is not visible to module code (V26 live negative, V27 record).
+// Its only upvalue is the content key as plain bits. Native code retains no
+// Lua object: values come from the committed process snapshot on every call
+// and each call returns a fresh table owned by the caller.
+constexpr const char* replacement_settings_return_root =
+	"RENOVICE.replacement-settings.return.v1";
+std::atomic<std::uint32_t> replacement_settings_call_failures{0};
+std::mutex replacement_settings_read_log_mutex;
+std::vector<std::pair<std::uint64_t, std::uint64_t>> replacement_settings_read_logged;
+constexpr std::size_t replacement_settings_read_log_limit = 256;
+
+int replacement_settings_accessor(luau_State* state);
+
+std::string replacement_settings_key_text(std::uint64_t key)
+{
+	char text[17]{};
+	std::snprintf(text, sizeof(text), "%016llx", static_cast<unsigned long long>(key));
+	return text;
+}
+
+struct ReplacementSettingsValueView
+{
+	const char* id = nullptr;
+	float value = 0.0f;
+	float stock = 0.0f;
+};
+static_assert(std::is_trivially_copyable_v<ReplacementSettingsValueView>);
+
+struct ReplacementSettingsBuildContext
+{
+	const ReplacementSettingsValueView* values = nullptr;
+	std::size_t count = 0;
+	luau_TValue result{};
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<ReplacementSettingsBuildContext>);
+
+// Destructor-free: builds { [id] = { enabled = true, value, stock } } in the
+// calling VM, roots it in a temporary registry slot so the copied TValue stays
+// alive after the protected runner restores the stack, and reports it.
+void replacement_settings_build_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<ReplacementSettingsBuildContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| check_stack == nullptr || luau_createtable == nullptr
+		|| luau_pushstring == nullptr || luau_settable == nullptr || setfield == nullptr
+		|| context->count > static_cast<std::size_t>(settings::maximum_values_per_package)
+		|| (context->count != 0 && context->values == nullptr)
+		|| check_stack(state, 8) == 0)
+	{
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	luau_createtable(state, 0, static_cast<int>(context->count));
+	for (std::size_t index = 0; index != context->count; ++index)
+	{
+		const auto& entry = context->values[index];
+		if (entry.id == nullptr) return;
+		luau_createtable(state, 0, 3);
+		if (!raw_table_set_bool(state, -1, "enabled", true)
+			|| !raw_table_set_number(state, -1, "value", entry.value)
+			|| !raw_table_set_number(state, -1, "stock", entry.stock))
+		{
+			return;
+		}
+		setfield(state, -2, entry.id);
+	}
+	auto* const base = luau_restorestack(state, base_offset);
+	state->outtop = base + 1;
+	const auto result = *base;
+	if (luau_pushstring(state, replacement_settings_return_root) == nullptr
+		|| !append_game_vm_stack_value(state, result)) return;
+	luau_settable(state, -10000);
+	context->result = result;
+	context->completed = true;
+}
+
+struct ReplacementSettingsClearContext
+{
+	bool completed = false;
+};
+static_assert(std::is_trivially_copyable_v<ReplacementSettingsClearContext>);
+
+void replacement_settings_clear_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<ReplacementSettingsClearContext*>(raw_context);
+	if (context == nullptr || state == nullptr || setfield == nullptr) return;
+	luau_TValue nil{};
+	nil.type = LUAU_NIL;
+	if (!append_game_vm_stack_value(state, nil)) return;
+	setfield(state, -10000, replacement_settings_return_root);
+	context->completed = true;
+}
+
+bool clear_replacement_settings_return_root(luau_State* state) noexcept
+{
+	ReplacementSettingsClearContext context;
+	const auto result = de_vm_authority::run_current_vm_protected(
+		state, &replacement_settings_clear_leaf, &context);
+	return result.admitted && result.restored && result.status == 0 && context.completed;
+}
+
+void log_replacement_settings_call_failure(const char* reason) noexcept
+{
+	try
+	{
+		const auto count = replacement_settings_call_failures.fetch_add(1, std::memory_order_relaxed);
+		if (count < replacement_settings::maximum_logged_call_failures)
+		{
+			config::log(std::string("RENOVICE REPLACEMENT SETTINGS CALL FAIL reason=") + reason
+				+ " result=nil scope=call-local");
+		}
+		else if (count == replacement_settings::maximum_logged_call_failures)
+		{
+			config::log("RENOVICE REPLACEMENT SETTINGS CALL FAIL suppressed=further-failures");
+		}
+	}
+	catch (...)
+	{
+	}
+}
+
+// RENOVICE_SCRIPT_SETTINGS([key]) -> settings table or nil (no result).
+int replacement_settings_accessor(luau_State* state)
+{
+	try
+	{
+		if (state == nullptr || state->intop == nullptr || state->outtop == nullptr
+			|| check_stack == nullptr) return 0;
+		const auto* self = state->ci != nullptr && state->ci->func != nullptr
+			&& is_function(state->ci->func->type)
+			? reinterpret_cast<const luau_Closure*>(state->ci->func->value.as_uintptr)
+			: nullptr;
+		const std::uint64_t bound_key = self != nullptr && self->isC && self->nupvalues >= 1
+			? static_cast<std::uint64_t>(self->c.upvals[0].value.as_uintptr) : 0;
+		const int argument_count = luau_gettop(state);
+		bool has_argument = false;
+		bool argument_valid = false;
+		std::uint64_t argument_key = 0;
+		if (argument_count >= 1 && state->intop[0].type != LUAU_NIL)
+		{
+			has_argument = true;
+			auto argument = state->intop[0];
+			if (argument.type == deployed_string_tag) argument.type = LUAU_STRING;
+			if (argument.type == LUAU_STRING && argument.value.as_uintptr != 0
+				&& argument.value.as_uintptr <= (std::numeric_limits<std::uintptr_t>::max)() - 0x18)
+			{
+				const char* const text = reinterpret_cast<const char*>(argument.value.as_uintptr + 0x18);
+				char copy[17]{};
+				std::size_t length = 0;
+				while (length != sizeof(copy) && !diagnostics::bad_read_ptr(text + length, 1)
+					&& text[length] != '\0')
+				{
+					copy[length] = text[length];
+					++length;
+				}
+				argument_valid = length == 16 && replacement_settings::parse_key_argument(
+					std::string_view(copy, length), argument_key);
+			}
+		}
+		const auto call = replacement_settings::resolve_call_key(
+			bound_key, has_argument, argument_valid, argument_key);
+		if (call.source == replacement_settings::CallKeySource::None) return 0;
+
+		// Reserve the one C-result slot before creating any owning C++ object: a
+		// DE allocation error here follows the game's native error path without
+		// skipping a Renovice destructor (same rule as the SCRIPTS callbacks).
+		if (!check_stack(state, 1)) return 0;
+
+		luau_TValue result{};
+		bool prepared = false;
+		{
+			const auto snapshot = replacement_settings::committed();
+			const auto* entry = snapshot != nullptr ? snapshot->find(call.key) : nullptr;
+			if (entry == nullptr || entry->delivery == nullptr) return 0;
+			std::vector<ReplacementSettingsValueView> views;
+			views.reserve(entry->delivery->values.size());
+			for (const auto& value : entry->delivery->values)
+			{
+				views.push_back(ReplacementSettingsValueView{value.id.c_str(), value.value, value.stock});
+			}
+			ReplacementSettingsBuildContext build;
+			build.values = views.data();
+			build.count = views.size();
+			const auto built = de_vm_authority::run_current_vm_protected(
+				state, &replacement_settings_build_leaf, &build);
+			if (!built.admitted || !built.restored || built.status != 0 || !build.completed)
+			{
+				(void)clear_replacement_settings_return_root(state);
+				log_replacement_settings_call_failure("protected-build");
+				return 0;
+			}
+			result = build.result;
+			prepared = true;
+			if (config::diagnostics_mode() != config::DiagnosticsMode::off)
+			{
+				bool first = false;
+				{
+					std::lock_guard lock(replacement_settings_read_log_mutex);
+					const auto identity = std::make_pair(call.key, snapshot->serial);
+					if (replacement_settings_read_logged.size() < replacement_settings_read_log_limit
+						&& std::find(replacement_settings_read_logged.begin(),
+							replacement_settings_read_logged.end(), identity)
+							== replacement_settings_read_logged.end())
+					{
+						replacement_settings_read_logged.push_back(identity);
+						first = true;
+					}
+				}
+				if (first)
+				{
+					std::ostringstream line;
+					line << "RENOVICE REPLACEMENT SETTINGS READ key="
+						<< replacement_settings_key_text(call.key)
+						<< " source=" << (call.source == replacement_settings::CallKeySource::Bound
+							? "bound" : "argument")
+						<< " serial=" << snapshot->serial
+						<< " values=" << views.size()
+						<< " package=" << entry->package
+						<< " vm=" << state->global_state
+						<< " once-per-key-and-serial=1";
+					config::diagnostic_log(line.str(), config::DiagnosticsMode::errors);
+				}
+			}
+		}
+		if (!prepared || !append_game_vm_stack_value_reserved(state, result))
+		{
+			(void)clear_replacement_settings_return_root(state);
+			log_replacement_settings_call_failure("result-slot");
+			return 0;
+		}
+		if (!clear_replacement_settings_return_root(state))
+		{
+			log_replacement_settings_call_failure("temporary-root-clear");
+		}
+		return 1;
+	}
+	catch (...)
+	{
+		// Native callbacks must never unwind through DE's VM.
+		log_replacement_settings_call_failure("native-exception");
+		return 0;
+	}
+}
+
+struct ReplacementSettingsInstallContext
+{
+	std::uint32_t name_handle[2]{};
+	std::uint64_t key = 0;
+	replacement_settings::SlotState slot = replacement_settings::SlotState::Foreign;
+	replacement_settings::InstallAction action = replacement_settings::InstallAction::RejectForeign;
+	void* environment = nullptr;
+	int stage = 0;
+	bool completed = false;
+	bool passed = false;
+};
+static_assert(std::is_trivially_copyable_v<ReplacementSettingsInstallContext>);
+
+// Destructor-free. Resolves the replacement's loaded root closure from the
+// module registry (exactly as remember_target_module_identity does), reads the
+// accessor slot of its environment and applies install_action().
+void replacement_settings_install_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<ReplacementSettingsInstallContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| state->stack == nullptr || key_builder == nullptr || getfield == nullptr
+		|| check_stack == nullptr || luau_settable == nullptr
+		|| luau_pushcclosurek == nullptr || wf_hash == nullptr)
+	{
+		return;
+	}
+	if (check_stack(state, 8) == 0)
+	{
+		context->stage = 1;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	char registry_key[0x110]{};
+	key_builder(registry_key, 0x104, context->name_handle);
+	getfield(state, -10000, registry_key);
+	auto* base = luau_restorestack(state, base_offset);
+	luau_Closure* closure = nullptr;
+	if (state->outtop != base + 1 || !readable_lua_closure(*base, closure)
+		|| closure->isC || closure->env == nullptr)
+	{
+		context->stage = 2;
+		context->completed = true;
+		return;
+	}
+	context->environment = closure->env;
+	if (!push_environment_table(state, closure->env, base + 1))
+	{
+		context->stage = 3;
+		context->completed = true;
+		return;
+	}
+	if (!raw_push_hashed_table_field_noexcept(
+		state, -1, replacement_settings::accessor_global_name))
+	{
+		context->stage = 4;
+		return;
+	}
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 3)
+	{
+		context->stage = 5;
+		return;
+	}
+	const auto slot = *(base + 2);
+	luau_Closure* existing = nullptr;
+	if (slot.type == LUAU_NIL) context->slot = replacement_settings::SlotState::Empty;
+	else if (readable_lua_closure(slot, existing) && existing->isC
+		&& existing->c.func == &replacement_settings_accessor && existing->nupvalues >= 1)
+	{
+		const auto bound = static_cast<std::uint64_t>(existing->c.upvals[0].value.as_uintptr);
+		context->slot = bound == context->key ? replacement_settings::SlotState::OwnSameKey
+			: bound == 0 ? replacement_settings::SlotState::OwnUnbound
+			: replacement_settings::SlotState::OwnOtherKey;
+	}
+	else context->slot = replacement_settings::SlotState::Foreign;
+	context->action = replacement_settings::install_action(context->slot);
+	state->outtop = base + 2; // environment table on top
+	if (context->action == replacement_settings::InstallAction::Keep)
+	{
+		context->passed = true;
+		context->completed = true;
+		return;
+	}
+	if (context->action == replacement_settings::InstallAction::RejectForeign)
+	{
+		context->completed = true;
+		return;
+	}
+	const std::uint64_t bound_key =
+		context->action == replacement_settings::InstallAction::Install ? context->key : 0;
+	luau_TValue name{};
+	name.value.as_bool = wf_hash(replacement_settings::accessor_global_name);
+	name.type = LUAU_BOOL;
+	luau_TValue upvalue{};
+	upvalue.value.as_uintptr = static_cast<std::uintptr_t>(bound_key);
+	upvalue.type = LUAU_LIGHTUSERDATA;
+	if (!append_game_vm_stack_value_reserved(state, name)
+		|| !append_game_vm_stack_value_reserved(state, upvalue))
+	{
+		context->stage = 6;
+		return;
+	}
+	luau_pushcclosurek(state, &replacement_settings_accessor,
+		"RENOVICE replacement settings accessor", 1, nullptr);
+	base = luau_restorestack(state, base_offset);
+	if (state->outtop != base + 4 || !is_function((base + 3)->type))
+	{
+		context->stage = 7;
+		return;
+	}
+	luau_settable(state, -3);
+	base = luau_restorestack(state, base_offset);
+	state->outtop = base + 2;
+	if (!raw_push_hashed_table_field_noexcept(
+		state, -1, replacement_settings::accessor_global_name))
+	{
+		context->stage = 8;
+		return;
+	}
+	base = luau_restorestack(state, base_offset);
+	luau_Closure* installed = nullptr;
+	context->passed = state->outtop == base + 3
+		&& readable_lua_closure(*(base + 2), installed)
+		&& installed->isC && installed->c.func == &replacement_settings_accessor
+		&& installed->nupvalues >= 1
+		&& static_cast<std::uint64_t>(installed->c.upvals[0].value.as_uintptr) == bound_key;
+	context->stage = context->passed ? 0 : 9;
+	context->completed = true;
+}
+
+}
+
+void publish_replacement_settings_accessor(
+	luau_State* state,
+	const std::uint32_t* name_handle,
+	std::uint64_t key,
+	const char* trigger) noexcept
+{
+	try
+	{
+		if (state == nullptr || name_handle == nullptr || key == 0
+			|| diagnostics::bad_read_ptr(state, sizeof(luau_State))) return;
+		// No entry: no VM access at all, so replacements without declarations
+		// (and every setup without such packages) behave exactly as before.
+		const auto snapshot = replacement_settings::committed();
+		const auto* entry = snapshot != nullptr ? snapshot->find(key) : nullptr;
+		if (entry == nullptr) return;
+		std::ostringstream line;
+		line << "RENOVICE REPLACEMENT SETTINGS ACCESSOR";
+		const auto key_hex = [&](std::ostringstream& out)
+		{
+			out << replacement_settings_key_text(key);
+		};
+		if (!vm_loader_may_drain_pending(lua_execution_depth))
+		{
+			// A load nested in RENOVICE's own chunk execution is not an
+			// independent safe point; the module keeps its compiled values
+			// until its next natural load or F9.
+			line << " DEFER trigger=" << (trigger != nullptr ? trigger : "unknown") << " key=";
+			key_hex(line);
+			line << " reason=nested-renovice-execution scope=module-local values=compiled";
+			config::log(line.str());
+			return;
+		}
+		ReplacementSettingsInstallContext context{};
+		context.name_handle[0] = name_handle[0];
+		context.name_handle[1] = name_handle[1];
+		context.key = key;
+		const auto result = de_vm_authority::run_current_vm_protected(
+			state, &replacement_settings_install_leaf, &context);
+		const bool protected_ok = result.admitted && result.restored && result.status == 0
+			&& context.completed;
+		if (protected_ok && context.action == replacement_settings::InstallAction::Keep
+			&& context.passed) return;
+		const char* verdict = !protected_ok ? "FAIL"
+			: context.action == replacement_settings::InstallAction::RejectForeign ? "REJECT"
+			: context.passed ? "PASS" : "FAIL";
+		line << ' ' << verdict << " trigger=" << (trigger != nullptr ? trigger : "unknown") << " key=";
+		key_hex(line);
+		line << " package=" << entry->package
+			<< " member=" << entry->member
+			<< " vm=" << state->global_state
+			<< " env=" << context.environment
+			<< " action=" << (protected_ok
+				? replacement_settings::install_action_label(context.action) : "not-applied")
+			<< " stage=" << context.stage
+			<< " admitted=" << (result.admitted ? 1 : 0)
+			<< " status=" << result.status
+			<< " name=" << replacement_settings::accessor_global_name;
+		if (!context.passed)
+		{
+			line << " scope=module-local values=compiled";
+		}
+		conout << line.str() << std::endl;
+		config::log(line.str());
+	}
+	catch (...)
+	{
+		config::log("RENOVICE REPLACEMENT SETTINGS ACCESSOR FAIL reason=native-exception scope=module-local");
+	}
+}
+
+namespace
+{
+// END REPLACEMENT_SETTINGS_ACCESSOR
+
 enum class LoaderDetourDisposition : std::uint8_t
 {
 	Return,
@@ -16431,6 +16892,16 @@ LoaderDetourOutcome loader_detour_owned(
 			}
 		}
 		replacements::drain_pending_for_vm(state);
+		// REPLACEMENT_SETTINGS_V1: after a successful natural load whose undump
+		// used replacement bytes, before the module root can run.
+		std::uint64_t replacement_settings_key = 0;
+		std::uint32_t replacement_settings_name_handle[2]{};
+		if (result && replacements::completed_replacement_load(
+			descriptor, replacement_settings_key, replacement_settings_name_handle))
+		{
+			publish_replacement_settings_accessor(
+				state, replacement_settings_name_handle, replacement_settings_key, "load");
+		}
 		bool target_generation_ready = false;
 		bool target_generation_deferred = false;
 		if (target_addon_may_activate(result, target_boundary.addon_target, lua_execution_depth))
@@ -18724,6 +19195,8 @@ void drain(luau_State* state)
 		reconcile_native_hook_contract("F9-commit-reconcile");
 		script_control::commit_prepared_reload();
 		packages::commit_prepared_reload();
+		// REPLACEMENT_SETTINGS_V1: only the committed package snapshot is readable.
+		replacement_settings::commit(packages::candidate(), "F9");
 		swf::commit_prepared_reload();
 		replacements::commit_prepared_reload();
 		riven::commit_prepared_gate();

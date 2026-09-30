@@ -22,4 +22,9 @@ void begin_module_load(void* manager, void* descriptor, std::uint64_t observed_b
 void complete_module_load(void* manager, void* descriptor);
 bool reexecute_changed_loaded(luau_State* state);
 bool drain_pending_for_vm(luau_State* state);
+// REPLACEMENT_SETTINGS_V1: true when the natural load of `descriptor` that
+// completed last on this thread undumped replacement bytes; returns its key and
+// loader name handle. Valid only right after complete_module_load.
+bool completed_replacement_load(
+	void* descriptor, std::uint64_t& key, std::uint32_t (&name_handle)[2]) noexcept;
 }

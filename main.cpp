@@ -5,6 +5,7 @@
 #include "renovice/de_vm_authority.hpp"
 #include "renovice/injection.hpp"
 #include "renovice/packages.hpp"
+#include "renovice/replacement_settings.hpp"
 #include "renovice/replacements.hpp"
 #include "renovice/riven.hpp"
 #include "renovice/script_control.hpp"
@@ -3319,6 +3320,9 @@ static SOUP_FORCEINLINE void create_all_hooks()
 	{
 		conout << "RENOVICE script packages failed closed; loose scripts are unaffected." << std::endl;
 	}
+	// REPLACEMENT_SETTINGS_V1: publish the committed replacement-member settings
+	// before any module can load (the accessor reads only committed snapshots).
+	renovice::replacement_settings::commit(renovice::packages::candidate(), "startup");
 	const auto swf_result = renovice::swf::initialise();
 	if (swf_result == renovice::swf::InitialiseResult::Failed)
 	{
