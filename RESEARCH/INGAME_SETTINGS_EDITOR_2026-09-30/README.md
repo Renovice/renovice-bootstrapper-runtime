@@ -406,3 +406,163 @@ opcodes counted twice; prototypes 46, 55 and 59 add up exactly to their `sizecod
 Rejected: re-creating the INPUTCOUNT widgets from the bridge on each draw (the bridge does not own the stock draw and
 the element table fields `mButtonInfo`/`mCountButton` are stock state); keeping the search box with a bridge-side
 restage filter (the list would still show the populate-time values, so what the player sees would not be what applies).
+
+## Follow-up R5 (2026-09-30): edits did not take effect; nested layout by default
+
+Trigger: live session pid 13196 (game started about 18:10, closed 18:20) on DLL `aebb08e3…` (branch
+`fix/settings-r4-inputcount-search-2026-09-30` `1a67d99`) and bridge `7b9b9950…`, with Missions (addon `e05f4980…`,
+281 values), Frost (Ice Wave) and Octavia (Mallet). The user reported:
+
+1. Survival reward interval set to 60 s, with no effect.
+2. Ice Wave bonus changed. The ability card still showed "Cold Damage Multiplier 50 ▶ 134x", and the in-game damage was
+   not higher.
+
+Offline only. Nothing was deployed, pushed or written to a game folder. The game's `Settings`, `Logs`, `Packages` and
+`EE.log` were only read; the packages and values files were copied read-only into a scratch folder. Branch
+`fix/settings-r5-apply-riven-nested-2026-09-30` from `1a67d99`.
+
+Evidence read:
+
+- `CustomScripts\Settings\Missions.json` (written 18:18:29):
+  - `survival.alert_interval {enabled: false, value: 60, stock: 600}` (was 600);
+  - `survival.capsule_interval {enabled: false, value: 60, stock: 90}` (was 90);
+  - `survival.reward_interval {enabled: true, value: 150, stock: 300}`, unchanged.
+- `Settings\Frost.json` (written 18:13:06): `ice_wave.bonus_per_cold_stack {enabled: true, value: 100}` (was 50, the
+  staged second-consumer file).
+- `renovice_source.log.1` and `renovice_source.log`, same pid:
+  - Frost value page `val:Frost/ice_wave.bonus_per_cold_stack`, `CLOSE depth=2 route=confirm`, then `apply PASS
+    route=close files=1`, `reload QUEUED`, `SETTINGS DELIVERY trigger=F9 package=Frost … identity=630bcc8950badfc9`
+    (startup `6f4414d1c5174ea0` = 50).
+  - Missions value pages `val:Missions/survival.alert_interval` (twice) and `val:Missions/survival.capsule_interval`,
+    each `route=confirm`, then `apply PASS route=confirm files=1`. The Missions delivery identity stays `5b85f55a16c38d1e`.
+  - Every one of the three F9 transactions in the session (two queued by the settings apply, one by the F9 key):
+    `RENOVICE F9 Riven gate reload rejected: previous gate retained`, then `RENOVICE F9 ROLLBACK before addon staging`.
+    None of the four source logs has an `F9 COMMITTED` line.
+  - Later: `Script Settings stage REJECT setting=value:frost/ice_wave.bonus_per_cold_stack reason=outside-min-max
+    value=kept`, then `page CLOSE depth=2 route=close`. No message was shown in game.
+  - Ice Wave: 42 `FROST_ICE_WAVE_DAMAGE` transactions after the F9s. Every one records `bonusPerStack=50`. For example
+    cold 8, strength 2.68 → multiplier 1073 = 1 + 8 × 50 × 2.68, installedRaw 2,012,950 for stockRaw 1876. The engine
+    pool loss follows the installed amount (up to 1.52 M; lower when the target had less left). No activation of `8fba3a28f8fef624` after the F9s.
+    The only `afterAbilityCard.publish` is before them.
+- `CustomScripts` holds `riven_lock.cfg.disabled` and no `riven_lock.cfg`.
+- EE.log: Survival SolNode100, `State Change: ENDLESS` at 572.144 s. The log ends at 632.366 s, 60 s later. There is no
+  reward line. The Survival target `f10a043e7f825db2` dispatched `luaCalls.61/69/67.before` at module load (they bind
+  the `interval` table, since `reward_interval` 150 was enabled at startup) and retired as designed (`LUACALL_RETIRE …
+  outcome=retired`).
+
+| ID | Hypothesis | Result | Evidence |
+|---|---|---|---|
+| R5-1 | Settings changed in game never reach the addons in this session, because the F9 transaction is rejected before addon staging | **TRUE** | Every F9 of pid 13196 logs `Riven gate reload rejected` then `ROLLBACK before addon staging`. `riven::prepare_gate_reload` calls `std::filesystem::is_regular_file(riven_lock.cfg, ec)` and fails when `ec` is set. MSVC sets `ec` for a missing file (probe: `ec=2`, missing parent `ec=3`). With `riven_lock.cfg` absent (the normal Riven-off state, here `.disabled`), every F9 is rejected. The same call at startup made `riven::initialise` fail, so no Riven hook was installed. The code has been the same since `f6d9972`; it went unnoticed while the file was present |
+| R5-2 | The Ice Wave card and damage are stale because the addon kept its startup value | **TRUE** | The new identity `630bcc89…` (100) was staged and discarded by the rollback. The addon was never re-activated, so `bonusPerStack` stayed at the startup value 50. Both the card ("50 ▶ 134x" = 50 × 1 unmodded, 50 × 2.68 modded) and all 42 damage records use 50. The card is not cached by the host: `afterAbilityCard` runs on every `GetAbilityUpgradeLevelInfo` call. The damage formula applies the value (for example 1073× at 8 stacks) |
+| R5-3 | The addon ignores a settings-only change even when F9 commits | FALSE (static and gate) | `settings::target_addon_binding_reusable` includes the delivery identity. `activate_target_addons_locked` re-activates on an identity change, and the gate pins it (`verify_addon_settings`, identity-includes-settings). Live proof is pending, because no F9 has ever committed with these packages |
+| R5-4 | The Missions edit was lost between the value page and the file | FALSE | The typed 60 was written, for `survival.alert_interval` (labelled "Seconds per reward rotation", the alert case) and `survival.capsule_interval`. It was written with `enabled: false`, so it was not effective and the delivery identity did not change |
+| R5-5 | A value edited on its value page is saved with its Custom switch off | **TRUE** | Since R2/R4 the editor sits on its own page. The "Custom <label>" CHECKBOX stays on the list and is restaged unticked by the list's completion pass. `overlaid_state` only sets `enabled` from `custom:` stages. Harness replay (below) reproduces it with the installed bridge |
+| R5-6 | The list keeps showing the old value after the value page closes | **TRUE** | Stock GenericSettings populates once (Initialize → interpolation → populate) and the List redraws only on scroll. The R4 bridge never updates the parent rows. Negative control R4: 13 stale-row findings |
+| R5-7 | An out-of-range value is rejected silently on Back | **TRUE** | The stock close routine runs `mOnValidateSetting` only when the close flag is nil (Confirm; 44.0.2 render L185-215). Back (`ExitScreen`, flag true) skips it, and the host then rejected the value with a log line only. Frost 250 on Back: negative control R4 shows no message |
+| R5-8 | The registry min is larger than 60 for `survival.reward_interval` | FALSE | Declared min 1, max 32767 (float) |
+| R5-9 | The apply writes only the first changed package | FALSE | `apply` walks every view. The replay writes both files in one session when both change |
+| R5-10 | Survival rewards come at the file value 150 s | UNCONFIRMED | Binding confirmed (hooks 61/67/69 dispatched and retired). The mission ran only 60 s past ENDLESS, before any reward |
+
+The labels are a separate usability point, and the owner is the producer, not this repository. "Seconds per reward
+rotation" (`survival.alert_interval`, alert missions only) reads like the reward interval. The generator should label it
+"Alert reward interval". The flat list also put it first in the Survival section.
+
+**Fix (DLL).**
+
+- `riven_core.hpp` `classify_gate_file`: `status()` with `not_found` means Absent (`ec` cleared). Any other error means
+  Unreadable, a regular file means Present, anything else means Absent.
+- `riven.cpp`:
+  - `initialise` installs the hooks only when the file is present. That is the same behaviour as every build so far; an
+    absent file now logs "Riven lock off" instead of failing.
+  - `prepare_gate_reload` is `void`. An unreadable path keeps the current gate and logs `RENOVICE Riven gate read FAIL
+    … scope=capability-local gate=retained`.
+  - Turning the gate on at F9 without hooks logs once that a restart is needed.
+- `injection.cpp` F9: the Riven gate can no longer reject the transaction (`if (transaction_valid)
+  riven::prepare_gate_reload();`).
+- `settings_ui_core.hpp`:
+  - `Session::implied_custom`: an accepted value that differs from the value the screen opened with turns
+    `custom:<pkg>/<id>` on. Setting the value back to the opening value undoes it.
+  - `overlaid_state` applies it after the staged rows and before Restores, so a Restore still wins.
+  - Only a click (`StageSource::Click`) on the switch overrides it. The completion restage does not.
+- Host stage native: an optional third argument `"click"`. Older bridges pass two arguments, and every stage is then a
+  restage. The apply line adds `edited_custom=<n>`.
+- Nested layout by default (`config_core.hpp` `settings_menu_nested = true`; `SettingsMenuNested=false` gives the flat
+  list):
+  - The top page lists only the packages, one BUTTON each with "N values - M custom".
+  - The package page starts with the package switch and "Use stock values". Member switches appear only with more than
+    one member, and there is no duplicate TITLE. Then one BUTTON per section and "Restore all".
+  - A section page holds the section switch and, per value, the Custom switch plus the value BUTTON.
+  - Every number opens its value page. All pages keep the R2-R4 rules: uniform 44 px rows, no sub-labels, no INPUTBOX
+    or INPUTCOUNT on a list, no locked value BUTTON.
+
+**Fix (bridge `ScriptSettingsBridgeV1.luau`, same name and host contract).**
+
+- The value-changed callback stages with `"click"`.
+- A child page close refreshes its parent: `host.getPage(<parent page id>)`, matched by action or setting.
+  - It updates `mLabel` and, for editable CHECKBOX/TOGGLE rows, `mValue`.
+  - A row that is drawn right now (the List clears `mClipName` of every undrawn row) also gets the stock draw's own
+    writes on its own clip: `SetLocalized(<clip>.Label.text, mLabel)` and the checkbox widget's `mChecked` plus
+    `Redraw()`.
+  - The next draw and the completion pass use the refreshed rows. So summaries ("Survival: 2 values - 2 custom"), value
+    labels and the ticked Custom switch show on return, at every depth.
+- Back with an invalid value: the row's own validator runs, and `EE.Interface.Utilities.ShowMessage(<row message>)`
+  shows the same stock message box that Confirm shows. The previous value stays; the host still rejects the value and
+  logs it.
+- Bytes `7b9b9950…` → `299cac5e…` (8,501 B).
+
+**Gates.**
+
+- `verify_riven_core.ps1` (now in the `build_private.ps1` list):
+  - present / absent / missing parent / folder cases;
+  - negative control: `is_regular_file(missing, ec)` sets `ec` on this STL;
+  - source pins: no F9 rejection by the Riven gate, and the gate is read only through `classify_gate_file`.
+- `verify_config_core.ps1`: nested is the default; `SettingsMenuNested=false` gives flat; the last value wins.
+- `verify_addon_settings.ps1`:
+  - R5 staging rules. An edit is written enabled despite the unticked restage. The re-read page shows the tick and the
+    new value. A click after the edit decides. An unchanged close writes nothing. Setting the value back undoes the
+    edit. An enabled value takes the new value. Restore wins. A rejected value turns nothing on.
+  - R5 nested page model: the top page lists packages only; the package page switches come first; member switches only
+    with more than one member.
+  - `-Package` checks the nested layout of the real package: every section page follows the stock rules, and every
+    value BUTTON opens its page.
+  - New `-Replay <file>` (Part 8).
+- `verify_script_settings_render.ps1` R5 section (`HARNESS_R5`, current bridge), through the real 44.0.2 stock renders:
+  - Six sessions: nested root → package → section → value page (depth 4), with Confirm, Back and Close at every level
+    (20 returns to an open, intact parent).
+  - Edits on an INPUTBOX page (Missions alert interval 60, Frost 250 then 100) and an INPUTCOUNT page (warrior level 25).
+  - An explicit click on the ticked switch, and a section Restore.
+  - Checks: parent refresh after every return (17 checks, including the drawn clip's label and the checkbox widget
+    state); the Back message exactly once; the stock Confirm validator keeps the page open with its message.
+  - Every host stage call (48 lines) is replayed through the real C++ host model, `write_values_file` and
+    `parse_values_file` (`verify_addon_settings -Replay`), with 10 file expectations. Among them: Missions
+    `alert_interval` enabled=1 value=60 on Confirm and Back, unchanged on Close; Frost 100 enabled; the click leaves 60
+    remembered with enabled=0; the Restore unticks `reward_interval` and keeps 150.
+  - Negative control R4 (`fixtures/ScriptSettingsBridgeV1.r4-7b9b9950.luau`, compiles to the installed `7b9b9950`
+    bytes): 13 stale-parent findings and no Back message; navigation and close routes pass.
+  - Negative controls R3 and R2 are unchanged.
+- Read-only copies of the installed packages and values files (`-Package`): Missions, Frost and Octavia each 178/178.
+  Nested: Missions package page 31 rows, 23 sections, 631 section rows; Frost and Octavia 7 package rows and 1 section.
+- Full `build_private.ps1`: 35 gate scripts, `PRIVATE BUILD PASS flavor=main warnings=0 errors=0`, 5,643,776 B, `9bc0b68cecc1737abb2a83529b5a6f8595283b785288c7ebbf02b3a856bcc86a`. Staged in `work/staging/editor-phase2-3/` (R4 set in `older/r4-settings-aebb08e3/`).
+
+**Limits (exact).**
+
+- Every live result is pending: the F9 commit with these packages, the re-activation of Ice Wave and Missions on a
+  settings-only change, the nested navigation look, the parent refresh on return, and the Back message box.
+- The harness simulates the engine (Flash, timers, widgets). It proves the stock script logic, not the live look.
+  `SetLocalized` and the checkbox widget `Redraw` are stock calls, taken from the element draw. The API checker lists
+  them as unverified (not violations).
+- R5-10 (Survival reward timing) needs a Survival run of at least 150 s past ENDLESS.
+- The Riven lock still needs a restart when `riven_lock.cfg` is created during a session. That is unchanged: before R5,
+  such an F9 was rejected.
+- A value's Custom switch can only be turned off after an edit by an explicit click. Older bridges (before R5) cannot
+  send one, so with them an edit always stays custom for that session. That pairing is unsupported.
+- Group and "Use stock values" switches are not changed by an edit. A value in a switched-off section stays stock.
+- The label producer issue ("Seconds per reward rotation") belongs to the ability-editor generator.
+
+Rejected:
+
+- Re-opening the parent page after each value page. It would fire the parent's completion, and at depth 1 that applies
+  and ends the session.
+- Scrolling the list to force a redraw. It moves the view.
+- Making the switch row itself the editor. The stock INPUTBOX breaks the scroll contract, and the INPUTCOUNT the
+  recycled list (R2/R4).

@@ -19,3 +19,15 @@ $binary = Join-Path $binaryDir "verify_riven_core.exe"
 if ($LASTEXITCODE -ne 0) { throw "Riven verifier compile failed: $LASTEXITCODE" }
 & $binary
 if ($LASTEXITCODE -ne 0) { throw "Riven verifier failed: $LASTEXITCODE" }
+
+# R5 source pins: the optional Riven gate never rejects the F9 transaction.
+$repoText = [IO.File]::ReadAllText((Join-Path $repo "renovice\injection.cpp"))
+$rivenText = [IO.File]::ReadAllText((Join-Path $repo "renovice\riven.cpp"))
+if ($repoText.Contains("Riven gate reload rejected") -or -not $repoText.Contains("if (transaction_valid) riven::prepare_gate_reload();")) {
+    throw "Riven verifier failed: the Riven gate can still reject the F9 transaction"
+}
+if ($rivenText.Contains("is_regular_file(") -or -not $rivenText.Contains("classify_gate_file(gate_file_path(), error)")) {
+    throw "Riven verifier failed: the gate file is not read through classify_gate_file"
+}
+Write-Output "PASS`tR5: the Riven gate file is classified (absent = off) and never rejects F9"
+Write-Output "RIVEN GATE PASS"

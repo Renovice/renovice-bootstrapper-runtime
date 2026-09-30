@@ -12,9 +12,14 @@
 # SETTINGS page model, and print every row. The values file is copied to
 # Settings\<package folder>.json in the temporary tree. Without -Settings the
 # package is checked with no values file (every value stock).
+#
+# -Replay <file>: R5 edit flow. Replays the host stage calls that the stock
+# render harness recorded (verify_script_settings_render.ps1) through the host
+# model and the values file writer, and checks the EXPECT lines in the file.
 param(
     [string]$Package = '',
-    [string]$Settings = ''
+    [string]$Settings = '',
+    [string]$Replay = ''
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -68,6 +73,10 @@ try {
     $output | Write-Output
     if ($compileExit -ne 0) { throw "ADDON SETTINGS GATE FAIL: checker compilation failed: $compileExit" }
     $arguments = @($work, (ConvertTo-GateLongPath (Join-Path $settingsDir 'fixtures\phase2i')))
+    if (-not [string]::IsNullOrWhiteSpace($Replay)) {
+        if (-not [string]::IsNullOrWhiteSpace($Package)) { throw "ADDON SETTINGS GATE FAIL: -Replay and -Package are separate runs" }
+        $arguments += @('--replay', (ConvertTo-GateLongPath $Replay))
+    }
     if (-not [string]::IsNullOrWhiteSpace($Package)) {
         $arguments += @('--package', (ConvertTo-GateLongPath $Package))
         if (-not [string]::IsNullOrWhiteSpace($Settings)) { $arguments += @('--settings', (ConvertTo-GateLongPath $Settings)) }

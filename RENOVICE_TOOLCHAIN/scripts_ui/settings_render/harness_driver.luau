@@ -491,6 +491,396 @@ if list ~= nil then
     closeRoute(probe, "Exit", 1)
 end
 
+-- ---------------------------------------------------------------------------
+-- 4. R5 (HARNESS_R5, current bridge only): nested navigation (packages ->
+-- package -> section -> value page, depth 4) with every close route, value
+-- edits on INPUTBOX and INPUTCOUNT pages, the parent refresh on return, the
+-- Back-route validation message, an explicit switch click and a Restore.
+-- The host stand-in below keeps a small model with the R5 staging rules so
+-- the pages the bridge re-reads show the staged edits; every host stage call
+-- is printed (STAGELOG) and the gate replays it through the real C++ host
+-- model and values-file writer (verify_addon_settings -Replay).
+-- ---------------------------------------------------------------------------
+local r5Report = { sessions = 0, returns = 0, refreshed = 0, messages = 0, stockMessages = 0, maxDepth = 0 }
+if HARNESS_R5 == true then
+    local messages = {}
+    rawset(UTIL, "ShowMessage", function(message) messages[#messages + 1] = tostring(message) end)
+
+    local MODEL = {
+        { folder = "Frost", key = "frost", members = 1, groups = { { id = "ice_wave", label = "Ice Wave" } },
+          values = {
+            { id = "ice_wave.bonus_per_cold_stack", group = "ice_wave", label = "Bonus per Cold stack", unit = "x",
+              kind = "float", stock = 0, min = 0, max = 100, enabled = true, value = 50 } } },
+        { folder = "Missions", key = "missions", members = 2,
+          groups = { { id = "survival", label = "Survival" }, { id = "purgatory", label = "Purgatory" } },
+          values = {
+            { id = "survival.reward_interval", group = "survival", label = "Reward interval", unit = " s",
+              kind = "float", stock = 300, min = 1, max = 32767, enabled = true, value = 150 },
+            { id = "survival.alert_interval", group = "survival", label = "Seconds per reward rotation", unit = " s",
+              kind = "float", stock = 600, min = 1, max = 60000, enabled = false, value = 600 },
+            { id = "purgatory.difficulty1.warrior_level", group = "purgatory", label = "Difficulty 1 warrior level", unit = "",
+              kind = "int", stock = 10, min = 1, max = 1000, enabled = false, value = 10 } } },
+    }
+    local session = nil
+    local r5Done = {}
+
+    local function newSession(name)
+        session = { name = name, value = {}, custom = {}, implied = {}, restores = {} }
+        r5Report.sessions = r5Report.sessions + 1
+        print("STAGELOG\tSESSION\t" .. name)
+    end
+    local function findValue(key, id)
+        for _, package in ipairs(MODEL) do
+            if package.key == key then
+                for _, value in ipairs(package.values) do
+                    if value.id == id then return package, value end
+                end
+            end
+        end
+        return nil, nil
+    end
+    local function restored(package, value)
+        return session.restores[package.folder] == true or session.restores[package.folder .. "/" .. value.group] == true
+    end
+    local function current(value)
+        local staged = session.value[value.id]
+        if staged ~= nil then return staged end
+        return value.value
+    end
+    local function enabledOf(package, value)
+        local enabled = value.enabled
+        if session.custom[value.id] ~= nil then enabled = session.custom[value.id] end
+        if session.implied[value.id] == true then enabled = true end
+        if restored(package, value) then enabled = false end
+        return enabled
+    end
+    local function valueLabel(value)
+        return value.label .. ": " .. tostring(current(value)) .. value.unit
+    end
+    local function summary(package, group)
+        local count, custom = 0, 0
+        for _, value in ipairs(package.values) do
+            if group == nil or value.group == group then
+                count = count + 1
+                if enabledOf(package, value) then custom = custom + 1 end
+            end
+        end
+        return tostring(count) .. (count == 1 and " value - " or " values - ") .. tostring(custom) .. " custom"
+    end
+    local function button(label, action)
+        return { kind = "BUTTON", label = label, action = action, setting = "action:" .. action }
+    end
+    local function r5GetPage(pageId)
+        if pageId == "root" then
+            local rows = {}
+            for _, package in ipairs(MODEL) do
+                rows[#rows + 1] = button(package.folder .. ": " .. summary(package, nil), "open:pkg:" .. package.folder)
+            end
+            return { title = "SCRIPT SETTINGS", empty = "NO PACKAGE SETTINGS FOUND", rows = rows }
+        end
+        for _, package in ipairs(MODEL) do
+            if pageId == "pkg:" .. package.folder then
+                local rows = {
+                    { kind = "CHECKBOX", label = package.folder .. " package", setting = "package:" .. package.key, value = true },
+                    { kind = "CHECKBOX", label = "Use stock values", setting = "stock:" .. package.key, value = false },
+                }
+                if package.members > 1 then
+                    for member = 1, package.members do
+                        rows[#rows + 1] = { kind = "CHECKBOX", label = "Member " .. member, setting = "member:" .. package.key .. "/m" .. member, value = true }
+                    end
+                end
+                rows[#rows + 1] = { kind = "SPACER" }
+                rows[#rows + 1] = { kind = "TITLE", label = "SECTIONS" }
+                for _, group in ipairs(package.groups) do
+                    rows[#rows + 1] = button(group.label .. ": " .. summary(package, group.id), "open:grp:" .. package.folder .. "/" .. group.id)
+                end
+                rows[#rows + 1] = { kind = "SPACER" }
+                rows[#rows + 1] = button("Restore all stock values", "restore:" .. package.folder)
+                return { title = string.upper(package.folder), empty = "NO SETTINGS", rows = rows }
+            end
+            for _, group in ipairs(package.groups) do
+                if pageId == "grp:" .. package.folder .. "/" .. group.id then
+                    local rows = { { kind = "CHECKBOX", label = "Custom " .. group.label .. " values", setting = "group:" .. package.key .. "/" .. group.id, value = true } }
+                    for _, value in ipairs(package.values) do
+                        if value.group == group.id then
+                            rows[#rows + 1] = { kind = "CHECKBOX", label = "Custom " .. value.label,
+                                setting = "custom:" .. package.key .. "/" .. value.id, value = enabledOf(package, value) }
+                            rows[#rows + 1] = button(valueLabel(value), "open:val:" .. package.folder .. "/" .. value.id)
+                        end
+                    end
+                    rows[#rows + 1] = { kind = "SPACER" }
+                    rows[#rows + 1] = button("Restore " .. group.label .. " stock values", "restore:" .. package.folder .. "/" .. group.id)
+                    return { title = string.upper(group.label), empty = "NO SETTINGS", rows = rows }
+                end
+            end
+            for _, value in ipairs(package.values) do
+                if pageId == "val:" .. package.folder .. "/" .. value.id then
+                    local row = { label = value.label, setting = "value:" .. package.key .. "/" .. value.id,
+                        minimum = value.min, maximum = value.max, validate = true,
+                        invalid = value.label .. ": enter a number from " .. tostring(value.min) .. " to " .. tostring(value.max) .. "." }
+                    if value.kind == "int" then
+                        row.kind = "INPUTCOUNT"
+                        row.count = current(value)
+                        row.integer = true
+                    else
+                        row.kind = "INPUTBOX"
+                        row.content = tostring(current(value))
+                    end
+                    return { title = string.upper(value.label), empty = "NO SETTINGS", rows = { row } }
+                end
+            end
+        end
+        return nil
+    end
+    local function r5Stage(value, setting, source)
+        local kind = type(value) == "boolean" and "bool" or (type(value) == "number" and "number" or "text")
+        local flag = source == "click" and "click" or "restage"
+        print("STAGELOG\tSTAGE\t" .. tostring(setting) .. "\t" .. kind .. "\t" .. tostring(value) .. "\t" .. flag)
+        local prefix, key, id = string.match(tostring(setting), "^(%a+):([^/]+)/(.+)$")
+        local package, entry = findValue(key, id)
+        if entry == nil then return end
+        if prefix == "value" then
+            local number = tonumber(value)
+            if number == nil or number < entry.min or number > entry.max or (entry.kind == "int" and number % 1 ~= 0) then
+                return
+            end
+            session.value[entry.id] = number
+            session.implied[entry.id] = (number ~= entry.value) or nil
+        elseif prefix == "custom" then
+            session.custom[entry.id] = value == true
+            if flag == "click" then session.implied[entry.id] = nil end
+        end
+    end
+    local function r5DoneFn(depth, elements, flag)
+        r5Done[#r5Done + 1] = { depth = depth, flag = flag }
+    end
+    local function r5Act(action)
+        print("STAGELOG\tRESTORE\t" .. string.sub(action, 9))
+        session.restores[string.sub(action, 9)] = true
+    end
+
+    local function elementBy(instance, predicate)
+        local found = nil
+        local target = listOf(instance)
+        if target == nil then return nil end
+        target:RunForAllElements(function(element)
+            if found == nil and predicate(element) then found = element end
+        end)
+        return found
+    end
+    local function bySetting(instance, setting)
+        return elementBy(instance, function(element) return element.mSetting == setting end)
+    end
+    -- Presses a BUTTON through the stock selection callback; returns the page it opened.
+    local function press(instance, setting, context, depth)
+        local element = bySetting(instance, setting)
+        harnessCheck(element ~= nil, context .. ": row " .. setting .. " exists", "r5-nav")
+        if element == nil then return nil end
+        local before = #HARNESS.instances
+        step(context .. " press " .. setting, function() listOf(instance).mOnSelectedCallback(element) end)
+        if #HARNESS.instances ~= before + 1 then
+            harnessFail(context .. ": " .. setting .. " opened no page", "r5-nav")
+            return nil
+        end
+        local child = newestInstance()
+        tick(child, 3)
+        r5Report.maxDepth = math.max(r5Report.maxDepth, depth)
+        harnessCheck(listOf(child) ~= nil and listOf(child):GetHowManyElements() >= 1,
+            context .. ": the page opened by " .. setting .. " populates (depth " .. depth .. ")", "r5-nav")
+        verifyVisible(context .. " depth " .. depth, child, false)
+        return child
+    end
+    -- Closes a page through one stock route; it must reach the bridge once,
+    -- close its movie and return to its still open, intact parent.
+    local function closeR5(instance, route, depth, parent, context)
+        local calls = #r5Done
+        step(context .. " " .. route, function()
+            if route == "Confirm" then instance.env.FinishSelection()
+            elseif route == "Exit" then instance.env.ExitScreen()
+            else instance.env.Close() end
+        end)
+        tick(instance, 3)
+        harnessCheck(#r5Done == calls + 1 and r5Done[#r5Done].depth == depth,
+            context .. " " .. route .. ": the bridge completion ran once for depth " .. depth, "r5-close")
+        harnessCheck(rawget(instance.movie, "_closed") == true, context .. " " .. route .. ": the page closed its movie", "r5-close")
+        if parent ~= nil then
+            harnessCheck(rawget(parent.movie, "_closed") ~= true and listOf(parent) ~= nil,
+                context .. " " .. route .. ": returned to the open parent page (depth " .. (depth - 1) .. ")", "r5-close")
+            tick(parent, 2)
+            verifyVisible(context .. " back at depth " .. (depth - 1), parent, false)
+            r5Report.returns = r5Report.returns + 1
+        end
+    end
+    local function typeInto(instance, text)
+        local element = elementBy(instance, function(row) return row.mType == LOTUS_UTILITIES.INPUTBOX end)
+        harnessCheck(element ~= nil and element.InputField ~= nil, "value page holds a stock INPUTBOX with its input field", "r5-edit")
+        if element ~= nil and element.InputField ~= nil then
+            instance.movie:SetStringVariable(element.InputField.mLabelClipName, 36, text)
+            element.mChanged = true
+        end
+    end
+    local function setCount(instance, count)
+        local element = elementBy(instance, function(row) return row.mType == LOTUS_UTILITIES.INPUTCOUNT end)
+        harnessCheck(element ~= nil, "value page holds a stock INPUTCOUNT", "r5-edit")
+        if element ~= nil then
+            element.mCount = count
+            element.mChanged = true
+        end
+    end
+    local function openRoot(context)
+        local before = #HARNESS.instances
+        local opened = false
+        step(context .. " open", function()
+            opened = bridge.hooks.openScriptSettings(parent, "resource", "nested", r5GetPage, r5Stage, r5DoneFn, r5Act)
+        end)
+        harnessCheck(opened == true and #HARNESS.instances == before + 1, context .. ": the nested root page opened", "r5-nav")
+        local root = newestInstance()
+        tick(root, 3)
+        local rows = listOf(root)
+        harnessCheck(rows ~= nil and rows:GetHowManyElements() == #MODEL, context .. ": the top page lists only the packages ("
+            .. tostring(rows and rows:GetHowManyElements()) .. " rows)", "r5-nav")
+        verifyVisible(context .. " root", root, false)
+        return root
+    end
+    local function expectRow(instance, setting, context, label, value)
+        local element = bySetting(instance, setting)
+        local ok = element ~= nil and (label == nil or element.mLabel == label) and (value == nil or element.mValue == value)
+            -- A drawn switch must also show it (its stock widget state).
+            and (value == nil or element.mClipName == nil or element.Checkbox == nil or element.Checkbox.mChecked == value)
+        harnessCheck(ok, context .. ": after the return, row " .. setting .. " shows '" .. tostring(label) .. "'"
+            .. (value ~= nil and (" and value " .. tostring(value)) or "") .. " (it shows '" .. tostring(element and element.mLabel)
+            .. "', value " .. tostring(element and element.mValue) .. ")", "r5-refresh")
+        if ok then r5Report.refreshed = r5Report.refreshed + 1 end
+    end
+
+    -- Missions: the Survival "Seconds per reward rotation" (the live edit),
+    -- through every close route at every level.
+    for _, route in ipairs({ "Confirm", "Exit", "Close" }) do
+        local name = "missions_alert_" .. string.lower(route)
+        newSession(name)
+        local root = openRoot(name)
+        local pkg = root and press(root, "action:open:pkg:Missions", name, 2)
+        local grp = pkg and press(pkg, "action:open:grp:Missions/survival", name, 3)
+        local val = grp and press(grp, "action:open:val:Missions/survival.alert_interval", name, 4)
+        if val ~= nil then
+            typeInto(val, "60")
+            closeR5(val, route, 4, grp, name)
+            if route ~= "Close" then
+                expectRow(grp, "custom:missions/survival.alert_interval", name, "Custom Seconds per reward rotation", true)
+                expectRow(grp, "action:open:val:Missions/survival.alert_interval", name, "Seconds per reward rotation: 60 s", nil)
+            else
+                expectRow(grp, "action:open:val:Missions/survival.alert_interval", name, "Seconds per reward rotation: 600 s", nil)
+            end
+            closeR5(grp, route, 3, pkg, name)
+            expectRow(pkg, "action:open:grp:Missions/survival", name,
+                route ~= "Close" and "Survival: 2 values - 2 custom" or "Survival: 2 values - 1 custom", nil)
+            closeR5(pkg, route, 2, root, name)
+            expectRow(root, "action:open:pkg:Missions", name,
+                route ~= "Close" and "Missions: 3 values - 2 custom" or "Missions: 3 values - 1 custom", nil)
+            closeR5(root, route, 1, nil, name)
+        end
+    end
+
+    -- Frost: an out-of-range value on Back shows the row's own stock message
+    -- and keeps 50; on Confirm the stock validator keeps the page open; 100
+    -- then applies.
+    do
+        local name = "frost_invalid_then_valid"
+        newSession(name)
+        local root = openRoot(name)
+        local pkg = root and press(root, "action:open:pkg:Frost", name, 2)
+        local grp = pkg and press(pkg, "action:open:grp:Frost/ice_wave", name, 3)
+        local val = grp and press(grp, "action:open:val:Frost/ice_wave.bonus_per_cold_stack", name, 4)
+        if val ~= nil then
+            local before = #messages
+            typeInto(val, "250")
+            closeR5(val, "Exit", 4, grp, name)
+            harnessCheck(#messages == before + 1 and messages[#messages] == "Bonus per Cold stack: enter a number from 0 to 100.",
+                name .. ": Back with 250 shows the row's stock message once (got " .. tostring(#messages - before) .. ": "
+                    .. tostring(messages[#messages]) .. ")", "r5-validate")
+            r5Report.messages = r5Report.messages + (#messages - before)
+            expectRow(grp, "action:open:val:Frost/ice_wave.bonus_per_cold_stack", name, "Bonus per Cold stack: 50x", nil)
+            val = press(grp, "action:open:val:Frost/ice_wave.bonus_per_cold_stack", name, 4)
+            if val ~= nil then
+                typeInto(val, "250")
+                local calls = #r5Done
+                local shown = #messages
+                step(name .. " Confirm 250", function() val.env.FinishSelection() end)
+                tick(val, 3)
+                harnessCheck(#r5Done == calls and rawget(val.movie, "_closed") ~= true and #messages == shown + 1,
+                    name .. ": Confirm with 250 runs the stock validator, shows its message and keeps the page open", "r5-validate")
+                r5Report.stockMessages = r5Report.stockMessages + (#messages - shown)
+                typeInto(val, "100")
+                closeR5(val, "Confirm", 4, grp, name)
+                expectRow(grp, "action:open:val:Frost/ice_wave.bonus_per_cold_stack", name, "Bonus per Cold stack: 100x", nil)
+                expectRow(grp, "custom:frost/ice_wave.bonus_per_cold_stack", name, nil, true)
+            end
+            closeR5(grp, "Exit", 3, pkg, name)
+            closeR5(pkg, "Exit", 2, root, name)
+            closeR5(root, "Confirm", 1, nil, name)
+        end
+    end
+
+    -- An explicit click on the ticked switch after the edit turns it off.
+    do
+        local name = "missions_click_off"
+        newSession(name)
+        local root = openRoot(name)
+        local pkg = root and press(root, "action:open:pkg:Missions", name, 2)
+        local grp = pkg and press(pkg, "action:open:grp:Missions/survival", name, 3)
+        local val = grp and press(grp, "action:open:val:Missions/survival.alert_interval", name, 4)
+        if val ~= nil then
+            typeInto(val, "60")
+            closeR5(val, "Confirm", 4, grp, name)
+            local switch = bySetting(grp, "custom:missions/survival.alert_interval")
+            harnessCheck(switch ~= nil and switch.Checkbox ~= nil, name .. ": the Custom switch has its stock checkbox widget", "r5-click")
+            if switch ~= nil and switch.Checkbox ~= nil then
+                -- A click focuses the row first; the stock value-changed
+                -- dispatch reports the focused element.
+                step(name .. " focus", function() listOf(grp).mOnFocusedCallback(switch) end)
+                step(name .. " click", function()
+                    switch.Checkbox.mChecked = false
+                    switch.Checkbox.ValueChanged(switch.Checkbox)
+                end)
+            end
+            closeR5(grp, "Confirm", 3, pkg, name)
+            closeR5(pkg, "Confirm", 2, root, name)
+            closeR5(root, "Confirm", 1, nil, name)
+        end
+    end
+
+    -- INPUTCOUNT value page (int) and a section Restore.
+    do
+        local name = "purgatory_int_and_survival_restore"
+        newSession(name)
+        local root = openRoot(name)
+        local pkg = root and press(root, "action:open:pkg:Missions", name, 2)
+        local grp = pkg and press(pkg, "action:open:grp:Missions/purgatory", name, 3)
+        local val = grp and press(grp, "action:open:val:Missions/purgatory.difficulty1.warrior_level", name, 4)
+        if val ~= nil then
+            setCount(val, 25)
+            closeR5(val, "Confirm", 4, grp, name)
+            expectRow(grp, "action:open:val:Missions/purgatory.difficulty1.warrior_level", name, "Difficulty 1 warrior level: 25", nil)
+            expectRow(grp, "custom:missions/purgatory.difficulty1.warrior_level", name, nil, true)
+            closeR5(grp, "Exit", 3, pkg, name)
+            local survival = press(pkg, "action:open:grp:Missions/survival", name, 3)
+            if survival ~= nil then
+                local calls = #r5Done
+                local element = bySetting(survival, "action:restore:Missions/survival")
+                step(name .. " restore", function() listOf(survival).mOnSelectedCallback(element) end)
+                tick(survival, 3)
+                harnessCheck(#r5Done == calls + 1 and r5Done[#r5Done].depth == 3 and rawget(survival.movie, "_closed") == true,
+                    name .. ": Restore stages and closes its section page through Confirm", "r5-close")
+                tick(pkg, 2)
+                r5Report.returns = r5Report.returns + 1
+                expectRow(pkg, "action:open:grp:Missions/survival", name, "Survival: 2 values - 0 custom", nil)
+            end
+            closeR5(pkg, "Confirm", 2, root, name)
+            closeR5(root, "Confirm", 1, nil, name)
+        end
+    end
+end
+
 for index = 1, #HARNESS.errors do
     print("ERROR\t" .. HARNESS.errors[index])
 end
@@ -508,7 +898,10 @@ end
 print("REPORT\tsource=" .. tostring(report.source) .. " rows=" .. tostring(report.rows) .. " buttons=" .. tostring(report.buttons)
     .. " pages=" .. tostring(report.pages) .. " search_steps=" .. tostring(report.searchSteps)
     .. " search_shown=" .. tostring(report.searchShown) .. " snapshot_revert=" .. tostring(report.snapshotRevert)
-    .. " stale_writes=" .. tostring(#HARNESS.staleWrites) .. " instances=" .. tostring(#HARNESS.instances))
+    .. " stale_writes=" .. tostring(#HARNESS.staleWrites) .. " instances=" .. tostring(#HARNESS.instances)
+    .. " r5_sessions=" .. tostring(r5Report.sessions) .. " r5_returns=" .. tostring(r5Report.returns)
+    .. " r5_refreshed=" .. tostring(r5Report.refreshed) .. " r5_back_messages=" .. tostring(r5Report.messages)
+    .. " r5_stock_messages=" .. tostring(r5Report.stockMessages) .. " r5_max_depth=" .. tostring(r5Report.maxDepth))
 if #HARNESS.errors == 0 and #HARNESS.failures == 0 then
     print("SCRIPT SETTINGS RENDER HARNESS PASS checks=" .. tostring(HARNESS.checks) .. " rows=" .. tostring(#PAGE.rows))
 else

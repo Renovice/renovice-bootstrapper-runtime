@@ -1,11 +1,34 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 namespace renovice::riven
 {
+// Presence of the optional gate file CustomScripts/riven_lock.cfg (R5,
+// 2026-09-30). Absent is the normal "Riven lock off" state, not an error:
+// MSVC std::filesystem::is_regular_file(path, ec) sets ec (ERROR_FILE_NOT_FOUND
+// = 2, ERROR_PATH_NOT_FOUND = 3) for a missing file, and the F9 transaction
+// treated that as a failed gate read, so every F9 rolled back ("F9 Riven gate
+// reload rejected", live 2026-09-30) while riven_lock.cfg was absent.
+enum class GateFile { Absent, Present, Unreadable };
+
+inline GateFile classify_gate_file(const std::filesystem::path& path, std::error_code& error)
+{
+	error.clear();
+	const auto status = std::filesystem::status(path, error);
+	if (status.type() == std::filesystem::file_type::not_found)
+	{
+		error.clear();
+		return GateFile::Absent;
+	}
+	if (error) return GateFile::Unreadable;
+	return status.type() == std::filesystem::file_type::regular ? GateFile::Present : GateFile::Absent;
+}
+
 inline constexpr char signature_gfx_dispatch[] =
 	"48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 "
 	"E0 FE FF FF 48 81 EC 20 02 00 00 48 8B 05 ? ? ? ? 48 33 C4 48 89 "

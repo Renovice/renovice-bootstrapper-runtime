@@ -178,11 +178,11 @@ int main()
 		&& !source_log_rotation_required(990, 0, 10, 1000),
 		"rotation uses the in-memory size plus buffered and incoming bytes");
 
-	check(!parse("").settings_menu_nested && !parse("Diagnostics=true\n").settings_menu_nested,
-		"SCRIPT SETTINGS defaults to the proven-safe flat layout");
-	check(parse("SettingsMenuNested=true\n").settings_menu_nested
-		&& !parse("SettingsMenuNested=true\nSettingsMenuNested=false\n").settings_menu_nested,
-		"SettingsMenuNested opts into nested pages; the last value wins");
+	check(parse("").settings_menu_nested && parse("Diagnostics=true\n").settings_menu_nested,
+		"R5: SCRIPT SETTINGS defaults to the nested layout (packages -> package -> sections -> value pages)");
+	check(!parse("SettingsMenuNested=false\n").settings_menu_nested
+		&& parse("SettingsMenuNested=false\nSettingsMenuNested=true\n").settings_menu_nested,
+		"SettingsMenuNested=false selects the flat fallback; the last value wins");
 
 	std::cout << "CONFIG CORE RESULT failures=" << failures << '\n';
 	return failures == 0 ? 0 : 1;

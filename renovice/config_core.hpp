@@ -61,7 +61,9 @@ struct Flags
 	// single flat GenericSettings list with TITLE sections. true: nested
 	// package -> section pages pushed from BUTTON rows; enable only after the
 	// Phase 0 probe proves gate N-1 (nested GenericSettings) live.
-	bool settings_menu_nested = false;
+	// R5: nested pages by default (packages -> package -> sections -> value);
+	// SettingsMenuNested=false selects the flat list.
+	bool settings_menu_nested = true;
 };
 
 inline std::string trim_ascii(std::string_view value)

@@ -37,6 +37,19 @@
 # defects: unbound INPUTCOUNT widgets, stale widget writes, the locked-row
 # Label dim leak and the line 1474 script error after the search is cleared.
 #
+# R5 (live 2026-09-30, DLL aebb08e3 + bridge 7b9b9950): a value typed on its
+# value page was written with its "Custom" switch off (the switch is a list row
+# the completion pass restaged unticked), the list kept showing the old value,
+# and an out-of-range value closed with Back was dropped without a message.
+# The harness now also drives the nested layout (packages -> package ->
+# section -> value page, depth 4) with Confirm, Back (Exit) and Close at every
+# level, INPUTBOX and INPUTCOUNT edits, the Back-route validation message, an
+# explicit switch click and a section Restore, and prints every host stage
+# call; those are replayed through the real C++ host model and values-file
+# writer (verify_addon_settings.ps1 -Replay) and each resulting file is
+# checked. Negative control R4: the installed bridge 7b9b9950 on the same
+# flows leaves the parent page stale and shows no Back-route message.
+#
 # -PageRows <file>: additionally run the current bridge on the rows of a real
 # package: the output of `verify_addon_settings.ps1 -Package <folder>
 # -Settings <file>` (PAGE, ROW and VALROW lines), for example a read-only copy
@@ -56,6 +69,7 @@ $renderDir = Join-Path $PSScriptRoot "settings_render"
 $bridgeSource = Join-Path $repo "RENOVICE_SCRIPTING\INTERNAL\ScriptSettingsBridgeV1.luau"
 $negativeR2 = Join-Path $renderDir "fixtures\ScriptSettingsBridgeV1.r2-2e337a43.luau"
 $negativeR3 = Join-Path $renderDir "fixtures\ScriptSettingsBridgeV1.r3-739d8177.luau"
+$negativeR4 = Join-Path $renderDir "fixtures\ScriptSettingsBridgeV1.r4-7b9b9950.luau"
 
 function Require([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "SCRIPT SETTINGS RENDER GATE FAIL: $Message" }
@@ -201,7 +215,7 @@ function ConvertTo-HarnessPage([string]$Path) {
     return @{ Text = $builder.ToString(); Rows = $rows.Count; ValuePages = $valpages.Count; InlineCounts = $inlineCounts; ExpectedPages = $expectedPages }
 }
 
-function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '') {
+function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [switch]$R5) {
     $builder = New-Object System.Text.StringBuilder
     $offsets = @{}
     $append = {
@@ -222,6 +236,7 @@ function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '') {
     & $append ([IO.File]::ReadAllText($Bridge))
     & $append "end"
     if ($PageData -ne '') { & $append $PageData }
+    if ($R5) { & $append "HARNESS_R5 = true" }
     & $append ([IO.File]::ReadAllText((Join-Path $renderDir "harness_driver.luau")))
     $file = Join-Path $scratch "harness_$Tag.luau"
     [IO.File]::WriteAllText($file, $builder.ToString(), (New-Object System.Text.UTF8Encoding($false)))
@@ -266,7 +281,7 @@ function Get-Report($Run) {
 # locked CHECKBOX, inline INPUTCOUNT and locked INPUTCOUNT as pre-R4 hosts send
 # them, TOGGLE, locked TOGGLE, value BUTTONs with and without a legacy
 # subLabel, locked value BUTTONs).
-$run = Invoke-Harness $bridgeSource 'current'
+$run = Invoke-Harness $bridgeSource 'current' -R5
 $run.Output | Where-Object { $_ -notlike 'CATEGORY*' } | ForEach-Object { Write-Output "HARNESS`t$_" }
 $report = Get-Report $run
 Require ($run.Exit -eq 0) "harness process exits cleanly (current bridge)"
@@ -276,6 +291,37 @@ Require ($report['search_shown'] -eq 'false') "R4: the bridge never shows the st
 Require ([int]$report['pages'] -ge 12) "R4: every value BUTTON and every INPUTCOUNT stand-in opens a one-row page that populates, polls and confirms ($($report['pages']) pages)"
 Require ([int]$report['search_steps'] -eq 21) "the stock search filter was driven through type, extend and clear on the Confirm, Exit and Close opens (21 steps)"
 Require ($report['snapshot_revert'] -eq 'true') "stock property pinned (why the search box stays hidden): the filter re-adds populate-time copies, so a CHECKBOX changed before typing shows its old value again"
+
+# 1b. R5 flows (current bridge): nested navigation, returns, refresh, messages.
+Require ([int]$report['r5_sessions'] -eq 6) "R5: six recorded editor sessions ran (3 close routes, Frost validation, explicit click, INPUTCOUNT + Restore)"
+Require ([int]$report['r5_max_depth'] -eq 4) "R5: nested navigation reaches the value page at depth 4 (packages -> package -> section -> value)"
+Require ([int]$report['r5_returns'] -ge 20) "R5: every page closed with Confirm, Back and Close returns to its open, intact parent ($($report['r5_returns']) returns)"
+Require ([int]$report['r5_refreshed'] -ge 16) "R5: after each return the parent rows show the staged edit (label, Custom switch, section and package summaries; $($report['r5_refreshed']) checks)"
+Require ([int]$report['r5_back_messages'] -eq 1) "R5: Back with an out-of-range value shows the row's stock message (EE.Interface.Utilities.ShowMessage) once"
+Require ([int]$report['r5_stock_messages'] -eq 1) "R5: Confirm with an out-of-range value is stopped by the stock validator with its message; the page stays open"
+
+# 1c. The recorded host stage calls through the real host model and the
+# values-file writer and parser (verify_addon_settings.ps1 -Replay).
+$stageLines = @($run.Output | Where-Object { $_ -like "STAGELOG`t*" } | ForEach-Object { $_.Substring(9) })
+Require ($stageLines.Count -ge 20) "R5: the harness recorded the host stage calls ($($stageLines.Count) lines)"
+$expect = @(
+    "EXPECT`tmissions_alert_confirm`tMissions`tsurvival.alert_interval`tenabled=1`tvalue=60",
+    "EXPECT`tmissions_alert_confirm`tFrost`tfile=unchanged",
+    "EXPECT`tmissions_alert_exit`tMissions`tsurvival.alert_interval`tenabled=1`tvalue=60",
+    "EXPECT`tmissions_alert_close`tMissions`tfile=unchanged",
+    "EXPECT`tmissions_alert_close`tFrost`tfile=unchanged",
+    "EXPECT`tfrost_invalid_then_valid`tFrost`tice_wave.bonus_per_cold_stack`tenabled=1`tvalue=100",
+    "EXPECT`tfrost_invalid_then_valid`tMissions`tfile=unchanged",
+    "EXPECT`tmissions_click_off`tMissions`tsurvival.alert_interval`tenabled=0`tvalue=60",
+    "EXPECT`tpurgatory_int_and_survival_restore`tMissions`tpurgatory.difficulty1.warrior_level`tenabled=1`tvalue=25",
+    "EXPECT`tpurgatory_int_and_survival_restore`tMissions`tsurvival.reward_interval`tenabled=0`tvalue=150"
+)
+$replayFile = Join-Path $scratch 'r5_stage_replay.txt'
+[IO.File]::WriteAllText($replayFile, ((@($stageLines) + $expect) -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
+$replayOutput = @(& (Join-Path $repo 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1') -Replay $replayFile 2>&1 | ForEach-Object { $_.ToString() })
+$replayOutput | Where-Object { $_ -like 'REPLAY*' -or $_ -like '*R5 replay*' -or $_ -like 'FAIL*' } | ForEach-Object { Write-Output "R5-REPLAY`t$_" }
+$replayPasses = @($replayOutput | Where-Object { $_ -like "PASS`tR5 replay *" }).Count
+Require (@($replayOutput | Where-Object { $_ -eq 'ADDON SETTINGS PASS' }).Count -eq 1 -and $replayPasses -eq $expect.Count -and @($replayOutput | Where-Object { $_ -like 'FAIL*' }).Count -eq 0) "R5: the recorded stage calls replayed through the host model write exactly the expected values files ($replayPasses checks)"
 
 # 2. Negative control R3: the installed bridge 739d8177 on the same page
 # reproduces the live R4 defects.
@@ -292,6 +338,16 @@ $pollLine = Resolve-RenderLine $r3 $pollError[0]
 $pollContext = Get-RenderContext $pollLine 10
 Require ((Get-RenderStatement $pollLine) -eq 'c56v5 = c56v5.mClipName' -and $pollContext.Contains(':GetElementIndexById(c56v2)') -and $pollContext.Contains('c56v5 = c56v1.mCountButton')) "negative control R3 fails in the stock count poll: element.mCountButton.mClipName (render line $pollLine = stock source line 1474, called from Update line 1627)"
 Require (@($r3.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS FAIL*' }).Count -eq 1) "negative control R3 is reported as a harness FAIL"
+
+# 2b. Negative control R4: the installed bridge 7b9b9950 on the R5 flows.
+Require ((Get-TextSha256 $negativeR4) -eq $inputs['render:ScriptSettingsBridgeV1.r4-7b9b9950']) "negative-control bridge is the R4 source of the installed 7b9b9950 bytes"
+$r4 = Invoke-Harness $negativeR4 'r4' -R5
+$r4Report = Get-Report $r4
+$r4.Output | Where-Object { $_ -like 'CATEGORY*' -or $_ -like 'REPORT*' -or $_ -like 'SCRIPT SETTINGS RENDER HARNESS*' } | ForEach-Object { Write-Output "NEGATIVE-R4`t$_" }
+$r4.Output | Where-Object { $_ -like 'FAIL*' -and $_.Contains('after the return') } | Select-Object -First 3 | ForEach-Object { Write-Output "NEGATIVE-R4`t$_" }
+Require ((Get-Category $r4 'r5-refresh') -ge 1) "negative control R4: after a value page closes, the parent still shows the old value and an unticked Custom switch (live R5 symptom)"
+Require ((Get-Category $r4 'r5-validate') -ge 1 -and [int]$r4Report['r5_back_messages'] -eq 0) "negative control R4: Back with an out-of-range value shows no message (the live silent 'stage REJECT')"
+Require ((Get-Category $r4 'r5-close') -eq 0 -and (Get-Category $r4 'r5-nav') -eq 0) "negative control R4: navigation and every close route already worked (the defect is the stale page and the silent reject, not the push/return)"
 
 # 3. Negative control R2: the sub-label nil arithmetic (R3 defect).
 Require ((Get-TextSha256 $negativeR2) -eq $inputs['render:ScriptSettingsBridgeV1.r2-2e337a43']) "negative-control bridge is the R2 source of the installed 2e337a43 bytes"
@@ -310,7 +366,10 @@ Require (-not [regex]::IsMatch($bridgeText, 'mSubLabel\s*=')) "the bridge never 
 Require ($bridgeText.Contains('local function buttonLabel(spec)')) "the bridge folds a host subLabel into the BUTTON label"
 Require (-not $bridgeText.Contains('ShowHideSearchBox')) "R4: the bridge never shows the stock search box"
 Require ($bridgeText.Contains('local STOCK_VISIBLE_ROWS = 14') -and $bridgeText.Contains('local function recycledPage(specs)')) "R4: the bridge detects the stock recycled list (uniform, more than 14 rows, no INPUTBOX)"
-Require ($bridgeText.Contains('openRowPage(movie, spec, depth + 1)')) "R4: an INPUTCOUNT on a recycled page opens its own one-row page"
+Require ($bridgeText.Contains('openRowPage(movie, standIn.mRenoviceSpec, depth + 1, context.refresh)')) "R4: an INPUTCOUNT on a recycled page opens its own one-row page"
+Require ($bridgeText.Contains('stage(value, setting, "click")')) "R5: a value-changed callback stages as a player's click"
+Require ($bridgeText.Contains('local function refreshRows(context)') -and $bridgeText.Contains('pcall(onClosed)')) "R5: a child page close refreshes its parent from the host model"
+Require ($bridgeText.Contains('eeUtilities.ShowMessage(message)') -and $bridgeText.Contains('if flag ~= nil then')) "R5: Back with an invalid value shows the row's stock message"
 
 # 5. Optional: a real package's rows (read-only copy), current bridge.
 if (-not [string]::IsNullOrWhiteSpace($PageRows)) {

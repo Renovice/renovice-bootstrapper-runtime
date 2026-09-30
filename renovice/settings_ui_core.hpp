@@ -20,6 +20,9 @@
 // uses_value_page), open:pkg:<Folder>,
 // open:grp:<Folder>/<group>, restore:<Folder> and restore:<Folder>/<group>
 // (nested layout only).
+// Layout (R5): nested by default (root -> package -> section -> value page);
+// SettingsMenuNested=false selects the flat list. An accepted edit on a value
+// page turns the value's Custom switch on (Session::implied_custom).
 
 #include <algorithm>
 #include <cctype>
@@ -27,6 +30,7 @@
 #include <cmath>
 #include <cstdio>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -651,13 +655,17 @@ inline Page build_flat_page(const std::vector<PackageView>& views)
 	return page;
 }
 
-// Nested layout (behind SettingsMenuNested=true until gate N-1 passes live).
+// Nested layout, the default since R5 (SettingsMenuNested=false selects the
+// flat list). Like Risk of Options, the framework itself shows no values: the
+// top page only lists the packages that declare settings; each opens its own
+// page (package switch, use-stock master, member switches when there is more
+// than one member, then its sections). The live R2-R4 value pages proved the
+// stock child push and return (N-1).
 inline Page build_root_page(const std::vector<PackageView>& views)
 {
 	Page page;
 	page.title = "SCRIPT SETTINGS";
 	page.empty_message = "NO PACKAGE SETTINGS FOUND";
-	page.rows.push_back(title("Packages"));
 	for (const auto& view : views)
 	{
 		if (view.declarations == nullptr) continue;
@@ -673,7 +681,8 @@ inline Page build_package_page(const PackageView& view)
 	Page page;
 	page.title = fit_words(upper(view.display), maximum_title_label);
 	if (view.declarations == nullptr) return page;
-	append_package_switches(page.rows, view, true);
+	// The page title already names the package; no second TITLE row.
+	append_package_switches(page.rows, view, false);
 	page.rows.push_back(spacer());
 	page.rows.push_back(title("Sections"));
 	for (const auto* group : ordered_groups(*view.declarations))
@@ -734,10 +743,21 @@ struct StagedValue
 	static StagedValue of_text(std::string value) { StagedValue staged; staged.kind = Kind::Text; staged.text = std::move(value); return staged; }
 };
 
+// R5 (live 2026-09-30): since R2/R4 a number is edited on its own value page,
+// away from its "Custom <label>" switch on the list. A player who typed 60 on
+// the page and confirmed got the value written with enabled=false, so it
+// never applied. An accepted value that differs from the value the screen
+// opened with therefore turns its Custom switch on ("implied"). The list's
+// own switch row restaged at close (it still shows the old state) does not
+// undo that; only an explicit click on the switch (stage source Click) or a
+// Restore does. Group and "Use stock values" switches are not changed.
+enum class StageSource { Restage, Click };
+
 struct Session
 {
 	std::map<std::string, StagedValue> staged;
 	std::vector<std::string> restores; // "<Folder>" or "<Folder>/<group>"
+	std::set<std::string> implied_custom; // "custom:<folder key>/<value id>"
 };
 
 struct ParsedSetting
@@ -780,7 +800,8 @@ inline bool parse_number_text(std::string_view text, double& value) noexcept
 // Returns an empty string when the staged value is accepted.
 inline std::string stage(
 	Session& session, const std::vector<PackageView>& views,
-	std::string_view setting, const StagedValue& value)
+	std::string_view setting, const StagedValue& value,
+	StageSource source = StageSource::Restage)
 {
 	const auto parsed = parse_setting(setting);
 	const auto* view = find_view(views, parsed.folder_key);
@@ -812,6 +833,7 @@ inline std::string stage(
 		{
 			if (value.kind != StagedValue::Kind::Bool) return "wrong-type";
 			if (declaration->lane == settings::Lane::Metadata) return "read-only-row";
+			if (source == StageSource::Click) session.implied_custom.erase(std::string(setting));
 		}
 		else
 		{
@@ -825,6 +847,11 @@ inline std::string stage(
 			else return "wrong-type";
 			if (auto reason = settings::validate_value(*declaration, number); !reason.empty()) return reason;
 			session.staged[std::string(setting)] = StagedValue::of_number(number);
+			// R5: editing the value is choosing it. Back at the opening value
+			// (edited, then set back) the switch returns to its opening state.
+			const std::string custom = "custom:" + parsed.folder_key + "/" + parsed.rest;
+			if (number != current_value(*view, *declaration)) session.implied_custom.insert(custom);
+			else session.implied_custom.erase(custom);
 			return {};
 		}
 	}
@@ -918,6 +945,16 @@ inline settings::UserState overlaid_state(const Session& session, const PackageV
 				entry->second.value = staged.number;
 			}
 		}
+	}
+	// R5: a value edited on its page is custom, whatever the list's switch row
+	// restaged at close (it still showed the opening state). An edit always
+	// stages its value first, so the entry exists. Restores (below) still win.
+	for (const auto& implied : session.implied_custom)
+	{
+		const auto parsed = parse_setting(implied);
+		if (parsed.folder_key != key || view.declarations->value(parsed.rest) == nullptr) continue;
+		const auto entry = state.values.find(parsed.rest);
+		if (entry != state.values.end() && entry->second.shape_valid) entry->second.enabled = true;
 	}
 	for (const auto& scope : session.restores)
 	{

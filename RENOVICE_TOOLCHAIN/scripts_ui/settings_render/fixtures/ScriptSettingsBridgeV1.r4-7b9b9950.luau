@@ -14,9 +14,6 @@
 -- of the current open.
 
 local lotusUtilities = require("Lotus.Interface.LotusUtilities")
--- Stock message box (ThemedGenericSettings shows its validator text with
--- EE.Interface.Utilities.ShowMessage, 44.0.2 render L205-212).
-local eeUtilities = require("EE.Interface.Utilities")
 
 -- Stock scroll contract (ThemedGenericSettings Update, 44.0.2 render
 -- L4740-4880): the list attaches its scroll bar, smooth scroll and mouse wheel
@@ -157,9 +154,7 @@ end
 
 local openRowPage -- forward
 
--- `context` is the page's own record (see configure): its refresh function is
--- handed to every page this page opens, so a child close updates this page.
-local function buildRow(spec, types, movie, depth, recycled, context)
+local function buildRow(spec, types, movie, depth, recycled)
     local kind = spec.kind
     local row = nil
     if recycled == true and (kind == "INPUTCOUNT" or (spec.locked == true
@@ -186,16 +181,14 @@ local function buildRow(spec, types, movie, depth, recycled, context)
             mSetting = "action:",
             mTooltip = spec.tooltip,
             mLocked = false,
-            mRenoviceSpec = spec,
+            mCallback = function()
+                if kind == "INPUTCOUNT" then
+                    openRowPage(movie, spec, depth + 1)
+                elseif action ~= nil and string.sub(action, 1, 5) == "open:" then
+                    openPage(movie, string.sub(action, 6), depth + 1)
+                end
+            end,
         }
-        local standIn = row
-        row.mCallback = function()
-            if kind == "INPUTCOUNT" then
-                openRowPage(movie, standIn.mRenoviceSpec, depth + 1, context.refresh)
-            elseif action ~= nil and string.sub(action, 1, 5) == "open:" then
-                openPage(movie, string.sub(action, 6), depth + 1, context.refresh)
-            end
-        end
         return row
     end
     if kind == "TITLE" then
@@ -271,7 +264,7 @@ local function buildRow(spec, types, movie, depth, recycled, context)
                     return
                 end
                 if string.sub(action, 1, 5) == "open:" then
-                    openPage(movie, string.sub(action, 6), depth + 1, context.refresh)
+                    openPage(movie, string.sub(action, 6), depth + 1)
                 elseif string.sub(action, 1, 8) == "restore:" then
                     -- Stage the restore, then close through the stock Confirm
                     -- route; the batch applies with the root page.
@@ -310,103 +303,7 @@ local function stageVisible(elements)
     end
 end
 
--- R5: validation on the Back route. The stock screen runs a row's
--- mOnValidateSetting only on Confirm (render L185-215: validators run only
--- when the close flag is nil); Back (ExitScreen, flag true) closes without
--- them, and the host then rejected the value without a word (live
--- 2026-09-30: "stage REJECT ... reason=outside-min-max value=kept"). Show the
--- same stock message box with the row's own text; the previous value stays.
-local function reportInvalid(elements)
-    for i = 1, #elements do
-        local element = elements[i]
-        if element ~= nil and element.mRenoviceStage == true and element.mOnValidateSetting ~= nil then
-            local valid, message = element.mOnValidateSetting()
-            if not valid and message ~= nil then
-                eeUtilities.ShowMessage(message)
-                return
-            end
-        end
-    end
-end
-
--- The key a fresh host row and a built row share: the action of a BUTTON,
--- else the row setting. TITLE and SPACER rows have neither.
-local function rowKey(spec)
-    if spec.action ~= nil and spec.action ~= "" then
-        return "action:" .. spec.action
-    end
-    if spec.setting ~= nil and spec.setting ~= "" then
-        return "setting:" .. spec.setting
-    end
-    return nil
-end
-
--- R5: after a page this page opened closes, re-read this page from the host
--- (its model already holds the staged edits) and update the labels and switch
--- values of the rows the stock list holds: a value edited on its page shows
--- its new value, and its "Custom" switch is ticked. The stock list draws the
--- row tables themselves, so the next draw shows the update, and the
--- completion pass restages what the rows now hold. Only fields the bridge
--- itself sets are written (mLabel; mValue of an editable CHECKBOX/TOGGLE).
-local function refreshRows(context)
-    if context.pageId == nil or host.getPage == nil then
-        return
-    end
-    local fresh = host.getPage(context.pageId)
-    if fresh == nil or fresh.rows == nil then
-        return
-    end
-    local byKey = {}
-    for i = 1, #fresh.rows do
-        local key = rowKey(fresh.rows[i])
-        if key ~= nil then
-            byKey[key] = fresh.rows[i]
-        end
-    end
-    for i = 1, #context.built do
-        local entry = context.built[i]
-        local key = rowKey(entry.spec)
-        local spec = nil
-        if key ~= nil then
-            spec = byKey[key]
-        end
-        if spec ~= nil and spec.kind == entry.spec.kind then
-            local updated = buildRow(spec, context.types, context.movie, context.depth, context.recycled, context)
-            local row = entry.row
-            if updated ~= nil and updated.mType == row.mType then
-                local labelChanged = row.mLabel ~= updated.mLabel
-                row.mLabel = updated.mLabel
-                if row.mRenoviceSpec ~= nil then
-                    row.mRenoviceSpec = spec
-                end
-                local checkbox = row.mRenoviceStage == true and row.mRenoviceKind == "CHECKBOX"
-                if row.mRenoviceStage == true and (row.mRenoviceKind == "CHECKBOX" or row.mRenoviceKind == "TOGGLE") then
-                    row.mValue = updated.mValue
-                end
-                entry.spec = spec
-                -- The stock list redraws only on scroll, so a row drawn right
-                -- now gets the stock draw's own two writes on its own clip
-                -- (the List clears mClipName of every row it does not draw):
-                -- the label text (ThemedGenericSettings element draw,
-                -- SetLocalized(<clip>.Label.text, mLabel)) and the checkbox
-                -- widget state (mChecked, as its ValueChanged reads it) with
-                -- the widget's own Redraw.
-                local clip = row.mClipName
-                if clip ~= nil then
-                    if labelChanged then
-                        context.movie:SetLocalized(clip .. ".Label.text", row.mLabel)
-                    end
-                    if checkbox and row.Checkbox ~= nil and row.Checkbox.mChecked ~= row.mValue then
-                        row.Checkbox.mChecked = row.mValue
-                        row.Checkbox:Redraw()
-                    end
-                end
-            end
-        end
-    end
-end
-
-local function configure(child, page, depth, types, pageId, onClosed)
+local function configure(child, page, depth, types)
     pageSerial = pageSerial + 1
     local suffix = tostring(depth) .. "_" .. tostring(pageSerial)
     local elementsName = "_RENOVICEScriptSettingsElementsV1_" .. suffix
@@ -414,55 +311,32 @@ local function configure(child, page, depth, types, pageId, onClosed)
     local doneName = "_RENOVICEScriptSettingsDoneV1_" .. suffix
     local stage = host.stage
     local done = host.done
-    local context = {
-        pageId = pageId,
-        types = types,
-        movie = child,
-        depth = depth,
-        recycled = false,
-        built = {},
-        refresh = nil,
-    }
-    context.refresh = function()
-        refreshRows(context)
-    end
 
     _T[elementsName] = function()
         local rows = {}
         local specs = page.rows
         local recycled = recycledPage(specs)
-        context.recycled = recycled
-        context.built = {}
         if specs ~= nil then
             for i = 1, #specs do
-                local row = buildRow(specs[i], types, child, depth, recycled, context)
+                local row = buildRow(specs[i], types, child, depth, recycled)
                 if row ~= nil then
                     rows[#rows + 1] = row
-                    context.built[#context.built + 1] = { spec = specs[i], row = row }
                 end
             end
         end
         return rows
     end
-    -- R5: a value-changed callback is a player's click; the host lets it
-    -- decide a "Custom" switch that an edit on the value page turned on.
     _T[changedName] = function(value, setting)
-        stage(value, setting, "click")
+        stage(value, setting)
     end
     _T[doneName] = function(elements, flag)
         if elements ~= nil then
             pcall(stageVisible, elements)
-            if flag ~= nil then
-                pcall(reportInvalid, elements)
-            end
         end
         _T[elementsName] = nil
         _T[changedName] = nil
         _T[doneName] = nil
         done(depth, elements, flag)
-        if onClosed ~= nil then
-            pcall(onClosed)
-        end
     end
 
     child:Execute("SetTitle", page.title)
@@ -481,7 +355,7 @@ local function configure(child, page, depth, types, pageId, onClosed)
     child:Execute("SetElementsFunction", elementsName)
 end
 
-local function pushPage(parentMovie, page, depth, pageId, onClosed)
+local function pushPage(parentMovie, page, depth)
     local types = resolveTypes()
     if types == nil or page == nil then
         return false
@@ -490,19 +364,19 @@ local function pushPage(parentMovie, page, depth, pageId, onClosed)
     if IsNull(child) then
         return false
     end
-    configure(child, page, depth, types, pageId, onClosed)
+    configure(child, page, depth, types)
     return true
 end
 
-openPage = function(parentMovie, pageId, depth, onClosed)
-    return pushPage(parentMovie, host.getPage(pageId), depth, pageId, onClosed)
+openPage = function(parentMovie, pageId, depth)
+    return pushPage(parentMovie, host.getPage(pageId), depth)
 end
 
 -- R4: one-row page for a row a recycled page cannot hold (an INPUTCOUNT).
 -- The row keeps its setting, bounds, validator and lock; its close only
 -- stages (depth > 1), exactly like a host value page.
-openRowPage = function(parentMovie, spec, depth, onClosed)
-    return pushPage(parentMovie, { title = spec.label or "", empty = "", rows = { spec } }, depth, nil, onClosed)
+openRowPage = function(parentMovie, spec, depth)
+    return pushPage(parentMovie, { title = spec.label or "", empty = "", rows = { spec } }, depth)
 end
 
 local function openScriptSettings(parentMovie, resource, layout, getPage, stage, done, act)

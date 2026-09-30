@@ -338,16 +338,19 @@ without declarations get `activate()` exactly as before. Changing only the
 values re-runs `cleanup` + `activate` on the next F9 even though the bytes are
 the same.
 
-**SCRIPT SETTINGS** (pause menu, directly under SCRIPTS). One native list:
-package switch, `Use stock values`, member switches, then one section per group
-with `Custom <section> values` and, per value, `Custom <label>` plus its editor:
-an INPUTCOUNT stepper for an `int` with `min >= 0`, a TOGGLE for an `enum`, and
-for a `float` (or an `int` with `min < 0`) a button showing the current value
-that opens a one-value page with the text box. The stock screen scrolls a list
-only when every row has the same height and none is a text box, so text boxes
-never share the list (see the R2 record). Clicks only stage; closing the root
-screen writes the file(s) and runs the normal F9 transaction. `SettingsMenuNested=true` in `renovice.cfg` switches to nested
-pages (only after the Phase 0 probe proved nested screens).
+**SCRIPT SETTINGS** (pause menu, directly under SCRIPTS). Like Risk of
+Options, the top page only lists the packages that declare settings. A package
+opens its own page: the package switch, `Use stock values`, member switches
+(only with more than one member) and one button per section. A section page
+holds `Custom <section> values` and, per value, `Custom <label>` plus a button
+showing the current value; every number opens its own one-value page (an
+INPUTCOUNT stepper for an `int` with `min >= 0`, a text box otherwise), an
+`enum` stays a TOGGLE on the section page. Editing a value on its page turns
+its `Custom` switch on; untick the switch to go back to stock (the value is
+remembered). A value outside its range is refused with the row's own stock
+message, on Confirm and on Back. Clicks only stage; closing the top page writes
+the file(s) and runs the normal F9 transaction. `SettingsMenuNested=false` in
+`renovice.cfg` selects the older single flat list.
 
 ## Reserved internal names
 
@@ -553,8 +556,9 @@ of that same snapshot.
 ## Configuration and logs
 
 - `renovice.cfg` supports `Logging`, `Verbose`, `Diagnostics`, `AutoSpawn` and
-  `SettingsMenuNested` (default `false`).
-- If `riven_lock.cfg` exists, the Riven lock UI system is enabled.
+  `SettingsMenuNested` (default `true`; `false` selects the flat list).
+- If `riven_lock.cfg` exists at game start, the Riven lock UI system is enabled.
+  Without it the Riven lock is off and F9 works normally.
 - Source messages go to `CustomScripts\Logs\renovice_source.log` when logging
   is enabled. The file stays open while the game runs. Operational lines are
   written immediately; diagnostic lines are buffered (64 KiB, flushed at least

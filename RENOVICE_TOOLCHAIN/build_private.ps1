@@ -19,6 +19,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\scripts_ui\verify_script_settings_render.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_injection_core.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\config\verify_config_core.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\riven\verify_riven_core.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\diagnostics\verify_native_damage.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\diagnostics\verify_engine_damage_codec.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\injection\verify_multi_target_addon.ps1")

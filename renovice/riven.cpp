@@ -50,6 +50,10 @@ TypeArgument type_argument = nullptr;
 std::atomic<std::uint32_t> locked_mask = 0;
 std::atomic_bool gate_enabled = false;
 std::optional<bool> prepared_gate;
+// Hooks are installed only when riven_lock.cfg is present at startup (the
+// behaviour of every build since the port; an absent file installs none).
+std::atomic_bool hooks_installed = false;
+std::atomic_bool restart_note_logged = false;
 std::atomic_bool redraw_pending = false;
 std::atomic_bool reroll_active = false;
 std::mutex context_mutex;
@@ -312,9 +316,32 @@ bool create_hook(soup::DetourHook& hook, void* target, void* detour, const char*
 }
 }
 
+namespace
+{
+std::filesystem::path gate_file_path()
+{
+	return config::custom_scripts_directory() / L"riven_lock.cfg";
+}
+}
+
 bool initialise()
 {
-	if (!reload_gate()) return false;
+	std::error_code error;
+	const auto gate_file = classify_gate_file(gate_file_path(), error);
+	if (gate_file == GateFile::Unreadable)
+	{
+		conout << "RENOVICE Riven gate read failed: " << error.message() << std::endl;
+		return false;
+	}
+	if (gate_file == GateFile::Absent)
+	{
+		// Riven lock off: no hook is installed (unchanged behaviour); the stock
+		// Riven UI is untouched. Creating the file needs a game restart.
+		gate_enabled.store(false, std::memory_order_release);
+		conout << "RENOVICE Riven lock off: riven_lock.cfg absent; hooks not installed" << std::endl;
+		return true;
+	}
+	gate_enabled.store(true, std::memory_order_release);
 	const auto dispatch = resolve_unique<GfxDispatch>(signature_gfx_dispatch, "GFx hyperlink dispatcher");
 	const auto set_string = resolve_unique<SetStringVariable>(signature_set_string_variable, "SetStringVariable");
 	movie_argument = resolve_unique<MovieArgument>(signature_movie_argument, "movie argument reader");
@@ -329,30 +356,29 @@ bool initialise()
 		if (gfx_hook.isCreated()) { gfx_hook.disable(); gfx_hook.destroy(); }
 		return false;
 	}
+	hooks_installed.store(true, std::memory_order_release);
 	conout << "RENOVICE Riven lock enabled: gate=" << gate()
 		<< " endpoint=" << server_host << ':' << (secure_connections ? https_port : http_port) << std::endl;
 	return true;
 }
 
-bool reload_gate()
+// F9 stage. The Riven lock is an optional capability: its gate file can never
+// reject the F9 transaction. Absent means off; an unreadable path keeps the
+// current gate and is reported capability-locally.
+void prepare_gate_reload()
 {
-	if (!prepare_gate_reload()) return false;
-	commit_prepared_gate();
-	return true;
-}
-
-bool prepare_gate_reload()
-{
-	std::error_code ec;
-	const bool present = std::filesystem::is_regular_file(
-		config::custom_scripts_directory() / L"riven_lock.cfg", ec);
-	if (ec)
+	std::error_code error;
+	const auto gate_file = classify_gate_file(gate_file_path(), error);
+	if (gate_file == GateFile::Unreadable)
 	{
-		conout << "RENOVICE Riven gate reload failed: " << ec.message() << std::endl;
-		return false;
+		prepared_gate.reset();
+		const std::string line = "RENOVICE Riven gate read FAIL reason=" + error.message()
+			+ " scope=capability-local gate=retained";
+		conout << line << std::endl;
+		config::log(line);
+		return;
 	}
-	prepared_gate = present;
-	return true;
+	prepared_gate = gate_file == GateFile::Present;
 }
 
 void commit_prepared_gate()
@@ -365,6 +391,13 @@ void commit_prepared_gate()
 	{
 		redraw_pending.store(false, std::memory_order_release);
 		invalidate_context();
+	}
+	else if (!hooks_installed.load(std::memory_order_acquire)
+		&& !restart_note_logged.exchange(true, std::memory_order_acq_rel))
+	{
+		const char* line = "RENOVICE Riven gate on but hooks not installed (riven_lock.cfg was absent at startup); restart the game to enable the Riven lock";
+		conout << line << std::endl;
+		config::log(line);
 	}
 }
 

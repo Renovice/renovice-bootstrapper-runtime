@@ -6577,6 +6577,12 @@ int script_settings_stage_callback(luau_State* state)
 			if (!read_short_lua_string(raw, text, 64)) return 0;
 			staged = settings_ui::StagedValue::of_text(std::move(text));
 		}
+		// R5: the bridge's value-changed callback passes "click" (a player
+		// toggled the row); the completion pass restages without it. Bridges
+		// before R5 pass two arguments: every stage is then a restage.
+		std::string source_text;
+		const auto source = argument_count >= 3 && read_short_lua_string(state->intop[2], source_text, 16)
+			&& source_text == "click" ? settings_ui::StageSource::Click : settings_ui::StageSource::Restage;
 		std::string reason;
 		std::size_t rejection_index = 0;
 		{
@@ -6588,7 +6594,7 @@ int script_settings_stage_callback(luau_State* state)
 			}
 			++script_settings_session.stage_calls;
 			reason = settings_ui::stage(
-				script_settings_session.session, script_settings_session.views, setting, staged);
+				script_settings_session.session, script_settings_session.views, setting, staged, source);
 			if (!reason.empty()) rejection_index = ++script_settings_session.stage_rejections;
 		}
 		if (!reason.empty() && rejection_index <= script_settings_logged_rejections)
@@ -6664,7 +6670,8 @@ void apply_script_settings_session(ScriptSettingsHostSession& closed, const char
 		<< " policy=" << (policy_committed ? applied.policy.size() : 0)
 		<< " stage_calls=" << closed.stage_calls
 		<< " stage_rejections=" << closed.stage_rejections
-		<< " restores=" << closed.session.restores.size();
+		<< " restores=" << closed.session.restores.size()
+		<< " edited_custom=" << closed.session.implied_custom.size();
 	log_script_settings(line.str());
 	if (written != 0 || policy_committed) request_reload("Script settings applied");
 	else log_script_settings("RENOVICE Script Settings close PASS action=no-changes");
@@ -18765,11 +18772,12 @@ void drain(luau_State* state)
 			reject_prepared_member("RENOVICE F9 Lua replacement reload rejected: previous snapshot retained");
 			transaction_valid = false;
 		}
-		if (transaction_valid && !riven::prepare_gate_reload())
-		{
-			reject_prepared_member("RENOVICE F9 Riven gate reload rejected: previous gate retained");
-			transaction_valid = false;
-		}
+		// R5: the Riven lock is an optional capability; its gate file never
+		// rejects the transaction. Before R5 an absent riven_lock.cfg (the
+		// normal "off" state) failed this step on MSVC and every F9 rolled
+		// back (live 2026-09-30: settings, Ice Wave and Missions never
+		// re-activated after F9).
+		if (transaction_valid) riven::prepare_gate_reload();
 		if (transaction_valid
 			&& !scan_snapshot(candidate, candidate_target_keys, candidate_optional_bridges))
 		{
