@@ -253,7 +253,10 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 		member.filename = name;
 		member.label = manifest_label(manifest, name);
 		member.state_id = script_control::member_state_id(package.folder, name);
-		member.enabled = script_control::candidate_enabled(member.state_id);
+		// Contract R13: the package row owns enablement; a stored member
+		// `false` has no owner since Settings R7 and is reported, not applied.
+		member.enabled = true;
+		member.policy_off_ignored = !script_control::candidate_enabled(member.state_id);
 		if (const char* error = classify_member(name, member.kind, member.key))
 		{
 			package.reason = "member=" + name + " " + error;
@@ -313,8 +316,9 @@ SourceClaims package_claims(const Package& package)
 	SourceClaims claims{"package:" + package.folder, {}, {}};
 	for (const auto& member : package.members)
 	{
-		// A member disabled by its `member:` policy claims nothing, exactly
-		// like a disabled loose file.
+		// Contract R13: members follow their package row (always enabled);
+		// the check stays so a future owner of member policy keeps the
+		// loose-file rule (a disabled member claims nothing).
 		if (!member.enabled) continue;
 		if (member.kind == MemberKind::Replacement) claims.replacement_keys.push_back(member.key);
 		claims.target_keys.insert(
@@ -403,10 +407,11 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 	{
 		for (const auto& member : package.members)
 		{
-			if (member.enabled) continue;
-			report("RENOVICE PACKAGE MEMBER DISABLED trigger=" + std::string(trigger)
+			if (!member.policy_off_ignored) continue;
+			report("RENOVICE PACKAGE MEMBER POLICY IGNORED trigger=" + std::string(trigger)
 				+ " package=" + package.folder + " member=" + member.filename
-				+ " id=" + member.state_id + " scope=member-local");
+				+ " id=" + member.state_id + " stored=false reason=member-switch-retired-R13"
+				+ " owner=" + package.id + " file=unchanged");
 		}
 	}
 	if (!package.settings_reason.empty() && trigger != nullptr)

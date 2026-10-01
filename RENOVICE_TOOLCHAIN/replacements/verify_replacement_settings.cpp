@@ -431,7 +431,9 @@ void end_to_end(const std::filesystem::path& work, const std::filesystem::path& 
 	packages::discard_prepared_reload();
 	write_text(package_dir / "package.json", manifest);
 
-	// 7. Package disabled: stock module, no entry. Member disabled: same.
+	// 7. Package disabled: stock module, no entry. Contract R13: a stored
+	// member `false` is ignored (the package row owns enablement), so the
+	// member is staged and keeps its entry exactly as with no stored state.
 	gate::policy["package:hijacksettingsexample"] = false;
 	check(packages::prepare_reload(), "F9 prepare PASS (package disabled)");
 	package = find_package(*packages::candidate(), example_folder);
@@ -442,11 +444,13 @@ void end_to_end(const std::filesystem::path& work, const std::filesystem::path& 
 	packages::discard_prepared_reload();
 	gate::policy.clear();
 	gate::policy["member:hijacksettingsexample/" + std::string("fb346b59e2b7687a (hijack payload health from settings).lua_b")] = false;
-	check(packages::prepare_reload(), "F9 prepare PASS (member disabled)");
+	check(packages::prepare_reload(), "F9 prepare PASS (stored member false)");
 	member = find_member(find_package(*packages::candidate(), example_folder), example_member);
-	check(member != nullptr && !member->staged
-		&& replacement_settings::build_snapshot(packages::candidate().get(), 1).entries.empty(),
-		"member disabled: not staged, no entry");
+	check(member != nullptr && member->staged && member->policy_off_ignored && member->bytes == bytes
+		&& replacement_settings::build_snapshot(packages::candidate().get(), 1).find(fixture_key) != nullptr,
+		"R13 stored member false: ignored, the replacement is staged and keeps its settings entry");
+	check(logged("RENOVICE PACKAGE MEMBER POLICY IGNORED trigger=F9 package=" + example_folder),
+		"R13 stored member false: exact POLICY IGNORED line");
 	packages::discard_prepared_reload();
 	gate::policy.clear();
 

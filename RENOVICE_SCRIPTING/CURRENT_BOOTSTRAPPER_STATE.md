@@ -1,5 +1,17 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-01 Contract R13: luaCalls.before at native entries + member policy retired — staged (DLL only, not deployed)
+
+Branch `fix/r13-native-entry-member-policy-2026-10-01` from `0cb0182` (R11). Generic; no mission or ability rule in shared code. **This entry supersedes `combined-r11`/`combined-r12` for the DLL; the installed R12 Missions package stays.**
+
+- **Live defect (2026-10-01).** Defense "Waves per reward" = 1 had no effect. (1) `member:missions/missions.targets.addon.lua_b: false` (written by the R5/R6 member switches; no UI since R7) kept the Missions addon unstaged in every session since 2026-09-30 19:24 (`members_staged=0/1`, `DELIVERY ... staged=0`). (2) No R10-R12 entry-template row could ever run: the luaCalls.before observer sees only Lua CALL instructions, and all 21 entry functions (WaveDefense, Territory, SetupSpy, Mission, ...) are entered by the engine.
+- **Primitive.** `luaCalls.before` is also dispatched at a fresh native VM-execute entry (`lua_call_entry_prefilter`, `observe_native_entry_lua_call`, before the naked stock execute): same five-argument callback, claim, protected leaf, fixed-parameter copy-back and R3/R4 retirement; a Lua CALL is still dispatched exactly once, by the interrupt observer.
+- **Policy.** `member:` entries are no longer applied; the SCRIPTS package row is the only enable owner. A stored false is logged (`PACKAGE MEMBER POLICY IGNORED ... reason=member-switch-retired-R13`); ScriptStates.json is not rewritten. Hand-disabling one member is no longer supported.
+- **Gates.** `verify_lua_call_retirement` section 15 + pins, `verify_addon_settings` 7/7b and `-ScriptStates` installed-state replay, `verify_replacement_settings` R13 case; every build-listed gate PASS. Ability editor `test_entry_native_harness.py` PASS (113 checks).
+- **Build.** Main DLL `e5d9b61b40fa66baf79a78f89be53b8e45e09b27027c0f60eedc84ccabbe1914` (5,907,456 B), 0 warnings, 0 errors. (Build note: `tools\pluto.exe` must be on PATH for `archive.php`.)
+
+**Deployment and every live check are pending.** Install, rollback (`b729b2e1…`) and live test: `work/staging/combined-r13/README.md`. [Record](../RESEARCH/NATIVE_ENTRY_AND_MEMBER_POLICY_R13_2026-10-01/README.md).
+
 ## 2026-09-30 Contract R11: coupled live-literal sites (`value_offset`) + the R11 Missions package — staged as one combined set (not deployed)
 
 Branch `feat/settings-r11-coupled-literals-2026-09-30` from `d250e11` (R10). Generic; no mission or ability rule in shared code. **This entry supersedes `combined-r10` for installation.**

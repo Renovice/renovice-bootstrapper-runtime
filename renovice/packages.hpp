@@ -24,10 +24,16 @@ struct Member
 	// scan (startup/F9). Inventory scans never keep replacement bytes.
 	std::vector<unsigned char> bytes;
 	std::string label;
-	// `member:<folder>/<file>` enable policy (ScriptStates.json). A disabled
-	// member is still structurally validated and its keys stay inventoried.
+	// `member:<folder>/<file>` id (ScriptStates.json). Contract R13
+	// (2026-10-01): member enable policy is retired. Since Settings R7 no UI
+	// owns it (SCRIPT SETTINGS has no switches; SCRIPTS shows one row per
+	// package), so a `false` written by the R1-R6 member switches silently
+	// disabled a member whose values the player still edits. The package row
+	// is the only enable owner: `enabled` is always true, and a stored `false`
+	// is reported (policy_off_ignored) and left in the file untouched.
 	std::string state_id;
 	bool enabled = true;
+	bool policy_off_ignored = false;
 	// Enters its lane in this generation: package accepted, member enabled
 	// and, for a replacement with literal declarations, admitted by the
 	// literal-lane settings gate.

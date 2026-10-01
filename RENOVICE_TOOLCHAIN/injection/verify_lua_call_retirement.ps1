@@ -191,6 +191,26 @@ foreach ($forbidden in @('getfield', 'setfield', 'protected_call', 'generation_m
 Require (Before $detour 'const auto target_root = inspect_target_root_entry(state);' 'note_lua_call_dormant_execution(state);') 'S4: a root entry (new instance) is recorded before the execution-evidence check'
 Require (Before $detour 'note_lua_call_dormant_execution(state);' 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);') 'S4: the wake happens before the naked stock VM execute'
 
+# Contract R13 (2026-10-01): luaCalls.before at a native entry. Regression of
+# the live Defense "Waves per reward" defect: WaveDefend `WaveDefense` (P50) is
+# entered by its level ScriptTrigger, never by a Lua CALL, so the interrupt
+# observer alone could not dispatch any entry-template row.
+$nativeEntry = Get-Region $injection 'void observe_native_entry_lua_call(luau_State* state) noexcept' '// S4 execution evidence.' 'native-entry observer'
+Require (Before $nativeEntry 'if (!lua_before_provider_fast_gate.load(std::memory_order_acquire)) return;' 'lua_call_entry_prefilter<luau_State, luau_Closure>(') 'R13: the native-entry rule runs only while the gate is open (one atomic load otherwise)'
+Require (Before $nativeEntry '|| lua_call_hook_running)' 'lua_call_entry_prefilter<luau_State, luau_Closure>(') 'R13: no dispatch from inside a dispatch (re-entrancy check first)'
+Require (Before $nativeEntry 'lua_call_entry_prefilter<luau_State, luau_Closure>(' 'diagnostics::bad_read_ptr(') 'R13: the unit-tested entry rule runs before the first IsBadReadPtr probe'
+Require (Before $nativeEntry 'lua_call_entry_prefilter<luau_State, luau_Closure>(' 'acquire_target_execution_snapshot()') 'R13: the entry rule runs before the snapshot lease'
+Require ($nativeEntry.Contains('if (reinterpret_cast<std::uintptr_t>(info->savedpc) != code) return;')) 'R13: the fresh-frame proof is repeated after the probes (first instruction only)'
+Require ($nativeEntry.Contains('proto_bytes[de_proto_numparams_offset]') -and $nativeEntry.Contains('static_cast<std::size_t>(info->top - info->base)')) 'R13: the arguments are the fixed parameters, bounded by the frame'
+Require (Before $nativeEntry 'target_provider_claims_lua_before(' 'struct ScopedObserverStack') 'R13: the claim check runs before any VM-top write'
+Require (Before $nativeEntry 'struct ScopedObserverStack' 'dispatch_lua_call_phase(state, call, "before", arguments, info->base)') 'R13: the shared dispatch (identity, protected leaf, copy-back, R3/R4 retirement) is used unchanged'
+foreach ($forbidden in @('std::lock_guard', 'std::unique_lock', 'getfield', 'setfield', 'protected_call', 'retire_lua_call_slot', 'lua_call_before_prefilter<')) {
+    Require ($nativeEntry.IndexOf($forbidden, [StringComparison]::Ordinal) -lt 0) "R13: the native-entry observer adds no lock, VM call or retirement path of its own: no $forbidden"
+}
+Require ([regex]::Matches($injection, [regex]::Escape('observe_native_entry_lua_call(state);')).Count -eq 1) 'R13: the native-entry observer has one call site'
+Require (Before $detour 'note_lua_call_dormant_execution(state);' 'observe_native_entry_lua_call(state);') 'R13: a dormant ledger is woken before the native-entry dispatch'
+Require (Before $detour 'observe_native_entry_lua_call(state);' 'reinterpret_cast<VmExecute>(vm_execute_hook.original)(state);') 'R13: the native-entry dispatch completes before the naked stock VM execute'
+
 # R4 S5: retire-all scope.
 Require ($retire.Contains('lua_call_retire_all_exclusive_mask(') -and $retire.Contains('ledger->on_signal_all(call.callsite.prototype, environment, exclusive, serial)')) 'S5: retire-all serves only slots declared exclusively by retire-all addons, through the ledger rule'
 Require ($retire.Contains('ledger->note_aware_addon(provider->addons[index].name);')) 'S4: every addon that signalled becomes retire-aware'

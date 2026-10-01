@@ -799,4 +799,116 @@ inline std::uintptr_t lua_call_dormant_wake_candidate(
 	}
 	return 0;
 }
+
+// Contract R13 (2026-10-01): luaCalls.before at a native entry. The interrupt
+// observer (lua_call_before_prefilter) sees only a Lua CALL instruction, so a
+// Lua function that the engine enters directly (a level ScriptTrigger
+// function such as WaveDefend `WaveDefense`, an encounter function, a native
+// callback, a coroutine start, or a Lua function reached through a C function
+// such as pcall) was never dispatched. Those entries all pass through a
+// natural VM-execute entry with a fresh frame. This rule decides, at that
+// entry, whether the entered frame is such a call:
+//   - the entered frame's function slot holds a Lua closure;
+//   - the frame is fresh: savedpc is the first instruction of its prototype
+//     (a resumed coroutine or any other re-entry is mid-function);
+//   - the CALL observer does not own it: the parent frame is not a Lua frame
+//     whose current instruction is a CALL of this exact closure (DE runs a
+//     Lua-to-Lua CALL inside one VM execute, so this is a guard, not a path);
+//   - the prototype may be armed.
+// Same memory rules as the other prefilters: CallInfo range-checked, stack
+// slots range-checked, closure headers of active frames only, and the code
+// pointer at the DE prototype offset the undump writes (+0x10). A "skip" is
+// returned only where the full path would also reject; an unproven shape is
+// `undecided`, which takes the full, validated path.
+inline constexpr std::size_t de_proto_code_offset = 0x10;
+// Fixed parameter count byte of a DE prototype (stock Luau layout: nups +3,
+// numparams +4, is_vararg +5, maxstacksize +6, flags +7). 44.0.2
+// (2026.09.28.13.06) luau_load writes header byte 1 there (RVA 0x191B40A).
+inline constexpr std::size_t de_proto_numparams_offset = 0x04;
+
+enum class LuaCallEntryVerdict : std::uint8_t
+{
+	skip_not_a_lua_closure,   // the entered frame runs no Lua closure
+	skip_not_fresh,           // mid-function re-entry (coroutine resume, ...)
+	skip_call_observer_owns,  // a Lua CALL of this closure: the interrupt path dispatches it
+	skip_not_armed,           // the prototype is in no armed slot
+	candidate,                // fresh native entry of a possibly armed prototype
+	undecided,                // frame shape not proven: full path
+};
+
+inline bool lua_call_entry_prefilter_skips(LuaCallEntryVerdict verdict) noexcept
+{
+	return verdict != LuaCallEntryVerdict::candidate
+		&& verdict != LuaCallEntryVerdict::undecided;
+}
+
+template <typename State, typename Closure, typename IsFunction>
+inline LuaCallEntryVerdict lua_call_entry_prefilter(
+	const State* state,
+	bool u44,
+	IsFunction&& is_function,
+	const LuaCallAddressSet& armed,
+	std::uintptr_t* entered_proto = nullptr) noexcept
+{
+	if (entered_proto != nullptr) *entered_proto = 0;
+	const auto* const ci = state->ci;
+	if (ci == nullptr || state->base_ci == nullptr || state->end_ci == nullptr
+		|| ci < state->base_ci || ci >= state->end_ci
+		|| state->stack == nullptr || state->stack_last == nullptr)
+	{
+		return LuaCallEntryVerdict::undecided;
+	}
+	const auto* const slot = ci->func;
+	if (slot == nullptr || slot < state->stack || slot >= state->stack_last)
+		return LuaCallEntryVerdict::undecided;
+	if (!is_function(static_cast<int>(slot->type)) || slot->value.as_uintptr == 0)
+		return LuaCallEntryVerdict::skip_not_a_lua_closure;
+	const auto* const closure = reinterpret_cast<const Closure*>(slot->value.as_uintptr);
+	if (closure->isC) return LuaCallEntryVerdict::skip_not_a_lua_closure;
+	const auto proto = reinterpret_cast<std::uintptr_t>(closure->l.p);
+	if (proto < 0x10000 || proto % sizeof(void*) != 0) return LuaCallEntryVerdict::undecided;
+	std::uintptr_t code = 0;
+	std::memcpy(&code, reinterpret_cast<const unsigned char*>(proto) + de_proto_code_offset, sizeof(code));
+	if (code < 0x10000 || code % sizeof(std::uint32_t) != 0) return LuaCallEntryVerdict::undecided;
+	if (reinterpret_cast<std::uintptr_t>(ci->savedpc) != code) return LuaCallEntryVerdict::skip_not_fresh;
+	if (ci > state->base_ci)
+	{
+		const auto* const parent = ci - 1;
+		const auto* const parent_slot = parent->func;
+		if (parent_slot != nullptr && parent_slot >= state->stack && parent_slot < state->stack_last
+			&& is_function(static_cast<int>(parent_slot->type)) && parent_slot->value.as_uintptr != 0
+			&& !reinterpret_cast<const Closure*>(parent_slot->value.as_uintptr)->isC)
+		{
+			// A Lua parent: the CALL observer owns the call exactly when the
+			// parent's current instruction is a CALL whose function register
+			// holds this closure. Anything else (a metamethod, an iterator)
+			// is not a CALL and is dispatched here.
+			const auto pc = reinterpret_cast<std::uintptr_t>(parent->savedpc);
+			if (pc < 0x10000 + sizeof(std::uint32_t) || pc % sizeof(std::uint32_t) != 0)
+				return LuaCallEntryVerdict::undecided;
+			const auto raw = *(reinterpret_cast<const std::uint32_t*>(pc) - 1);
+			DeLuaCallInstruction decoded;
+			if (decode_de_lua_call_instruction(raw, decoded, u44))
+			{
+				const auto* const base = parent->base;
+				const auto* const top = parent->top;
+				if (base == nullptr || top == nullptr || base < state->stack
+					|| top > state->stack_last || base >= top
+					|| static_cast<std::size_t>(top - base) <= decoded.register_a)
+				{
+					return LuaCallEntryVerdict::undecided;
+				}
+				const auto& called = base[decoded.register_a];
+				if (is_function(static_cast<int>(called.type))
+					&& called.value.as_uintptr == slot->value.as_uintptr)
+				{
+					return LuaCallEntryVerdict::skip_call_observer_owns;
+				}
+			}
+		}
+	}
+	if (entered_proto != nullptr) *entered_proto = proto;
+	return armed.may_contain(proto)
+		? LuaCallEntryVerdict::candidate : LuaCallEntryVerdict::skip_not_armed;
+}
 }

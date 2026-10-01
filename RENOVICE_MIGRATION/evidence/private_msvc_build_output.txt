@@ -8,8 +8,10 @@ Linking...
 swf
 script_control
 riven
+replacement_settings
 replacements
 packages
+live_literals
 injection
 engine_damage
 de_vm_authority

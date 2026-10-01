@@ -22,7 +22,10 @@ param(
     [string[]]$Settings = @(),
     [string]$Tape = '',
     # With -Tape: the U44 stock corpus; EXPECTPLAN then also synthesizes each planned module (R9).
-    [string]$Corpus = ''
+    [string]$Corpus = '',
+    # R13: -ScriptStates <ScriptStates.json> (with -Package) replays an installed
+    # policy file (read-only copy); every delivered value must reach a staged member.
+    [string]$ScriptStates = ''
 )
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -90,6 +93,10 @@ try {
     }
     if ($Tape -ne '') { $arguments += @('--tape', (ConvertTo-GateLongPath $Tape)) }
     if ($Corpus -ne '') { $arguments += @('--corpus', (ConvertTo-GateLongPath $Corpus)) }
+    if ($ScriptStates -ne '') {
+        if ($Package.Count -eq 0) { throw "ADDON SETTINGS GATE FAIL: -ScriptStates requires -Package" }
+        $arguments += @('--script-states', (ConvertTo-GateLongPath $ScriptStates))
+    }
     & $binary @arguments
     if ($LASTEXITCODE -ne 0) { throw "ADDON SETTINGS GATE FAIL: checker failed: $LASTEXITCODE" }
 }

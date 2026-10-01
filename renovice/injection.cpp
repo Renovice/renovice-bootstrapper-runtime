@@ -15537,6 +15537,109 @@ std::uint32_t de_luau_interrupt_increment_detour(luau_State* state)
 	});
 }
 
+// Contract R13 (2026-10-01): luaCalls.before at a native entry. The interrupt
+// observer above sees only a Lua CALL instruction. A Lua function the engine
+// enters directly (level ScriptTrigger functions such as WaveDefend
+// `WaveDefense`, encounter functions, native callbacks, coroutine starts, a
+// Lua function reached through pcall) never executes such a CALL, so its
+// armed luaCalls.before slot was never dispatched. Every such entry passes the
+// natural VM-execute entry with a fresh frame; the unit-tested rule
+// lua_call_entry_prefilter (lua_call_retirement_core.hpp) admits exactly the
+// fresh entries the CALL observer does not own. The admitted call then takes
+// the unchanged dispatch: exact published-closure identity, the lock-free
+// claim check, the protected leaf, finite same-tag copy-back of the fixed
+// parameters (registers base[0, numparams)), and R3/R4 retirement. Called
+// before the naked stock execute; every object it owns is released on return.
+void observe_native_entry_lua_call(luau_State* state) noexcept
+{
+	if (!lua_before_provider_fast_gate.load(std::memory_order_acquire)) return;
+	if (state == nullptr || state->stack == nullptr || state->stack_last == nullptr
+		|| state->intop == nullptr || state->outtop == nullptr || lua_call_hook_running)
+	{
+		return;
+	}
+	try
+	{
+		if (lua_call_entry_prefilter_skips(lua_call_entry_prefilter<luau_State, luau_Closure>(
+				state, game_version >= GV(44, 0, 0),
+				[](int tag) { return is_function(tag); }, lua_before_armed_prototypes)))
+		{
+			return;
+		}
+		auto* const info = state->ci;
+		if (info == nullptr || diagnostics::bad_read_ptr(info, sizeof(luau_CallInfo))
+			|| info->func == nullptr || info->base == nullptr || info->top == nullptr
+			|| diagnostics::bad_read_ptr(info->func, sizeof(luau_TValue)))
+		{
+			return;
+		}
+		const auto function = *info->func;
+		luau_Closure* closure = nullptr;
+		if (!readable_lua_closure(function, closure) || closure->isC || closure->l.p == nullptr
+			|| diagnostics::bad_read_ptr(closure->l.p, de_proto_code_offset + sizeof(std::uintptr_t)))
+		{
+			return;
+		}
+		const auto* const proto_bytes = static_cast<const unsigned char*>(closure->l.p);
+		std::uintptr_t code = 0;
+		std::memcpy(&code, proto_bytes + de_proto_code_offset, sizeof(code));
+		if (reinterpret_cast<std::uintptr_t>(info->savedpc) != code) return;   // fresh entry only
+		if (info->base < state->stack || info->top > state->stack_last || info->base > info->top)
+			return;
+		const auto argument_count = (std::min)(
+			static_cast<std::size_t>(proto_bytes[de_proto_numparams_offset]),
+			static_cast<std::size_t>(info->top - info->base));
+		if (argument_count != 0
+			&& diagnostics::bad_read_ptr(info->base, argument_count * sizeof(luau_TValue)))
+		{
+			return;
+		}
+		auto execution = acquire_target_execution_snapshot();
+		if (!execution) return;
+		const auto call = target_lua_call_for_published_closure(
+			*execution.snapshot, state, function);
+		if (!call.callsite.exact
+			|| !target_provider_claims_lua_before(
+				*execution.snapshot, call.callsite.target_key, state->global_state,
+				call.callsite.prototype))
+		{
+			return;
+		}
+
+		// Only an exact live module identity with an active luaCalls.before
+		// provider reaches here; the VM tops are restored on every return.
+		struct ScopedObserverStack
+		{
+			luau_State* state;
+			std::ptrdiff_t intop_offset;
+			std::ptrdiff_t outtop_offset;
+			~ScopedObserverStack() noexcept
+			{
+				state->intop = luau_restorestack(state, intop_offset);
+				state->outtop = luau_restorestack(state, outtop_offset);
+			}
+		} stack_scope{
+			state,
+			luau_savestack(state, state->intop),
+			luau_savestack(state, state->outtop)};
+
+		std::vector<luau_TValue> arguments(info->base, info->base + argument_count);
+		if (dispatch_lua_call_phase(state, call, "before", arguments, info->base))
+		{
+			const std::string event = "luaCalls."
+				+ std::to_string(call.callsite.prototype) + ".before.native-entry";
+			log_native_hook_once(state, call.callsite.target_key, event.c_str());
+		}
+		else if (config::diagnostics_mode() != config::DiagnosticsMode::off)
+		{
+			trace_lua_call_before_reject(state, call);
+		}
+	}
+	catch (...)
+	{
+	}
+}
+
 // S4 execution evidence. Called at every natural VM-execute entry, before the
 // naked stock execute, while lua_call_dormant_watch is set (otherwise one
 // atomic load). The allocation-free chain check reads no memory the entering
@@ -15881,6 +15984,9 @@ void vm_execute_detour(luau_State* state)
 	// R4 S4: execution evidence wakes a dormant retirement ledger before the
 	// stock execute (lease and mutex released on return).
 	note_lua_call_dormant_execution(state);
+	// Contract R13: an armed prototype entered natively (not by a Lua CALL)
+	// dispatches its luaCalls.before here, before the naked stock execute.
+	observe_native_entry_lua_call(state);
 	const bool target_observation_enabled = observe_target_addons.load(
 		std::memory_order_acquire);
 	std::uint64_t target_execution_key = 0;
@@ -18380,6 +18486,7 @@ bool install_loader_hook()
 		de_luau_interrupt_hook.enable();
 		lua_before_observer_ready.store(true, std::memory_order_release);
 		config::log("RENOVICE luaCalls before observer build=V110 boundary=DE-interrupt-counter-leaf-0x1AB150 owner-callback=0x197EC80 stock-first=1 stock-result-preserved=1 provider-fast-gate=atomic unrelated-stack-write=0 live-prototype=environment-code-count-body after=fail-closed");
+		config::log("RENOVICE luaCalls before native-entry boundary contract=R13 hook=vm-execute-entry frame=fresh parent-lua-call=interrupt-observer arguments=fixed-parameters dispatch=shared");
 	}
 	catch (const std::exception& exception)
 	{

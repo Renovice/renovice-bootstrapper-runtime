@@ -43,10 +43,12 @@ inline std::string stable_id(Kind kind, std::string_view filename)
 	return std::string(prefix) + ascii_lower(filename);
 }
 
-// Per-member enable policy inside a folder package (2026-09-30):
+// Per-member id inside a folder package (2026-09-30):
 // `member:<package folder>/<member filename>`, lowercased like every other ID.
-// Member rows never appear in the SCRIPTS menu; they are edited from SCRIPT
-// SETTINGS (or by hand) and stored in the same ScriptStates.json authority.
+// Member rows never appear in the SCRIPTS menu. Contract R13 (2026-10-01): the
+// member enable policy is retired (no UI has owned it since Settings R7); a
+// stored entry stays valid in ScriptStates.json but the loader reports it and
+// stages the member with its package (packages.cpp).
 inline constexpr std::string_view member_state_prefix = "member:";
 
 inline std::string member_state_id(std::string_view folder, std::string_view filename)

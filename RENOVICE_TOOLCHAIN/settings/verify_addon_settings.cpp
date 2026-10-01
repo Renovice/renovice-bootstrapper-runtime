@@ -20,6 +20,8 @@
 //
 // Usage: verify_addon_settings <work dir> <phase2i fixture dir>
 //            [--package <folder> [--settings <file>]]... [--tape <plan>]
+//            [--script-states <ScriptStates.json>] (R13: replays an installed
+//            policy file; every delivered value must reach a staged member)
 // Paths are used in \\?\ form, so deep work folders stay long-path safe.
 #include <algorithm>
 #include <filesystem>
@@ -46,6 +48,10 @@ std::filesystem::path root;
 std::filesystem::path inject;
 std::vector<std::string> log_lines;
 std::map<std::string, bool> policy;
+// R13: --script-states <ScriptStates.json> replays an installed policy file in
+// the external (Part 7) scan.
+std::map<std::string, bool> external_policy;
+bool external_policy_loaded = false;
 }
 
 namespace renovice::config
@@ -620,22 +626,51 @@ void end_to_end(const std::filesystem::path& work)
 		"fail-closed: exact DECLARATIONS REJECT line");
 	packages::discard_prepared_reload();
 
-	// 7. member: policy.
+	// 7. member: policy. Contract R13 (2026-10-01): retired. The live defect:
+	// ScriptStates.json kept `member:missions/missions.targets.addon.lua_b:
+	// false` from the R5/R6 member switches; SCRIPT SETTINGS has had no member
+	// switch since R7 and SCRIPTS shows one row per package, so the addon was
+	// never staged (`members_staged=0/1`, `SETTINGS DELIVERY ... staged=0`)
+	// while the player edited its values. The package row is now the only
+	// enable owner; a stored `false` is reported and the file is not touched.
 	write_text(missions / "package.json", manifest_with("{}", "", ""));
 	gate::policy[script_control::member_state_id("Missions", addon_file)] = false;
 	gate::log_lines.clear();
-	check(packages::prepare_reload(), "F9 prepare PASS with a disabled member");
+	check(packages::prepare_reload(), "F9 prepare PASS with a stored member: false");
 	snapshot = packages::candidate();
 	package = find_package(*snapshot, "Missions");
 	addon = find_member(package, addon_file);
 	literal = find_member(package, literal_file);
-	check(package != nullptr && package->accepted && addon != nullptr && !addon->enabled && !addon->staged
-		&& addon->bytes.empty() && addon->target_keys.size() == 2
-		&& literal != nullptr && literal->staged && literal->bytes == flood,
-		"member: off -> excluded from staging, still validated, keys still inventoried; siblings unaffected");
-	check(logged("RENOVICE PACKAGE MEMBER DISABLED trigger=F9 package=Missions member=" + addon_file
-			+ " id=member:missions/missions.targets.addon.lua_b scope=member-local"),
-		"member: off -> exact MEMBER DISABLED line");
+	check(package != nullptr && package->accepted && addon != nullptr && addon->enabled && addon->staged
+		&& addon->policy_off_ignored && addon->bytes == addon_bytes && addon->target_keys.size() == 2
+		&& literal != nullptr && literal->staged && literal->bytes == flood && !literal->policy_off_ignored,
+		"R13 member: false -> ignored: the member follows its package row and is staged; siblings unaffected");
+	check(logged("RENOVICE PACKAGE MEMBER POLICY IGNORED trigger=F9 package=Missions member=" + addon_file
+			+ " id=member:missions/missions.targets.addon.lua_b stored=false reason=member-switch-retired-R13"
+			+ " owner=package:missions file=unchanged")
+		&& !logged("RENOVICE PACKAGE MEMBER DISABLED"),
+		"R13 member: false -> exact POLICY IGNORED line, no MEMBER DISABLED line");
+	packages::discard_prepared_reload();
+
+	// 7b. The live state of 2026-10-01 end to end: a stored member `false`, a
+	// declared addon value enabled in the values file -> the value is
+	// delivered to a staged member (this is what would have caught the defect).
+	write_text(missions / "package.json", manifest_with(top_settings, addon_settings, literal_settings));
+	write_text(settings_dir / "Missions.json",
+		"{ \"format\": \"RENOVICE_SCRIPT_SETTINGS_V1\", \"package\": \"package:missions\", \"build\": \"2026.09.28.13.06\","
+		" \"use_stock\": false, \"values\": { \"survival.reward_interval\": { \"enabled\": true, \"value\": 150 } } }");
+	gate::log_lines.clear();
+	check(packages::prepare_reload(), "F9 prepare PASS (stored member false + enabled addon value)");
+	snapshot = packages::candidate();
+	package = find_package(*snapshot, "Missions");
+	addon = find_member(package, addon_file);
+	check(package != nullptr && package->accepted && addon != nullptr && addon->staged
+		&& addon->delivery != nullptr && addon->delivery->values.size() == 1
+		&& addon->delivery->values[0].id == "survival.reward_interval" && addon->delivery->values[0].value == 150.0f,
+		"R13 regression: an enabled value of a member with a stored false is delivered to a staged member");
+	check(logged("RENOVICE SETTINGS DELIVERY trigger=F9 package=Missions member=" + addon_file + " values=1 identity=")
+		&& logged(" staged=1") && !logged("members_staged=0/"),
+		"R13 regression: delivery reports staged=1 and the package summary never reports 0 staged members");
 	gate::policy.clear();
 	packages::discard_prepared_reload();
 
@@ -1187,7 +1222,9 @@ std::vector<PackageView> scan_external(const std::vector<ExternalPackage>& input
 	gate::root = work / "CustomScripts";
 	gate::inject = gate::root / "Inject";
 	std::filesystem::create_directories(gate::inject);
-	gate::policy.clear();
+	gate::policy = gate::external_policy;
+	if (gate::external_policy_loaded)
+		std::cout << "INFO\treplaying ScriptStates.json policy entries=" << gate::policy.size() << '\n';
 	for (const auto& input : inputs)
 	{
 		const auto source = input.folder.filename().empty() ? input.folder.parent_path() : input.folder;
@@ -1262,6 +1299,22 @@ std::vector<PackageView> scan_external(const std::vector<ExternalPackage>& input
 			if (addon && settings::member_declares_values(declarations, member.filename)) deliveries &= member.delivery != nullptr;
 		}
 		check(deliveries, label + "every addon member that declares values receives a delivery (context.settings)");
+		// R13 (2026-10-01): the gate that would have caught the live Defense
+		// defect. With the installed ScriptStates.json replayed, an enabled
+		// package must stage every member that receives at least one value;
+		// R11 staged 0/1 (`member:missions/missions.targets.addon.lua_b`).
+		bool reachable = true;
+		for (const auto& member : package->members)
+		{
+			if (package->enabled && member.delivery && !member.delivery->values.empty() && !member.staged)
+			{
+				reachable = false;
+				std::cout << "UNREACHABLE\t" << member.filename << " values=" << member.delivery->values.size()
+					<< " enabled=" << (member.enabled ? 1 : 0) << " policy_off_ignored=" << (member.policy_off_ignored ? 1 : 0) << '\n';
+			}
+		}
+		check(reachable, label + "every delivered value reaches a staged member (installed policy "
+			+ (gate::external_policy_loaded ? std::string("replayed") : std::string("absent")) + ")");
 		PackageView view;
 		view.folder = package->folder;
 		view.display = package->display;
@@ -1630,6 +1683,20 @@ int main(int argc, char** argv)
 			packages_in.back().values = long_path(argv[++index]);
 		else if (flag == "--tape" && index + 1 < argc) plan = long_path(argv[++index]);
 		else if (flag == "--corpus" && index + 1 < argc) corpus = long_path(argv[++index]);
+		else if (flag == "--script-states" && index + 1 < argc)
+		{
+			settings::json::Value root;
+			const auto error = settings::json::parse(read_text(long_path(argv[++index])), root);
+			const auto* scripts = error.empty() && root.is_object() ? root.find("scripts") : nullptr;
+			if (scripts == nullptr || !scripts->is_object())
+			{
+				std::cerr << "--script-states: not a ScriptStates.json (" << error << ")\n";
+				return 2;
+			}
+			for (const auto& [id, value] : scripts->members)
+				if (value.is_bool()) gate::external_policy[id] = value.boolean;
+			gate::external_policy_loaded = true;
+		}
 		else
 		{
 			std::cerr << "unknown or misplaced argument: " << flag << '\n';

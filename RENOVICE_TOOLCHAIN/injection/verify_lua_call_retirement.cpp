@@ -981,6 +981,164 @@ int main(int argc, char** argv)
 			"bench: gate-closed observer < 20 ns and retired-slot claim check < 50 ns per call");
 	}
 
+	// 15. Contract R13: luaCalls.before at a native entry (lua_call_entry_prefilter).
+	// Regression of the 2026-10-01 live defect: the WaveDefend `WaveDefense`
+	// entry (prototype 50) is entered by its level ScriptTrigger, not by a Lua
+	// CALL, so the interrupt observer never saw it and "Waves per reward" was
+	// never written. Each scenario is a synthetic frame chain; the CALL observer
+	// (lua_call_before_prefilter at the parent) and the entry rule must admit
+	// every armed call exactly once between them.
+	{
+		for (const bool u44 : {false, true})
+		{
+			const auto call_op = raw_call_opcode(u44);
+			std::vector<MTValue> stack(96);
+			std::array<MCallInfo, 6> frames{};
+			std::vector<std::uint32_t> entered_code(40, 0), caller_code(40, 0);
+			std::array<std::array<unsigned char, 0xb0>, 3> protos{};   // 0 entered, 1 caller, 2 unrelated
+			// Code starts at index 1, so the word before every first
+			// instruction is inside the vector (a zero, never a CALL).
+			const auto set_code = [&](std::size_t p, const std::vector<std::uint32_t>& code)
+			{
+				const auto address = reinterpret_cast<std::uintptr_t>(code.data() + 1);
+				std::memcpy(protos[p].data() + de_proto_code_offset, &address, sizeof(address));
+				protos[p][0] = 12;
+			};
+			set_code(0, entered_code);
+			set_code(1, caller_code);
+			set_code(2, caller_code);
+			std::array<MClosure, 4> closures{};
+			closures[0].l.p = protos[0].data();     // entered (WaveDefense)
+			closures[1].l.p = protos[1].data();     // a Lua caller
+			closures[2].isC = 1;                    // pcall-like C function
+			closures[3].l.p = protos[2].data();     // unrelated Lua closure
+			const auto put = [&](std::size_t slot, std::size_t closure)
+			{
+				stack[slot].type = function_tag;
+				stack[slot].value.as_uintptr = reinterpret_cast<std::uintptr_t>(&closures[closure]);
+			};
+			MState state;
+			state.stack = stack.data();
+			state.stack_last = stack.data() + stack.size() - 5;
+			state.base_ci = frames.data();
+			state.end_ci = frames.data() + frames.size();
+			frames[0].func = &stack[0];                  // base frame: no closure
+			frames[0].base = &stack[1];
+			frames[0].top = &stack[10];
+			LuaCallAddressSet armed;
+			armed.begin();
+			armed.insert(reinterpret_cast<std::uintptr_t>(protos[0].data()));
+			armed.commit();
+			LuaCallAddressSet none;
+			none.begin();
+			none.commit();
+			const auto entry = [&](const LuaCallAddressSet& set, std::uintptr_t* proto = nullptr)
+			{
+				return lua_call_entry_prefilter<MState, MClosure>(&state, u44, mirror_is_function, set, proto);
+			};
+			const std::string tag = u44 ? " (u44)" : " (u43)";
+
+			// a. Engine entry (level trigger / coroutine start): fresh frame on the base frame.
+			put(10, 0);
+			frames[1].func = &stack[10];
+			frames[1].base = &stack[11];
+			frames[1].top = &stack[30];
+			frames[1].savedpc = entered_code.data() + 1;
+			state.ci = &frames[1];
+			std::uintptr_t admitted = 0;
+			check(entry(armed, &admitted) == LuaCallEntryVerdict::candidate
+					&& admitted == reinterpret_cast<std::uintptr_t>(protos[0].data()),
+				"R13 entry: an engine-entered fresh frame of an armed prototype is a candidate" + tag);
+			check(entry(none) == LuaCallEntryVerdict::skip_not_armed,
+				"R13 entry: an engine-entered prototype in no armed slot is skipped" + tag);
+			check(lua_call_before_prefilter<MState, MClosure>(&state, u44, mirror_is_function, armed)
+					== LuaCallPrefilterVerdict::skip_not_a_call,
+				"R13 defect: the CALL observer cannot see an engine entry (no CALL instruction)" + tag);
+
+			// b. Resumed coroutine / any mid-function re-entry.
+			frames[1].savedpc = entered_code.data() + 7;
+			check(entry(armed) == LuaCallEntryVerdict::skip_not_fresh,
+				"R13 entry: a mid-function re-entry (coroutine resume) is not an entry" + tag);
+			frames[1].savedpc = entered_code.data() + 1;
+
+			// c. Not a Lua closure.
+			put(10, 2);
+			check(entry(armed) == LuaCallEntryVerdict::skip_not_a_lua_closure,
+				"R13 entry: a C function frame is skipped" + tag);
+			stack[10].type = 3;
+			check(entry(armed) == LuaCallEntryVerdict::skip_not_a_lua_closure,
+				"R13 entry: a non-function slot is skipped" + tag);
+			put(10, 0);
+
+			// d. Lua -> Lua CALL: the interrupt observer owns it (no double dispatch).
+			put(20, 1);
+			frames[1].func = &stack[20];
+			frames[1].base = &stack[21];
+			frames[1].top = &stack[40];
+			caller_code[5] = call_op | (2u << 8) | (1u << 16);   // CALL R2, no arguments
+			frames[1].savedpc = caller_code.data() + 6;
+			put(23, 0);                                          // base[2] = entered closure
+			frames[2].func = &stack[23];
+			frames[2].base = &stack[24];
+			frames[2].top = &stack[44];
+			frames[2].savedpc = entered_code.data() + 1;
+			state.ci = &frames[1];
+			const bool call_observer_admits = lua_call_before_prefilter<MState, MClosure>(
+				&state, u44, mirror_is_function, armed) == LuaCallPrefilterVerdict::candidate;
+			state.ci = &frames[2];
+			check(call_observer_admits && entry(armed) == LuaCallEntryVerdict::skip_call_observer_owns,
+				"R13 entry: a Lua CALL of the closure is dispatched once, by the interrupt observer" + tag);
+
+			// e. Lua -> pcall (C) -> Lua: the entry rule owns it.
+			put(23, 2);                                          // base[2] = pcall
+			frames[2].func = &stack[23];
+			frames[2].savedpc = nullptr;
+			put(25, 0);
+			frames[3].func = &stack[25];
+			frames[3].base = &stack[26];
+			frames[3].top = &stack[46];
+			frames[3].savedpc = entered_code.data() + 1;
+			state.ci = &frames[1];
+			const bool call_observer_sees_pcall = lua_call_before_prefilter<MState, MClosure>(
+				&state, u44, mirror_is_function, armed) == LuaCallPrefilterVerdict::skip_not_a_lua_closure;
+			state.ci = &frames[3];
+			check(call_observer_sees_pcall && entry(armed) == LuaCallEntryVerdict::candidate,
+				"R13 entry: a Lua function reached through a C function is dispatched once, at its entry" + tag);
+
+			// f. A Lua parent that is not at a CALL (metamethod/iterator) does not own it.
+			put(23, 0);
+			frames[2].func = &stack[23];
+			frames[2].savedpc = entered_code.data() + 1;
+			caller_code[5] = 0x00u;                              // not a CALL
+			if (renovice::bytecode::canonical_opcode(0x00u, u44) == 0x54u) caller_code[5] = 0x01u;
+			state.ci = &frames[2];
+			check(entry(armed) == LuaCallEntryVerdict::candidate,
+				"R13 entry: a Lua parent at a non-CALL instruction (metamethod) leaves the entry to this rule" + tag);
+			// g. A Lua parent at a CALL of another closure.
+			caller_code[5] = call_op | (2u << 8) | (1u << 16);
+			put(23, 3);
+			put(30, 0);
+			frames[2].func = &stack[30];
+			frames[2].base = &stack[31];
+			check(entry(armed) == LuaCallEntryVerdict::candidate,
+				"R13 entry: a parent CALL of a different closure does not own this entry" + tag);
+
+			// h. Unproven shapes take the full path.
+			state.ci = &frames[5] + 1;
+			check(entry(armed) == LuaCallEntryVerdict::undecided, "R13 entry: a CallInfo outside the array is undecided" + tag);
+			frames[4].func = state.stack_last + 2;
+			state.ci = &frames[4];
+			check(entry(armed) == LuaCallEntryVerdict::undecided, "R13 entry: a function slot outside the stack is undecided" + tag);
+			check(!lua_call_entry_prefilter_skips(LuaCallEntryVerdict::undecided)
+					&& !lua_call_entry_prefilter_skips(LuaCallEntryVerdict::candidate)
+					&& lua_call_entry_prefilter_skips(LuaCallEntryVerdict::skip_call_observer_owns)
+					&& lua_call_entry_prefilter_skips(LuaCallEntryVerdict::skip_not_fresh),
+				"R13 entry: only candidate and undecided take the full path" + tag);
+		}
+		check(de_proto_code_offset == 0x10 && de_proto_numparams_offset == 0x04,
+			"R13 entry: DE prototype code pointer +0x10 and parameter count +0x04");
+	}
+
 	std::cout << (pass ? "LUA CALL RETIREMENT CORE PASS" : "LUA CALL RETIREMENT CORE FAIL") << '\n';
 	return pass ? 0 : 1;
 }
