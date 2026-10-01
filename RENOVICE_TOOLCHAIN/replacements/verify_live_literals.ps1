@@ -81,12 +81,13 @@ try {
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\replacements\verify_live_literals.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
     $runtime = Join-Path $mirror 'renovice\live_literals.cpp'
+    $engineParams = Join-Path $mirror 'renovice\engine_params.cpp' # R16: packages.cpp attaches engine_params.json
     $binary = Join-Path $scratch 'verify_live_literals.exe'
     $objects = Join-Path $scratch 'obj'
     New-Item -ItemType Directory -Path $objects -Force | Out-Null
     Push-Location $objects
     try {
-        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner $runtime 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner $runtime $engineParams 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
         $compileExit = $LASTEXITCODE
     }
     finally { Pop-Location }

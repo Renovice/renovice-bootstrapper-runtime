@@ -8,6 +8,7 @@
 #include "callback_runtime_bytecode.hpp"
 #include "automatic_damage_runtime_bytecode.hpp"
 #include "engine_damage.hpp"
+#include "engine_params.hpp"
 #include "addon_trace_policy.hpp"
 #include "caster_diagnostic_budget.hpp"
 #include "injected_interrupt_budget.hpp"
@@ -254,6 +255,9 @@ struct TargetLoadBoundary
 	bool addon_target = false;
 	bool pause_menu = false;
 	bool diagnostic_damage_source = false;
+	// ENGINE_PARAM_OVERRIDE (R16): a recipe names this stock key; its
+	// prototype identities are recorded after the loader returns.
+	bool engine_param_module = false;
 };
 
 struct TargetExecutionBoundary
@@ -14065,13 +14069,16 @@ TargetLoadBoundary inspect_target_load(void* descriptor) noexcept
 	const bool inspect_addon_target = observe_target_addons.load(std::memory_order_acquire);
 	boundary.diagnostic_damage_source = universal_observer_requested(
 		config::flags());
+	const bool inspect_engine_params = engine_params::observing();
 	if (!boundary.pause_menu && !inspect_addon_target
-		&& !boundary.diagnostic_damage_source)
+		&& !boundary.diagnostic_damage_source && !inspect_engine_params)
 	{
 		return boundary;
 	}
 	boundary.key = replacements::body_key(std::string_view(
 		reinterpret_cast<const char*>(body), size));
+	boundary.engine_param_module = inspect_engine_params
+		&& engine_params::module_wanted(boundary.key);
 	boundary.addon_target = inspect_addon_target
 		&& target_key_is_configured(boundary.key);
 	boundary.valid = boundary.key != 0
@@ -14409,6 +14416,47 @@ void remember_target_module_identity(
 		config::log(success.str());
 	}
 	publish_target_execution_snapshot_locked();
+}
+
+// ENGINE_PARAM_OVERRIDE (R16): records the prototype identities of a module a
+// recipe names, from the root closure the stock Loader just stored. Read-only
+// VM access (one registry lookup, popped again); nothing is pinned or kept:
+// engine_params re-verifies each record against the live prototype and its
+// code at every match. Same owner thread and VM as the load.
+void remember_engine_param_module(
+	std::uint64_t key,
+	luau_State* state,
+	const std::uint32_t* name_handle
+) noexcept
+{
+	if (key == 0 || state == nullptr || state->outtop == nullptr || state->global_state == nullptr
+		|| name_handle == nullptr || key_builder == nullptr || getfield == nullptr
+		|| !engine_params::module_wanted(key))
+	{
+		return;
+	}
+	try
+	{
+		ScopedVmApiFrame frame_capacity(state);
+		require_stack(state, 2);
+		auto* const base = state->outtop;
+		char registry_key[0x110]{};
+		key_builder(registry_key, 0x104, const_cast<std::uint32_t*>(name_handle));
+		getfield(state, -10000, registry_key);
+		luau_Closure* closure = nullptr;
+		const void* root = nullptr;
+		if (readable_lua_closure(*base, closure) && !closure->isC && closure->l.p != nullptr)
+			root = closure->l.p;
+		state->outtop = base;
+		if (root != nullptr) engine_params::record_module(key, state->global_state, root);
+		else config::log("RENOVICE ENGINE PARAMS MODULE REJECT key=" + engine_params::hex64(key)
+			+ " reason=loaded-root-closure-unavailable scope=module-local values=stock");
+	}
+	catch (...)
+	{
+		config::log("RENOVICE ENGINE PARAMS MODULE REJECT key=" + engine_params::hex64(key)
+			+ " reason=registry-read-failed scope=module-local values=stock");
+	}
 }
 
 void remember_diagnostic_module_identity(
@@ -17007,6 +17055,11 @@ LoaderDetourOutcome loader_detour_owned(
 			remember_target_module_identity(
 				target_boundary.key, state, manager, target_boundary.name_handle);
 		}
+		if (result && target_boundary.engine_param_module)
+		{
+			remember_engine_param_module(
+				target_boundary.key, state, target_boundary.name_handle);
+		}
 		if (result && target_boundary.diagnostic_damage_source)
 		{
 			remember_diagnostic_module_identity(
@@ -19460,8 +19513,14 @@ void remember_refreshed_target_module(
 	try
 	{
 		if (state == nullptr || manager == nullptr || name_handle == nullptr || key == 0
-			|| diagnostics::bad_read_ptr(state, sizeof(luau_State))
-			|| !observe_target_addons.load(std::memory_order_acquire)
+			|| diagnostics::bad_read_ptr(state, sizeof(luau_State)))
+		{
+			return;
+		}
+		// ENGINE_PARAM_OVERRIDE (R16): the refreshed closure's prototypes are
+		// the ones the next instances run (no-op for keys no recipe names).
+		remember_engine_param_module(key, state, name_handle);
+		if (!observe_target_addons.load(std::memory_order_acquire)
 			|| !target_key_is_configured(key))
 		{
 			return;

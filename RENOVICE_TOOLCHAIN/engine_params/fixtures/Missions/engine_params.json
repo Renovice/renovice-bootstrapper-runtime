@@ -1,0 +1,57 @@
+{
+  "format": "RENOVICE_ENGINE_PARAMS_V1",
+  "package": "package:missions",
+  "build": "2026.09.28.13.06",
+  "member": "Missions.targets.addon.lua_B",
+  "overrides": [
+    {
+      "value": "railjack.corpus_fighter_limit_scale",
+      "module": "0a6394a10884c38a",
+      "parameter": "minorKillGoals",
+      "hash": "288044d3",
+      "mode": "scale_count"
+    },
+    {
+      "value": "railjack.corpus_fighter_limit_scale",
+      "module": "0a6394a10884c38a",
+      "parameter": "minorKillGoalsMax",
+      "hash": "e290a5e6",
+      "mode": "scale_count"
+    },
+    {
+      "value": "exterminate.archwing_kill_mult",
+      "module": "c05987eccd08c1ca",
+      "parameter": "spaceBattleKillCountMultiplier",
+      "hash": "e34f013b",
+      "mode": "absolute"
+    },
+    {
+      "value": "exterminate.kills_scale",
+      "module": "c05987eccd08c1ca",
+      "parameter": "metersPerEnemy",
+      "hash": "baa888a8",
+      "mode": "scale_inverse"
+    },
+    {
+      "value": "interception.round_end_timer",
+      "module": "c9605470a8c47d8d",
+      "parameter": "roundEndTimer",
+      "hash": "b68a06b6",
+      "mode": "absolute"
+    },
+    {
+      "value": "interception.score_goal_scale",
+      "module": "c9605470a8c47d8d",
+      "parameter": "scoreGoal",
+      "hash": "3a44eae1",
+      "mode": "scale"
+    },
+    {
+      "value": "interception.scoring_speed",
+      "module": "c9605470a8c47d8d",
+      "parameter": "scoreRatePerSecond",
+      "hash": "5241ca6c",
+      "mode": "scale"
+    }
+  ]
+}

@@ -1,5 +1,17 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-01 Contract R16: ENGINE_PARAM_OVERRIDE (level parameters owned at the engine's writer) — staged (not deployed)
+
+Branch `feat/r16-engine-param-override-2026-10-01` from R13 `827027c`. Generic; no mission or ability rule in shared code. **Supersedes `combined-r13` for the DLL; the installed R15 Missions package stays and gains one file (`engine_params.json`).**
+
+- **Why.** The engine's parameter writer (44.0.2 apply_param `0x181CAE0`) writes level/encounter parameters into a script instance's environment and writes them again on existing instances (R15). The R10 entry write is lost for readers after a yield.
+- **Primitive.** Process-owned detour on the writer's value push (`0x191A010`): one stock push with the original arguments; when the parameter (stock module key + name hash) is declared in the committed plan and the push left a number, that number becomes stock x v / stock / v / v / the R11 count rule. Installed at startup only when a package ships `engine_params.json`, the executable digest is registered and 8 byte ranges match; otherwise nothing installs. Module identity from prototype records taken at the natural load and F9 refresh (re-verified per match, no registry pin). Diagnostics=false: the hook formats nothing.
+- **Declarations.** `Packages/<folder>/engine_params.json` (`RENOVICE_ENGINE_PARAMS_V1`); the plan takes the member's delivered value; those values are withheld from the addon's `context.settings` while the hook is installed (no double application). Older DLLs ignore the file (R10 lane).
+- **Gates.** New `verify_engine_params.ps1` (89 checks + source pins, installed-image byte check); package/settings/literal gates build `engine_params.cpp`; all build-listed gates PASS.
+- **Build.** Main DLL `2758b1abf05abb8068d160dd35a5714daaa4fead3b454dd23476448a2a870655` (6,041,088 B), 0 warnings, 0 errors.
+
+**Deployment and every live check are pending.** Install, rollback (`e5d9b61b…`) and live test: `work/staging/combined-r16/README.md`. [Record](../RESEARCH/ENGINE_PARAM_OVERRIDE_R16_2026-10-01/README.md).
+
 ## 2026-10-01 Contract R13: luaCalls.before at native entries + member policy retired — staged (DLL only, not deployed)
 
 Branch `fix/r13-native-entry-member-policy-2026-10-01` from `0cb0182` (R11). Generic; no mission or ability rule in shared code. **This entry supersedes `combined-r11`/`combined-r12` for the DLL; the installed R12 Missions package stays.**

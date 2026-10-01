@@ -3,6 +3,7 @@
 #include "renovice/config.hpp"
 #include "renovice/application_frame_profile.hpp"
 #include "renovice/de_vm_authority.hpp"
+#include "renovice/engine_params.hpp"
 #include "renovice/injection.hpp"
 #include "renovice/packages.hpp"
 #include "renovice/replacement_settings.hpp"
@@ -3313,6 +3314,11 @@ static SOUP_FORCEINLINE void create_all_hooks()
 		conout << "RENOVICE script control failed closed; custom Lua scripts will not be initialized." << std::endl;
 		return;
 	}
+	// ENGINE_PARAM_OVERRIDE (R16): the optional native parameter-writer hook
+	// is installed before the first package scan, which withholds the values
+	// it owns from their addon only when it is installed. Its failure is
+	// capability-local: those values stay on the addon's R10 Lua lane.
+	(void)renovice::engine_params::initialise();
 	// Optional folder packages are scanned once, before the Inject and
 	// replacement lanes that consume the same snapshot. A failure is local to
 	// packages: loose scripts load exactly as before.
@@ -5682,6 +5688,8 @@ BOOL APIENTRY DllMain(HMODULE hmod, DWORD reason, PVOID)
 				{
 					executable_sha256_hex = string::bin2hexLower(
 						sha256::hash(executable_reader));
+					// R16: the exact-image key of the ENGINE_PARAM_OVERRIDE registration.
+					renovice::engine_params::set_executable_digest(executable_sha256_hex);
 					supported_executable_hash_43 =
 						g_client_tunables.isStringInArray(
 							game_version >= GV(44, 0, 0) ? joaat::compileTimeHash("supported_client_sha256_44") : joaat::compileTimeHash("supported_client_sha256_43"),

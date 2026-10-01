@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine_params_core.hpp"
 #include "live_literals_core.hpp"
 #include "packages_core.hpp"
 
@@ -70,6 +71,16 @@ struct Package
 	std::shared_ptr<const live_literals::Recipes> literal_recipes;
 	std::string literals_reason;
 	std::vector<live_literals::ModulePlan> literal_plans;
+	// ENGINE_PARAM_OVERRIDE (engine_params.hpp, contract R16): the parsed
+	// engine_params.json, or nullptr with engine_params_reason (recipe-local).
+	// engine_plan: the member's delivered values of the overridden parameters
+	// (committing scans, only while the native hook is installed). When a plan
+	// exists the recipe's values are withheld from the member's delivery;
+	// engine_full_delivery keeps the delivery before that (conflict restore).
+	std::shared_ptr<const engine_params::Recipe> engine_recipe;
+	std::string engine_params_reason;
+	std::vector<engine_params::PlanEntry> engine_plan;
+	std::shared_ptr<const settings::MemberDelivery> engine_full_delivery;
 };
 
 struct Snapshot

@@ -60,6 +60,7 @@ try {
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\injection\verify_script_packages.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
     $literals = Join-Path $mirror 'renovice\live_literals.cpp' # LIVE_LITERALS_V1: packages.cpp attaches recipes
+    $engineParams = Join-Path $mirror 'renovice\engine_params.cpp' # R16: packages.cpp attaches engine_params.json
     $binary = Join-Path $scratch 'verify_script_packages.exe'
     # Two translation units: compile inside a dedicated object folder so no
     # /Fo directory argument (with a trailing backslash) is needed.
@@ -67,7 +68,7 @@ try {
     New-Item -ItemType Directory -Path $objects -Force | Out-Null
     Push-Location $objects
     try {
-        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner $literals 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+        $output = @(& cl /nologo /std:c++20 /O2 /W4 /WX /EHsc /DRENOVICE_PACKAGES_OFFLINE_GATE /Fe:$binary $source $scanner $literals $engineParams 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
         $compileExit = $LASTEXITCODE
     }
     finally { Pop-Location }

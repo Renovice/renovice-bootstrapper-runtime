@@ -1,6 +1,7 @@
 #include "packages.hpp"
 
 #include "config.hpp"
+#include "engine_params.hpp"
 #include "live_literals.hpp"
 #include "replacement_settings_core.hpp"
 #include "script_control.hpp"
@@ -152,6 +153,7 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 	std::filesystem::path manifest_path;
 	bool manifest_found = false;
 	std::filesystem::path recipe_path; // LIVE_LITERALS_V1 literals.json (optional)
+	std::filesystem::path engine_recipe_path; // ENGINE_PARAM_OVERRIDE engine_params.json (optional, R16)
 	std::error_code ec;
 	for (std::filesystem::directory_iterator it(folder_path, ec), end; !ec && it != end; it.increment(ec))
 	{
@@ -174,6 +176,10 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 		else if (ascii_iequal(name, live_literals::recipe_filename))
 		{
 			recipe_path = it->path();
+		}
+		else if (ascii_iequal(name, engine_params::recipe_filename))
+		{
+			engine_recipe_path = it->path();
 		}
 		// Any other file (README, SHA256SUMS, ...) is documentation and ignored.
 	}
@@ -245,6 +251,7 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 		}
 	}
 	if (!recipe_path.empty()) live_literals::attach_recipes(package, recipe_path);
+	if (!engine_recipe_path.empty()) engine_params::attach_recipe(package, engine_recipe_path);
 
 	std::vector<std::uint64_t> replacement_keys;
 	for (const auto& [name, path] : files)
@@ -461,6 +468,10 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 		if (member.staged) ++staged;
 	}
 	live_literals::resolve_package_plans(package, usable, evaluation, trigger);
+	// ENGINE_PARAM_OVERRIDE (R16): the plan comes from the member's delivery
+	// (the exact values the addon would get); the owned values are withheld
+	// from that delivery while the native hook is installed.
+	engine_params::resolve_package(package, trigger);
 	if (trigger == nullptr) return;
 	if (evaluation.file == settings::FileStatus::Malformed)
 	{
@@ -601,6 +612,7 @@ bool scan(Snapshot& output, bool committing, const char* trigger)
 	{
 		if (package.structurally_valid) apply_member_policy_and_settings(package, committing, trigger);
 	}
+	if (committing) engine_params::resolve_conflicts(output, trigger);
 
 	std::size_t accepted = 0, disabled = 0, rejected = 0;
 	for (auto& package : output.packages)
@@ -668,6 +680,8 @@ bool initialise()
 	active_snapshot = scanned ? std::shared_ptr<const Snapshot>(std::move(snapshot))
 		: std::make_shared<Snapshot>();
 	prepared_snapshot.reset();
+	// ENGINE_PARAM_OVERRIDE (R16): the startup plan is the committed generation.
+	engine_params::publish(engine_params::build_snapshot(active_snapshot.get()), "startup");
 	return scanned;
 }
 
@@ -675,6 +689,9 @@ bool prepare_reload()
 {
 	auto snapshot = std::make_shared<Snapshot>();
 	if (!scan(*snapshot, true, "F9")) return false;
+	// ENGINE_PARAM_OVERRIDE (R16): prepared with the package snapshot; the hook
+	// sees it only after the F9 commit.
+	engine_params::prepare(engine_params::build_snapshot(snapshot.get()));
 	std::lock_guard lock(snapshot_mutex);
 	prepared_snapshot = std::move(snapshot);
 	return true;
@@ -686,12 +703,14 @@ void commit_prepared_reload()
 	if (!prepared_snapshot) return;
 	active_snapshot = std::move(prepared_snapshot);
 	prepared_snapshot.reset();
+	engine_params::commit_prepared("F9");
 }
 
 void discard_prepared_reload()
 {
 	std::lock_guard lock(snapshot_mutex);
 	prepared_snapshot.reset();
+	engine_params::discard_prepared();
 }
 
 std::shared_ptr<const Snapshot> candidate()
