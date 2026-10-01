@@ -215,7 +215,7 @@ function ConvertTo-HarnessPage([string]$Path) {
     return @{ Text = $builder.ToString(); Rows = $rows.Count; ValuePages = $valpages.Count; InlineCounts = $inlineCounts; ExpectedPages = $expectedPages }
 }
 
-function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [switch]$R5, [string]$TapeData = '') {
+function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [switch]$R5, [string]$TapeData = '', [switch]$R17) {
     $builder = New-Object System.Text.StringBuilder
     $offsets = @{}
     $append = {
@@ -237,7 +237,7 @@ function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [
     & $append "end"
     if ($PageData -ne '') { & $append $PageData }
     if ($R5) { & $append "HARNESS_R5 = true" }
-    if ($TapeData -ne '') { & $append $TapeData; & $append "HARNESS_R7 = true" }
+    if ($TapeData -ne '') { & $append $TapeData; & $append $(if ($R17) { "HARNESS_R17 = true" } else { "HARNESS_R7 = true" }) }
     & $append ([IO.File]::ReadAllText((Join-Path $renderDir "harness_driver.luau")))
     $file = Join-Path $scratch "harness_$Tag.luau"
     [IO.File]::WriteAllText($file, $builder.ToString(), (New-Object System.Text.UTF8Encoding($false)))
@@ -493,6 +493,84 @@ $orokinSynthesized = @($tapeOutput | Where-Object { $_ -like "TAPEPLAN`tMissions
 if ($corpusArgs.Count -gt 0) { Require ($orokinSynthesized.Count -eq 1) "R11: the Orokin escape timer plan (a coupled site, value_offset -3) synthesizes from the real U44 stock bytes" }
 Require ([int]$r7Report['r11'] -eq 2) "R11: Missions -> Railjack -> Fighters to kill ('x1 (20-130) (default)', one category, rows on the Railjack page) takes 0.5 ('Fighters to kill: 0.5x', 'Railjack: 1 changed'); Missions -> Sabotage -> Timers -> Orokin: escape timer (coupled live literal) takes 45 ('Orokin: escape timer: 45 s', 'Timers: 1 changed', 'Sabotage: 1 changed')"
 Require ([int]$r7Report['r10'] -eq 1) "R10: Missions -> Defense -> Objectives -> Waves to finish ('Endless (default)', a MissionInfo count) opens a stepper, 3 is typed and applied, and the rows read 'Waves to finish: 3', 'Objectives: 1 changed', 'Defense: 1 changed'; the values file holds { enabled: true, value: 3 }"
+
+# 1d. R17 (2026-10-01): "All <mission type> missions" masters. A value declared
+# quick_on_page shows its Quick settings pair (CHECKBOX on/off + BUTTON with the
+# kept number) at the top of its mission-type page. The real R17 Missions
+# package (fixtures\r17, the build staged in work\staging\combined-r17) goes
+# through the host tape; the bridge under test walks Missions -> Survival ->
+# "All Survival missions" (its kept number) -> 60 -> back, then Quick settings
+# must show the same 60 (one storage: stored:/active:).
+$r17Fixture = Join-Path $renderDir 'fixtures\r17'
+$r17Packages = Join-Path $scratch 'r17-packages'
+if (Test-Path -LiteralPath $r17Packages) { Remove-Item -LiteralPath $r17Packages -Recurse -Force }
+$r17Keys = @([IO.File]::ReadAllLines((Join-Path $r17Fixture 'Missions.target_keys.txt')) | Where-Object { $_ -match '^[0-9a-f]{16}$' })
+$r17Dir = Join-Path $r17Packages 'Missions'
+New-Item -ItemType Directory -Path $r17Dir -Force | Out-Null
+foreach ($name in @('package.json', 'literals.json')) { Copy-Item -LiteralPath (Join-Path $r17Fixture "Missions\$name") -Destination $r17Dir }
+$r17Manifest = [IO.File]::ReadAllText((Join-Path $r17Fixture 'Missions\package.json')) | ConvertFrom-Json
+foreach ($member in $r17Manifest.members.PSObject.Properties.Name) {
+    $bytes = New-Object System.Collections.Generic.List[byte]
+    $bytes.AddRange([byte[]](0x09, 0x03, [byte]$r17Keys.Count))
+    foreach ($key in $r17Keys) { $bytes.Add([byte]$key.Length); $bytes.AddRange([Text.Encoding]::ASCII.GetBytes($key)) }
+    $bytes.AddRange([byte[]]::new(32))
+    [IO.File]::WriteAllBytes((Join-Path $r17Dir $member), $bytes.ToArray())
+}
+$r17Plan = @(
+    # The kept-number page closed with Confirm, then the Survival page closed with Back (its switch restaged unchanged).
+    "STAGE`tstored:missions/survival.reward_interval`ttext`t60`trestage",
+    "STAGE`tactive:missions/survival.reward_interval`tbool`ttrue`trestage"
+)
+$r17Expect = @(
+    "EXPECTROW`t0`tnode:Missions/36`tactive:missions/survival.reward_interval`tAll Survival missions",
+    "EXPECTROW`t0`tnode:Missions/36`topen:qval:Missions/survival.reward_interval`tTime between rewards: 150 s",
+    "EXPECTROW`t0`tnode:Missions/7`tactive:missions/control_area.hold_time`tAll Control Area missions",
+    "EXPECTROW`t0`tnode:Missions/30`topen:qval:Missions/railjack.kill_goals_scale`tKill goals: x1 (default)",
+    "EXPECTROW`t1`tnode:Missions/36`topen:qval:Missions/survival.reward_interval`tTime between rewards: 60 s",
+    "EXPECTROW`t1`tquick:Missions`topen:qval:Missions/survival.reward_interval`tSurvival: 60 s",
+    "EXPECTROW`t2`tquick:Missions`tactive:missions/survival.reward_interval`tSurvival: time between rewards",
+    "EXPECTFILE`tMissions`tsurvival.reward_interval`tenabled=1`tvalue=60"
+)
+$r17PlanFile = Join-Path $scratch 'r17_tape_plan.txt'
+[IO.File]::WriteAllText($r17PlanFile, ((@($r17Plan) + $r17Expect) -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $r17TapeOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1') -Package $r17Dir -Settings (Join-Path $r17Fixture 'Settings\Missions.json') -Tape $r17PlanFile 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    $r17TapeExit = $LASTEXITCODE
+}
+finally { $ErrorActionPreference = $previousPreference }
+$r17TapeOutput | Where-Object { $_ -like 'TAPEOP*' -or $_ -like 'TAPESTEPS*' -or $_ -like 'FAIL*' -or ($_ -like 'PASS*' -and $_.Contains('tape')) } | ForEach-Object { Write-Output "R17-TAPE`t$_" }
+Require ($r17TapeExit -eq 0 -and ($r17TapeOutput -contains 'ADDON SETTINGS PASS') -and @($r17TapeOutput | Where-Object { $_ -like 'FAIL*' }).Count -eq 0) "R17 host tape: the R17 Missions package passes the scanner and page model, both planned calls apply and every EXPECTROW/EXPECTFILE holds ($($r17Expect.Count) checks)"
+$r17Steps = @{}
+foreach ($line in $r17TapeOutput) {
+    $fields = $line.Split("`t")
+    if ($fields[0] -eq 'TAPEPAGE') {
+        $key = "$($fields[1])|$($fields[2])"
+        $r17Steps[$key] = @{ Step = [int]$fields[1]; Id = $fields[2]; Title = ($fields[3] -replace '^title=', ''); Empty = ($fields[4] -replace '^empty=', ''); Rows = (New-Object System.Collections.Generic.List[string]) }
+    }
+    elseif ($fields[0] -eq 'TAPEROW') {
+        $r17Steps["$($fields[1])|$($fields[2])"].Rows.Add((ConvertTo-LuauRow $fields[3..($fields.Count - 1)]))
+    }
+}
+$r17Tape = New-Object System.Text.StringBuilder
+[void]$r17Tape.Append("HARNESS_TAPE = { plan = {`n")
+foreach ($call in $r17Plan) { [void]$r17Tape.Append("  $(ConvertTo-LuauString $call),`n") }
+[void]$r17Tape.Append("}, steps = {}`n}`n")
+foreach ($entry in ($r17Steps.Values | Sort-Object { $_.Step })) {
+    [void]$r17Tape.Append("HARNESS_TAPE.steps[$($entry.Step)] = HARNESS_TAPE.steps[$($entry.Step)] or {}`n")
+    [void]$r17Tape.Append("HARNESS_TAPE.steps[$($entry.Step)][$(ConvertTo-LuauString $entry.Id)] = { title = $(ConvertTo-LuauString $entry.Title), empty = $(ConvertTo-LuauString $entry.Empty), search = false, rows = {`n")
+    foreach ($row in $entry.Rows) { [void]$r17Tape.Append("  $row,`n") }
+    [void]$r17Tape.Append("} }`n")
+}
+$r17 = Invoke-Harness $bridgeSource 'r17' '' -TapeData $r17Tape.ToString() -R17
+$r17.Output | Where-Object { $_ -like 'TAPECALL*' -or $_ -like 'R7REPORT*' -or $_ -like 'FAIL*' -or $_ -like 'ERROR*' -or $_ -like 'SCRIPT SETTINGS RENDER HARNESS*' } | Select-Object -First 40 | ForEach-Object { Write-Output "R17`t$_" }
+$r17Line = @($r17.Output | Where-Object { $_ -like "R7REPORT`t*" })
+$r17Report = @{}
+if ($r17Line.Count -gt 0) { foreach ($pair in $r17Line[0].Substring(9).Split(' ')) { $kv = $pair.Split('=', 2); if ($kv.Count -eq 2) { $r17Report[$kv[0]] = $kv[1] } } }
+Require ($r17.Exit -eq 0 -and @($r17.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0 -and @($r17.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "R17: the bridge renders the R17 pages (a CHECKBOX and its kept-number BUTTON on a mission-type page) through the stock screen with no Lua error"
+Require ([int]$r17Report['calls'] -eq $r17Plan.Count -and (Get-Category $r17 'r7-plan') -eq 0) "R17: the bridge made exactly the $($r17Plan.Count) planned host calls, in order"
+Require ([int]$r17Report['r17'] -eq 2 -and (Get-Category $r17 'r7-refresh') -eq 0 -and (Get-Category $r17 'r7-close') -eq 0 -and (Get-Category $r17 'r7-nav') -eq 0) "R17: Missions -> Survival -> 'All Survival missions' (on) -> 'Time between rewards: 150 s' -> 60 -> back reads 'Time between rewards: 60 s'; Quick settings then shows 'Survival: 60 s' with its switch on (one storage)"
 
 # 2. Negative control R3: the installed bridge 739d8177 on the same page
 # reproduces the live R4 defects.

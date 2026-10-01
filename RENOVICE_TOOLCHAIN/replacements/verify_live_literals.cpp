@@ -532,6 +532,120 @@ void part3_synthesis(const ll::Recipes& recipes, const settings::Declarations& m
 }
 
 // ---------------------------------------------------------------------------
+// Contract R17 (2026-10-01): a master over rows of several modules (a mission-type
+// master: Control Area hold time over the Cambion Drift, Plains and Deepmines
+// scripts). A drive may name its own "module"; rows, sites and plans are per
+// (module, row). Built here from the fixture's two Control Area rows.
+std::string site_json(const patch::Site& site)
+{
+	std::string text = "{\"kind\": \"" + std::string(site.kind == patch::SiteKind::Loadn ? "loadn" : "number_constant")
+		+ "\", \"offset\": " + std::to_string(site.offset) + ", \"expected\": \""
+		+ ll::hex_bytes(site.expected.data(), patch::width(site.kind)) + "\"";
+	if (site.kind == patch::SiteKind::Loadn) text += ", \"register\": " + std::to_string(site.reg);
+	if (site.rewrites_instruction) text += ", \"rewrites_instruction\": true";
+	if (site.kind == patch::SiteKind::NumberConstant) text += ", \"constant_gate\": \"K_CONSTANT_EXCLUSIVE_V1\"";
+	text += ", \"numerator\": " + settings::json::number_text(site.numerator) + ", \"denominator\": "
+		+ settings::json::number_text(site.denominator) + "}";
+	return text;
+}
+
+std::string drive_json(const ll::Drive& drive, const std::string& module)
+{
+	std::string sites;
+	for (const auto& site : drive.sites) sites += (sites.empty() ? "" : ", ") + site_json(site);
+	return "{\"row\": \"" + drive.row + "\"" + (module.empty() ? std::string() : ", \"module\": \"" + module + "\"")
+		+ ", \"scale\": 1, \"integer\": " + (drive.integer_row ? "true" : "false") + ", \"stock\": "
+		+ settings::json::number_text(drive.row_stock) + ", \"sites\": [" + sites + "]}";
+}
+
+void part6_cross_module(const Fixture& fixture, const ll::Recipes& recipes, const std::filesystem::path& corpus)
+{
+	const auto* deimos = recipes.value("control_area_deimos.duration");
+	const auto* plains = recipes.value("control_area_plains.duration");
+	check(deimos != nullptr && plains != nullptr && deimos->module != plains->module,
+		"R17 fixture: two direct rows in two modules (Cambion Drift and Plains hold time)");
+	if (deimos == nullptr || plains == nullptr) return;
+	const std::string deimos_key = ll::hex64(deimos->module), plains_key = ll::hex64(plains->module);
+	const settings::Declarations base = manifest_declarations(fixture.manifest);
+	settings::Declarations probe = base;
+	(void)ll::merge_declarations(recipes, probe);
+	const std::string group = probe.value("control_area_deimos.duration")->group;
+	const auto master = [&](const std::string& id, const std::string& module, const std::string& drives)
+	{
+		return "\"" + id + "\": {\"declaration\": {\"group\": \"" + group + "\", \"label\": \"Gate cross " + id.substr(5) + "\", "
+			"\"unit\": \"s\", \"type\": \"int\", \"stock\": 90, \"min\": 1, \"max\": 1000, \"scope\": \"gate\", "
+			"\"lane\": \"literal\", \"applies\": \"next_mission\", \"path\": [\"Control Area\"], \"row\": \"All areas\", "
+			"\"quick\": \"Control Area: hold time\", \"quick_on_page\": true}, \"module\": \"" + module + "\", \"drives\": [" + drives + "]},\n    ";
+	};
+	const std::string cross = master("gate.cross", deimos_key,
+		drive_json(deimos->drives.front(), "") + ", " + drive_json(plains->drives.front(), plains_key));
+	const auto with = [&](const std::string& values) { return replace_once(fixture.recipe, "\"values\": {\n    ", "\"values\": {\n    " + values); };
+	ll::Recipes parsed;
+	const auto text = with(cross);
+	const auto error = text.empty() ? std::string("mutation-not-applied") : ll::parse_recipes(text, "package:missions", parsed);
+	settings::Declarations merged = base;
+	const auto merge_error = error.empty() ? ll::merge_declarations(parsed, merged) : std::string("parse");
+	const auto* value = parsed.value("gate.cross");
+	check(error.empty() && merge_error.empty() && value != nullptr && !value->direct() && value->drives.size() == 2
+			&& value->drives[0].module == deimos->module && value->drives[1].module == plains->module
+			&& merged.value("gate.cross") != nullptr && merged.value("gate.cross")->quick_on_page,
+		"R17 recipe: a master's drive names another module; it parses and merges (" + error + merge_error + ")");
+	if (!error.empty() || !merge_error.empty()) return;
+
+	// The master at 30 gives both modules the plans their direct rows at 30 give.
+	const auto by_master = resolve(parsed, merged, state_with(merged, {{"gate.cross", {true, 30}}}));
+	const auto by_rows = resolve(parsed, merged, state_with(merged, {{"control_area_deimos.duration", {true, 30}},
+		{"control_area_plains.duration", {true, 30}}}));
+	const auto* master_deimos = plan_of(by_master, deimos->module);
+	const auto* master_plains = plan_of(by_master, plains->module);
+	const auto* row_deimos = plan_of(by_rows, deimos->module);
+	const auto* row_plains = plan_of(by_rows, plains->module);
+	bool synthesized = master_deimos != nullptr && master_plains != nullptr;
+	for (const auto* plan : {master_deimos, master_plains})
+	{
+		if (plan == nullptr) continue;
+		const auto stock = read_text(corpus / parsed.module(plan->key)->file);
+		synthesized = synthesized && ll::synthesize(*plan, reinterpret_cast<const unsigned char*>(stock.data()), stock.size()).error.empty();
+	}
+	check(by_master.plans.size() == 2 && by_master.rejections.empty() && row_deimos != nullptr && row_plains != nullptr
+			&& master_deimos != nullptr && master_plains != nullptr
+			&& master_deimos->patches.size() == row_deimos->patches.size() && master_plains->patches.size() == row_plains->patches.size()
+			&& master_deimos->identity == row_deimos->identity && master_plains->identity == row_plains->identity && synthesized,
+		"R17 plans: the master at 30 patches both modules exactly like their rows at 30, and both synthesize from the stock bytes");
+	const auto mixed = resolve(parsed, merged, state_with(merged, {{"gate.cross", {true, 30}}, {"control_area_plains.duration", {true, 45}}}));
+	const auto plains45 = resolve(parsed, merged, state_with(merged, {{"control_area_plains.duration", {true, 45}}}));
+	check(plan_of(mixed, plains->module) != nullptr && plan_of(plains45, plains->module) != nullptr
+			&& plan_of(mixed, plains->module)->identity == plan_of(plains45, plains->module)->identity
+			&& plan_of(mixed, deimos->module) != nullptr && master_deimos != nullptr
+			&& plan_of(mixed, deimos->module)->identity == master_deimos->identity,
+		"R17 precedence: a location row that is on wins in its module; the master still drives the other module");
+	check(resolve(parsed, merged, state_with(merged, {{"gate.cross", {true, 90}}})).plans.empty()
+			&& resolve(parsed, merged, state_with(merged, {{"gate.cross", {false, 30}}})).plans.empty(),
+		"R17 default and off: the master at its stock, or off, adds no patch to any module");
+
+	// Rejects.
+	const std::vector<std::pair<std::string, std::string>> rejects = {
+		{master("gate.undeclared", deimos_key, drive_json(deimos->drives.front(), "") + ", " + drive_json(plains->drives.front(), "0123456789abcdef")),
+			"recipe-drive-module-not-declared"},
+		{master("gate.same", deimos_key, drive_json(deimos->drives.front(), deimos_key)), "recipe-drive-module-is-the-value-module"},
+		{master("gate.second", deimos_key, drive_json(plains->drives.front(), plains_key)) + cross, "recipe-row-driven-twice"},
+		{"\"gate.direct\": {\"declaration\": {\"group\": \"" + group + "\", \"label\": \"Gate direct\", \"unit\": \"s\", "
+			"\"type\": \"int\", \"stock\": 90, \"min\": 1, \"max\": 1000, \"scope\": \"gate\", \"lane\": \"literal\", "
+			"\"applies\": \"next_mission\"}, \"module\": \"" + deimos_key + "\", \"drives\": ["
+			+ replace_once(drive_json(plains->drives.front(), plains_key), "\"row\": \"control_area_plains.duration\"", "\"row\": \"gate.direct\"")
+			+ "]},\n    ", "recipe-direct-value-in-another-module"},
+		{master("gate.badkey", deimos_key, drive_json(deimos->drives.front(), "") + ", " + drive_json(plains->drives.front(), "XYZ")),
+			"drive-module-invalid"},
+	};
+	for (const auto& [values, reason] : rejects)
+	{
+		const auto mutated = with(values);
+		const auto rejected = mutated.empty() ? std::string("mutation-not-applied") : parse_error(mutated);
+		check(rejected.find(reason) != std::string::npos, "R17 recipe reject: " + reason + " (" + rejected + ")");
+	}
+}
+
+// ---------------------------------------------------------------------------
 void part4_scan(const std::filesystem::path& work, const Fixture& fixture, const std::filesystem::path& corpus)
 {
 	std::error_code ec;
@@ -783,6 +897,7 @@ int main(int argc, char** argv)
 	part3_synthesis(recipes, merged, corpus, baked);
 	part4_scan(work, fixture, corpus);
 	part5_ui(recipes, merged, corpus);
+	part6_cross_module(fixture, recipes, corpus);  // R17
 	std::cout << (pass ? "LIVE LITERALS CHECKER PASS" : "LIVE LITERALS CHECKER FAIL") << '\n';
 	return pass ? 0 : 1;
 }

@@ -33,7 +33,12 @@
 // }
 // The value is an addon-lane int/float value of `member`. Its delivered value
 // (the exact number the addon would get in context.settings) drives the
-// override. When the native lane is installed, every value the recipe names
+// override. R17: an override may name `"master": "<value id>", "scale": S`, an
+// addon-lane value of the same member (a mission-type master knob): when the
+// row's own value is not delivered, the master's delivered value x S drives
+// the override (the R5 master rule; a master at its stock adds nothing). The
+// master itself is never withheld (it drives other addon rows); the producer
+// leaves this row out of the addon's master drives. When the native lane is installed, every value the recipe names
 // is WITHHELD from the member's context.settings, so the addon's own R10 Lua
 // write for it stays off (no double application). Without the lane (older
 // DLL: the file is ignored; unregistered build or a hook failure: nothing is
@@ -159,6 +164,8 @@ struct OverrideDecl
 	std::string parameter;
 	std::uint32_t hash = 0;
 	Mode mode = Mode::Absolute;
+	std::string master;  // R17 (optional): the master knob that drives the row
+	double scale = 1.0;  // R17: row value = master x scale
 };
 
 struct Recipe
@@ -285,7 +292,7 @@ inline std::string parse_recipe(std::string_view text, std::string_view expected
 	for (const auto& item : overrides->items)
 	{
 		if (!item.is_object()) return "recipe-override-not-object";
-		if (!detail::only_fields(item, {"value", "module", "parameter", "hash", "mode"}, unknown))
+		if (!detail::only_fields(item, {"value", "module", "parameter", "hash", "mode", "master", "scale"}, unknown))
 			return "recipe-override-unknown-field=" + unknown;
 		OverrideDecl decl;
 		const auto* value = item.find("value");
@@ -309,6 +316,20 @@ inline std::string parse_recipe(std::string_view text, std::string_view expected
 		const auto* mode = item.find("mode");
 		if (mode == nullptr || !mode->is_string() || !parse_mode(mode->text, decl.mode))
 			return "recipe-override-mode-invalid" + where;
+		if (const auto* master = item.find("master"))  // R17
+		{
+			if (!master->is_string() || !settings::valid_value_id(master->text) || master->text == decl.value)
+				return "recipe-override-master-invalid" + where;
+			decl.master = master->text;
+			const auto* scale = item.find("scale");
+			if (scale == nullptr || !scale->is_number() || !std::isfinite(scale->number) || !(scale->number > 0.0))
+				return "recipe-override-scale-invalid" + where;
+			decl.scale = scale->number;
+		}
+		else if (item.find("scale") != nullptr)
+		{
+			return "recipe-override-scale-without-master" + where;
+		}
 		if (!seen.emplace(decl.module, decl.hash).second)
 			return "recipe-override-duplicate module=" + hex64(decl.module) + " hash=" + hex32(decl.hash);
 		out.overrides.push_back(std::move(decl));
@@ -337,7 +358,26 @@ inline std::string validate_recipe(const Recipe& recipe, const settings::Declara
 			return "recipe-inverse-value-needs-positive-minimum" + where;
 		if (check_hashes && name_hash(item.parameter, seed) != item.hash)
 			return "recipe-hash-is-not-the-name-hash parameter=" + item.parameter + where;
+		if (!item.master.empty())  // R17
+		{
+			const auto* master = declarations.value(item.master);
+			if (master == nullptr) return "recipe-master-not-declared" + where;
+			if (master->lane != settings::Lane::Addon || master->live_literal || master->member != recipe.member
+				|| master->type == settings::ValueType::Enum)
+			{
+				return "recipe-master-not-an-addon-value-of-the-member" + where;
+			}
+			if (std::fabs(master->stock * item.scale - value->stock) > 1e-9 * std::max(1.0, std::fabs(value->stock)))
+				return "recipe-master-stock-times-scale-is-not-the-row-stock" + where;
+			for (const auto& other : recipe.overrides)
+				if (other.value == item.master) return "recipe-master-is-an-overridden-value" + where;
+		}
 	}
+	// One master per row (every parameter of a row names the same master and scale).
+	for (const auto& lhs : recipe.overrides)
+		for (const auto& rhs : recipe.overrides)
+			if (lhs.value == rhs.value && (lhs.master != rhs.master || lhs.scale != rhs.scale))
+				return "recipe-row-masters-disagree value=" + lhs.value;
 	return {};
 }
 
@@ -352,6 +392,7 @@ struct PlanEntry
 	float value = 0.0f;
 	std::string value_id;
 	std::string parameter;
+	std::string source;  // R17: the value that supplied `value` (the row, or its master)
 };
 
 inline bool entry_less(const PlanEntry& lhs, const PlanEntry& rhs) noexcept
@@ -361,16 +402,31 @@ inline bool entry_less(const PlanEntry& lhs, const PlanEntry& rhs) noexcept
 
 // The delivered value (exact float the addon would receive) of every override
 // whose value is delivered. Values that are off (not delivered) add nothing.
+// R17: a row that is not delivered takes its master's delivered value x scale
+// when the master is delivered and not at its stock (the R5 master rule).
 inline std::vector<PlanEntry> resolve_entries(const Recipe& recipe, const settings::MemberDelivery* delivery)
 {
 	std::vector<PlanEntry> entries;
 	if (delivery == nullptr) return entries;
-	for (const auto& item : recipe.overrides)
+	const auto delivered = [&](const std::string& id) -> const settings::DeliveredValue*
 	{
 		const auto found = std::find_if(delivery->values.begin(), delivery->values.end(),
-			[&](const settings::DeliveredValue& value) { return value.id == item.value; });
-		if (found == delivery->values.end() || !std::isfinite(found->value)) continue;
-		entries.push_back(PlanEntry{item.module, item.hash, item.mode, found->value, item.value, item.parameter});
+			[&](const settings::DeliveredValue& value) { return value.id == id; });
+		return found == delivery->values.end() || !std::isfinite(found->value) ? nullptr : &*found;
+	};
+	for (const auto& item : recipe.overrides)
+	{
+		if (const auto* own = delivered(item.value))
+		{
+			entries.push_back(PlanEntry{item.module, item.hash, item.mode, own->value, item.value, item.parameter, item.value});
+			continue;
+		}
+		if (item.master.empty()) continue;
+		const auto* master = delivered(item.master);
+		if (master == nullptr || master->value == master->stock) continue;
+		const float value = static_cast<float>(static_cast<double>(master->value) * item.scale);
+		if (!std::isfinite(value)) continue;
+		entries.push_back(PlanEntry{item.module, item.hash, item.mode, value, item.value, item.parameter, item.master});
 	}
 	std::sort(entries.begin(), entries.end(), entry_less);
 	return entries;
@@ -397,7 +453,7 @@ inline std::string plan_identity(const std::vector<PlanEntry>& entries)
 		char value[32]{};
 		std::snprintf(value, sizeof(value), "%.9g", static_cast<double>(entry.value));
 		canonical += hex64(entry.module) + ":" + hex32(entry.hash) + ":" + mode_label(entry.mode) + ":" + value + ":"
-			+ entry.value_id + "\n";
+			+ entry.value_id + (entry.source.empty() || entry.source == entry.value_id ? std::string() : "<" + entry.source) + "\n";
 	}
 	return "engine-params-v1:" + settings::sha256_hex(canonical).substr(0, 32);
 }

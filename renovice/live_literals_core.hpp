@@ -37,6 +37,9 @@
 //       "module": "<16 hex key>",
 //       "insert_before": "<declared value id>", // optional: display order
 //       "drives": [ { "row": "<row id>", "scale": S, "integer": B, "stock": R,
+//                     "module": "<16 hex key>",   // optional (R17): another module
+//                                                 // than the value's (a master
+//                                                 // over several modules)
 //                     "sites": [ { "kind": "loadn"|"number_constant",
 //                                  "offset": N, "expected": "<hex>",
 //                                  "register": N,               // loadn
@@ -49,6 +52,8 @@
 // A value whose single drive names its own id is a DIRECT row value; any other
 // value is a MASTER knob (row value = master x scale). A row's own value, when
 // it is on, wins over its master (the addon lane's rule, CONTRACT R5-3).
+// R17: a drive may name its own module (a mission-type master over several
+// location scripts); rows, sites and plans are per (module, row).
 
 #include <algorithm>
 #include <cmath>
@@ -90,6 +95,7 @@ struct ModuleRecipe
 
 struct Drive
 {
+	std::uint64_t module = 0; // R17: the drive's module (the value's when the field is absent)
 	std::string row;
 	double scale = 1.0;
 	bool integer_row = false;
@@ -289,10 +295,14 @@ inline std::string parse_drive(const settings::json::Value& value, Drive& drive)
 {
 	if (!value.is_object()) return "drive-not-object";
 	std::string unknown;
-	if (!only_fields(value, {"row", "scale", "integer", "stock", "sites"}, unknown)) return "drive-unknown-field=" + unknown;
+	if (!only_fields(value, {"row", "module", "scale", "integer", "stock", "sites"}, unknown)) return "drive-unknown-field=" + unknown;
 	const auto* row = value.find("row");
 	if (row == nullptr || !row->is_string() || !settings::valid_value_id(row->text)) return "drive-row-invalid";
 	drive.row = row->text;
+	if (const auto* module = value.find("module"))  // R17
+	{
+		if (!module->is_string() || !parse_key(module->text, drive.module)) return "drive-module-invalid row=" + drive.row;
+	}
 	const auto* scale = value.find("scale");
 	if (scale == nullptr || !scale->is_number() || !(scale->number > 0.0)) return "drive-scale-invalid row=" + drive.row;
 	drive.scale = scale->number;
@@ -416,19 +426,25 @@ inline std::string parse_recipes(std::string_view text, std::string_view expecte
 		{
 			return "recipe-drives-invalid" + where;
 		}
-		std::set<std::string> rows;
+		std::set<std::pair<std::uint64_t, std::string>> rows;
 		for (const auto& item : drives->items)
 		{
 			Drive drive;
 			if (auto error = detail::parse_drive(item, drive); !error.empty()) return "recipe-" + error + where;
-			if (!rows.insert(drive.row).second) return "recipe-drive-row-duplicate row=" + drive.row + where;
+			if (drive.module == 0) drive.module = recipe.module;
+			const ModuleRecipe* drive_owner = out.module(drive.module);
+			if (drive_owner == nullptr) return "recipe-drive-module-not-declared row=" + drive.row + where;
+			if (drive.module == recipe.module && item.find("module") != nullptr)
+				return "recipe-drive-module-is-the-value-module row=" + drive.row + where;  // one spelling per drive
+			if (!rows.insert(std::make_pair(drive.module, drive.row)).second) return "recipe-drive-row-duplicate row=" + drive.row + where;
 			for (const auto& site : drive.sites)
 			{
-				if (site.offset + patch::width(site.kind) > owner->stock_size)
+				if (site.offset + patch::width(site.kind) > drive_owner->stock_size)
 					return "recipe-site-outside-stock-size row=" + drive.row + where;
 			}
 			recipe.drives.push_back(std::move(drive));
 		}
+		if (recipe.direct() && recipe.drives.front().module != recipe.module) return "recipe-direct-value-in-another-module" + where;
 		for (const auto& existing : out.values)
 			if (existing.id == id) return "recipe-value-duplicate" + where;
 		out.values.push_back(std::move(recipe));
@@ -441,7 +457,7 @@ inline std::string parse_recipes(std::string_view text, std::string_view expecte
 	{
 		for (const auto& drive : value.drives)
 		{
-			const auto [slot, inserted] = rows.emplace(std::make_pair(value.module, drive.row), &drive);
+			const auto [slot, inserted] = rows.emplace(std::make_pair(drive.module, drive.row), &drive);
 			if (inserted) continue;
 			const Drive& other = *slot->second;
 			bool same = other.sites.size() == drive.sites.size() && other.row_stock == drive.row_stock
@@ -473,7 +489,7 @@ inline std::string parse_recipes(std::string_view text, std::string_view expecte
 	{
 		for (const auto& drive : value.drives)
 		{
-			auto& count = drivers[std::make_pair(value.module, drive.row)];
+			auto& count = drivers[std::make_pair(drive.module, drive.row)];
 			(value.direct() ? count.first : count.second) += 1;
 			if (count.first > 1 || count.second > 1) return "recipe-row-driven-twice row=" + drive.row;
 		}
@@ -617,7 +633,7 @@ inline Resolution resolve_plans(
 		const double value = entry->second.value;
 		for (const auto& drive : recipe.drives)
 		{
-			auto& choice = modules[recipe.module][drive.row];
+			auto& choice = modules[drive.module][drive.row];  // R17: the drive's own module
 			choice.drive = &drive;
 			if (recipe.direct())
 			{

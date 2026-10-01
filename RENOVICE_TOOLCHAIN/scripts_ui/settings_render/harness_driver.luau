@@ -900,8 +900,10 @@ end
 -- Confirm, Back (Exit) and Close. Every host call must be the planned one.
 -- ---------------------------------------------------------------------------
 local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0, r9 = 0,
-    r10 = 0, r11 = 0 }
-if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
+    r10 = 0, r11 = 0, r17 = 0 }
+-- 6. R17 (HARNESS_R17 + HARNESS_TAPE): the same host tape machinery on the R17
+-- Missions package; the walk is the "All Survival missions" master (below).
+if (HARNESS_R7 == true or HARNESS_R17 == true) and HARNESS_TAPE ~= nil then
     local messages = {}
     rawset(UTIL, "ShowMessage", function(message) messages[#messages + 1] = tostring(message) end)
     local calls = 0
@@ -1033,7 +1035,8 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
         end)
         local ok = element ~= nil and element.mValue == value
             and (element.mClipName == nil or element.Checkbox == nil or element.Checkbox.mChecked == value)
-        harnessCheck(ok, context .. ": switch '" .. prefix .. "' is " .. tostring(value), "r7-refresh")
+        harnessCheck(ok, context .. ": switch '" .. prefix .. "' is " .. tostring(value) .. " (row value " .. tostring(element and element.mValue)
+            .. ", widget " .. tostring(element and element.Checkbox and element.Checkbox.mChecked) .. ")", "r7-refresh")
         if ok then r7Report.refreshed = r7Report.refreshed + 1 end
     end
     local function typeInto(instance, text)
@@ -1102,6 +1105,42 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
     root = newestInstance()
     tick(root, 3)
     noSwitches(root, "r7 root")
+    if HARNESS_R17 == true then
+        -- R17: Missions -> Survival -> "All Survival missions" (CHECKBOX on, then its kept number) -> 60 -> back; the
+        -- package's Quick settings must show the same value with its switch on (one storage).
+        harnessCheck(listOf(root) ~= nil and listOf(root):GetHowManyElements() == 1, "r17 root: SCRIPT SETTINGS lists Missions", "r7-nav")
+        local missions = pressLabel(root, "Missions", "r17", 2)
+        local survival = missions and pressLabel(missions, "Survival", "r17", 3)
+        if survival ~= nil then
+            -- A freshly drawn stock CHECKBOX binds its widget state at the first focus (the Quick settings page behaves the
+            -- same); before any return the row value is what the host served.
+            local switch = elementBy(survival, function(row)
+                return row.mType == LOTUS_UTILITIES.CHECKBOX and row.mLabel == "All Survival missions"
+            end)
+            harnessCheck(switch ~= nil and switch.mValue == true, "r17 Survival page: the 'All Survival missions' switch is served on",
+                "r7-refresh")
+            expectLabel(survival, "Time between rewards", "Time between rewards: 150 s", "r17 Survival page before the edit")
+            local kept = pressLabel(survival, "Time between rewards", "r17", 4)
+            if kept ~= nil then
+                typeInto(kept, "60")
+                closeR7(kept, "Confirm", 4, survival, "r17 kept value")
+                expectLabel(survival, "Time between rewards", "Time between rewards: 60 s", "r17 Survival page after the edit")
+                expectChecked(survival, "All Survival missions", true, "r17 Survival page after the edit")
+                r7Report.r17 = r7Report.r17 + 1
+            end
+            closeR7(survival, "Exit", 3, missions, "r17 Survival page")
+            expectLabel(missions, "Survival", "Survival: 1 changed", "r17 Missions after the edit")
+        end
+        local quick = missions and pressLabel(missions, "Quick settings", "r17", 3)
+        if quick ~= nil then
+            expectLabel(quick, "Survival: 6", "Survival: 60 s", "r17 Quick settings shows the value typed on the Survival page")
+            expectChecked(quick, "Survival: time between rewards", true, "r17 Quick settings switch")
+            r7Report.r17 = r7Report.r17 + 1
+            closeR7(quick, "Close", 3, missions, "r17 Quick settings")
+        end
+        if missions ~= nil then closeR7(missions, "Close", 2, root, "r17 Missions page") end
+        closeR7(root, "Confirm", 1, nil, "r17 root")
+    else
     harnessCheck(listOf(root) ~= nil and listOf(root):GetHowManyElements() == 3, "r7 root: SCRIPT SETTINGS lists the three scripts with options",
         "r7-nav")
 
@@ -1276,13 +1315,14 @@ if HARNESS_R7 == true and HARNESS_TAPE ~= nil then
     if threat ~= nil then closeR7(threat, "Close", 3, octavia, "Octavia value") end
     if octavia ~= nil then closeR7(octavia, "Confirm", 2, root, "Octavia page") end
     closeR7(root, "Confirm", 1, nil, "root")
+    end  -- R7 walk (HARNESS_R17 ~= true)
     harnessCheck(calls == #HARNESS_TAPE.plan, "the bridge made exactly the " .. #HARNESS_TAPE.plan .. " planned host calls (made "
         .. calls .. ")", "r7-plan")
 end
 print("R7REPORT\tcalls=" .. r7Report.calls .. " returns=" .. r7Report.returns .. " refreshed=" .. r7Report.refreshed
     .. " inplace=" .. r7Report.inplace .. " messages=" .. r7Report.messages .. " max_depth=" .. r7Report.maxDepth
     .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches .. " r9=" .. r7Report.r9 .. " r10=" .. r7Report.r10
-    .. " r11=" .. r7Report.r11)
+    .. " r11=" .. r7Report.r11 .. " r17=" .. r7Report.r17)
 
 for index = 1, #HARNESS.errors do
     print("ERROR\t" .. HARNESS.errors[index])

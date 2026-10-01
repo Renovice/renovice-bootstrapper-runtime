@@ -867,7 +867,9 @@ std::string labels(const Page& page)
 }
 
 // The rules every page obeys (R2-R5 stock row rules plus R7): list pages are
-// uniform BUTTON/TITLE/SPACER rows (CHECKBOX only on Quick settings), no
+// uniform BUTTON/TITLE/SPACER rows (CHECKBOX only on Quick settings, and since
+// R17 as the on/off of a quick_on_page pair: `active:<key>/<id>` directly
+// followed by the BUTTON that opens that value's kept number), no
 // INPUTCOUNT/INPUTBOX/locked row, no search box; value pages hold at most the
 // editor and one BUTTON (never scrolled); no package, member, "Use stock
 // values", section or "Custom" switch anywhere; labels and tooltips in budget.
@@ -878,8 +880,9 @@ std::string page_rule_problem(std::string_view id, const Page& page)
 	if (page.search) return "search box shown";
 	if (page.title.size() > maximum_title_label) return "title over 48";
 	std::set<std::string> seen;
-	for (const auto& row : page.rows)
+	for (std::size_t index = 0; index != page.rows.size(); ++index)
 	{
+		const auto& row = page.rows[index];
 		const std::string_view setting = row.setting;
 		for (const char* banned : {"package:", "member:", "stock:", "group:", "custom:", "note:"})
 			if (setting.rfind(banned, 0) == 0) return "switch row " + row.setting;
@@ -893,7 +896,18 @@ std::string page_rule_problem(std::string_view id, const Page& page)
 		{
 			if (row.kind == RowKind::InputCount || row.kind == RowKind::InputBox || row.kind == RowKind::Toggle)
 				return "editor row on a list page";
-			if (row.kind == RowKind::Checkbox && !quick_page) return "CHECKBOX outside Quick settings";
+			if (row.kind == RowKind::Checkbox && !quick_page)
+			{
+				// R17: the on/off of a quick_on_page pair, followed by its kept-number BUTTON.
+				const auto slash = row.setting.find('/');
+				const std::string value_id = slash == std::string::npos ? std::string() : row.setting.substr(slash + 1);
+				const bool pair = row.setting.rfind("active:", 0) == 0 && !value_id.empty() && index + 1 < page.rows.size()
+					&& page.rows[index + 1].kind == RowKind::Button
+					&& (page.rows[index + 1].action.size() > value_id.size() + 1
+						&& page.rows[index + 1].action.compare(page.rows[index + 1].action.size() - value_id.size() - 1, value_id.size() + 1, "/" + value_id) == 0)
+					&& (page.rows[index + 1].action.rfind("open:qval:", 0) == 0 || page.rows[index + 1].action.rfind("open:val:", 0) == 0);
+				if (!pair) return "CHECKBOX outside Quick settings";
+			}
 		}
 	}
 	if (!value_page && !stock_uniform_heights(page)) return "list page not uniform";
@@ -1175,6 +1189,127 @@ void ui_page_model()
 }
 
 // -----------------------------------------------------------------------------
+// Contract R17 (2026-10-01): "All <mission type> missions" masters. A value
+// declared `quick_on_page` shows its Quick settings pair (CHECKBOX on/off +
+// BUTTON with the kept number) on its own page instead of its value row; one
+// storage with Quick settings (active:/stored:, file `enabled`/`value`).
+namespace r17
+{
+const char* top =
+	"{ \"format\": \"RENOVICE_SETTINGS_DECL_V1\", \"build\": \"2026.09.28.13.06\", \"groups\": ["
+	" { \"id\": \"survival\", \"label\": \"Survival\", \"order\": 20, \"aliases\": [] },"
+	" { \"id\": \"void_flood\", \"label\": \"Void Flood\", \"order\": 30, \"aliases\": [] } ] }";
+std::string addon(std::string_view master_extra)
+{
+	return "{ \"values\": { "
+		+ r7::value("survival.reward_interval", "survival", "[\"Survival\"]", "All Survival missions", "float", 300, 1, 32767, "s",
+			master_extra) + ", "
+		+ r7::value("survival.alert_interval", "survival", "[\"Survival\", \"Timers\"]", "Alert mission length", "float", 600, 1, 32767, "s")
+		+ " } }";
+}
+const char* baked =
+	"{ \"values\": { \"void_flood.fractures\": { \"group\": \"void_flood\", \"label\": \"Fractures per round\", \"unit\": \"\","
+	" \"type\": \"enum\", \"stock\": 3, \"min\": 1, \"max\": 20, \"scope\": \"Fractures opened per round\", \"lane\": \"literal\","
+	" \"applies\": \"next_mission\", \"options\": [ { \"label\": \"3\", \"value\": 3 }, { \"label\": \"4\", \"value\": 4 } ],"
+	" \"path\": [\"Void Flood\"], \"row\": \"All Void Flood missions\", \"quick\": \"Void Flood: fractures per round\","
+	" \"quick_on_page\": true } } }";
+}
+
+void quick_on_page_masters()
+{
+	const std::string master = ", \"quick\": \"Survival: time between rewards\", \"quick_on_page\": true";
+	settings::Declarations declarations;
+	const auto error = settings::parse_declarations(r17::top,
+		{{r7::missions_addon_file, r17::addon(master)}, {r7::missions_literal_file, r17::baked}}, declarations);
+	check(error.empty() && declarations.value("survival.reward_interval") != nullptr
+			&& declarations.value("survival.reward_interval")->quick_on_page
+			&& !declarations.value("survival.alert_interval")->quick_on_page,
+		"R17 quick_on_page parses (bool, with a quick label); absent = false" + (error.empty() ? std::string() : " (" + error + ")"));
+	if (!error.empty()) return;
+	settings::Declarations rejected;
+	check(settings::parse_declarations(r17::top, {{r7::missions_addon_file, r17::addon(", \"quick_on_page\": true")}}, rejected)
+				== "member=" + r7::missions_addon_file + " value=survival.reward_interval quick_on_page-without-quick"
+			&& settings::parse_declarations(r17::top, {{r7::missions_addon_file,
+				r17::addon(", \"quick\": \"Survival: time between rewards\", \"quick_on_page\": 1")}}, rejected)
+				== "member=" + r7::missions_addon_file + " value=survival.reward_interval quick_on_page-invalid",
+		"R17 quick_on_page without a quick label or not a bool is rejected (the package's settings capability only)");
+
+	std::vector<PackageView> views(1);
+	views[0].folder = "Missions";
+	views[0].display = "Missions";
+	views[0].declarations = &declarations;
+	views[0].state.package = "package:missions";
+	views[0].state.values["survival.reward_interval"] = settings::UserValue{true, {}, true, true, 150, false, 0};
+	bool found = false;
+	const auto survival = select_page(views, "node:Missions/0", found);
+	check(found && labels(survival) == "All Survival missions | Time between rewards: 150 s | Timers |  | Reset all to defaults"
+			&& survival.rows[0].kind == RowKind::Checkbox && survival.rows[0].value
+			&& survival.rows[0].setting == "active:missions/survival.reward_interval"
+			&& survival.rows[1].kind == RowKind::Button && survival.rows[1].action == "open:qval:Missions/survival.reward_interval",
+		"R17 mission type page: the master's on/off and its kept number first, then the categories: " + labels(survival));
+	const auto quick = select_page(views, "quick:Missions", found);
+	check(found && quick.rows.size() == 4 && quick.rows[0].setting == survival.rows[0].setting
+			&& quick.rows[1].action == survival.rows[1].action && quick.rows[1].label == "Survival: 150 s",
+		"R17 Quick settings lists the same value (same on/off setting, same kept-number page): " + labels(quick));
+	const auto flood = select_page(views, "node:Missions/1", found);
+	check(found && flood.rows[0].kind == RowKind::Button && flood.rows[0].label == "All Void Flood missions: 3 (default)"
+			&& flood.rows[0].action == "open:val:Missions/void_flood.fractures",
+		"R17 a baked literal value (not typeable here) keeps its plain row even when declared quick_on_page: " + labels(flood));
+	const auto flat = build_flat_page(views);
+	check(std::all_of(flat.rows.begin(), flat.rows.end(), [](const Row& row)
+			{
+				return row.kind == RowKind::Title || (row.kind == RowKind::Button && row.action.rfind("open:val:", 0) == 0);
+			}),
+		"R17 the flat layout keeps one value BUTTON per value");
+	for (const auto& [id, page] : reachable_pages(views, "root"))
+	{
+		const auto problem = page_rule_problem(id, page);
+		check(problem.empty(), "R17 stock row rules on page " + id + (problem.empty() ? "" : ": " + problem));
+	}
+	Page lone;
+	lone.rows.push_back(survival.rows[0]);
+	lone.rows.push_back(survival.rows[2]);
+	check(page_rule_problem("node:Missions/0", lone) == "CHECKBOX outside Quick settings",
+		"R17 page rule: an on/off that is not followed by its kept-number BUTTON is still refused");
+
+	const auto file_of = [](const Applied& applied, std::string_view id, bool& enabled, double& number)
+	{
+		for (const auto& package : applied.packages)
+		{
+			const auto entry = package.state.values.find(std::string(id));
+			if (entry == package.state.values.end()) return false;
+			enabled = entry->second.enabled;
+			number = entry->second.value;
+			return true;
+		}
+		return false;
+	};
+	bool enabled = false;
+	double number = 0;
+	Session session;
+	// The render gate's walk: Missions -> Survival -> the master's kept number -> 60 -> back.
+	check(stage(session, views, "stored:missions/survival.reward_interval", StagedValue::of_text("60")).empty()
+			&& file_of(settings_ui::apply(session, views), "survival.reward_interval", enabled, number) && enabled && number == 60,
+		"R17 the page's kept number is the Quick settings value: 60 typed on the mission page applies (it was on)");
+	const auto after = overlay(session, views);
+	const auto quick_after = select_page(after, "quick:Missions", found);
+	const auto survival_after = select_page(after, "node:Missions/0", found);
+	check(quick_after.rows[1].label == "Survival: 60 s" && quick_after.rows[0].value
+			&& survival_after.rows[1].label == "Time between rewards: 60 s",
+		"R17 back on the pages: Quick settings shows the same 60 (one storage): " + labels(quick_after));
+	(void)stage(session, views, "active:missions/survival.reward_interval", StagedValue::of_bool(false), StageSource::Click);
+	const auto off = overlay(session, views);
+	const auto quick_off = select_page(off, "quick:Missions", found);
+	const auto survival_off = select_page(off, "node:Missions/0", found);
+	check(file_of(settings_ui::apply(session, views), "survival.reward_interval", enabled, number) && !enabled && number == 60
+			&& !quick_off.rows[0].value && !survival_off.rows[0].value && survival_off.rows[1].label == "Time between rewards: 60 s",
+		"R17 the page's on/off is the Quick settings switch: off keeps the typed 60 and the mission returns to its default");
+	(void)stage(session, views, "active:missions/survival.reward_interval", StagedValue::of_bool(true), StageSource::Click);
+	check(file_of(settings_ui::apply(session, views), "survival.reward_interval", enabled, number) && enabled && number == 60,
+		"R17 on again: the kept 60 applies");
+}
+
+// -----------------------------------------------------------------------------
 // Part 7 (optional, --package <folder> [--settings <file>], repeatable): REAL
 // package folders and values files through the exact scanner, the settings
 // evaluation, the member deliveries and the SCRIPT SETTINGS page model (built
@@ -1394,8 +1529,10 @@ void external_packages(const std::vector<ExternalPackage>& inputs, const std::fi
 		rows += page.rows.size();
 		(id.rfind("val:", 0) == 0 || id.rfind("qval:", 0) == 0 ? value_pages : list_pages) += 1;
 		if (id.rfind("quick:", 0) == 0) continue;
+		// R17: a quick_on_page value is opened on its own page by its pair's kept-number BUTTON (open:qval:).
 		for (const auto& row : page.rows)
-			if (row.action.rfind("open:val:", 0) == 0) ++opened[row.action.substr(row.action.find('/') + 1)];
+			if (row.action.rfind("open:val:", 0) == 0 || row.action.rfind("open:qval:", 0) == 0)
+				++opened[row.action.substr(row.action.find('/') + 1)];
 	}
 	std::cout << "NESTED\tpages=" << pages.size() << " list_pages=" << list_pages << " value_pages=" << value_pages
 		<< " rows=" << rows << '\n';
@@ -1717,6 +1854,7 @@ int main(int argc, char** argv)
 	end_to_end(work);
 	phase1_contract(long_path(argv[2]), work / "phase2i");
 	ui_page_model();
+	quick_on_page_masters();  // R17
 	if (!packages_in.empty() && plan.empty()) external_packages(packages_in, work / "external");
 	if (!plan.empty()) run_tape(packages_in, plan, work / "tape", corpus);
 	std::cout << (pass ? "ADDON SETTINGS PASS" : "ADDON SETTINGS FAIL") << '\n';

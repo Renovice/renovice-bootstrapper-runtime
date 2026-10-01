@@ -495,12 +495,16 @@ struct ValueDecl
 	//                 one number ("60-80 s"); display only;
 	//   quick         label of the value's row on the package's Quick settings
 	//                 page (an on/off that keeps the typed value).
+	//   quick_on_page Revision R17: the value's own page shows that same
+	//                 on/off and kept value (one storage), in place of its value
+	//                 row (a mission-type master). Needs `quick`.
 	std::vector<std::string> path;
 	std::string row;
 	bool default_declared = false;
 	double default_value = 0.0;
 	std::string default_label;
 	std::string quick;
+	bool quick_on_page = false;
 	// LIVE_LITERALS_V1 (live_literals_core.hpp): a literal value from the
 	// package's literals.json recipe. The host synthesizes the module at apply,
 	// so the value is typeable in game. Never set by the package.json parser.
@@ -655,9 +659,9 @@ inline std::string parse_value_decl(
 	const std::string where = "value=" + id;
 	if (!valid_value_id(id)) return "value-id-invalid=" + id;
 	if (!value.is_object()) return where + " declaration-not-object";
-	static constexpr std::array<std::string_view, 17> fields{
+	static constexpr std::array<std::string_view, 18> fields{
 		"group", "label", "unit", "type", "stock", "min", "max", "scope", "lane", "applies", "options",
-		"stock_check", "path", "row", "default", "default_label", "quick"};
+		"stock_check", "path", "row", "default", "default_label", "quick", "quick_on_page"};
 	for (const auto& [key, field] : value.members)
 	{
 		(void)field;
@@ -804,6 +808,12 @@ inline std::string parse_value_decl(
 	{
 		if (!quick->is_string() || !layout_text(quick->text, maximum_quick_label)) return where + " quick-invalid";
 		out.quick = quick->text;
+	}
+	if (const auto* on_page = value.find("quick_on_page"))
+	{
+		if (!on_page->is_bool()) return where + " quick_on_page-invalid";
+		if (on_page->boolean && out.quick.empty()) return where + " quick_on_page-without-quick";
+		out.quick_on_page = on_page->boolean;
 	}
 	if (const auto* declared_default = value.find("default"))
 	{

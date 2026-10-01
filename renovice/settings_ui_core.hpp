@@ -21,6 +21,10 @@
 //     page) put values back at their default;
 //   * the Quick settings page is the one on/off: `active:` toggles the stored
 //     `enabled` flag and keeps the typed value (`stored:`).
+//   * R17: a value declared `quick_on_page` (an "All <mission type> missions"
+//     master) shows the same pair on its own page instead of its value row:
+//     CHECKBOX "<row>" (`active:`) and BUTTON "<quick label after its colon>:
+//     <kept value>" (opens `qval:`). One storage with Quick settings.
 //
 // Row setting ids (the value-changed callback receives them as mSetting):
 //   value:<folder lower>/<value id>   the value (detailed pages)
@@ -609,6 +613,49 @@ inline std::string value_page_action(const PackageView& view, const settings::Va
 	return "open:val:" + view.folder + "/" + declaration.id;
 }
 
+// R17: the Quick settings pair of a quick value. The CHECKBOX is the on/off
+// (`active:` sets `enabled` and keeps the number); the BUTTON shows the kept
+// number and opens its editor (`qval:`, or the value page of a value without a
+// kept-number editor). `switch_label` / `value_label` differ by page: the Quick
+// settings page uses the quick label and its part before the colon; the value's
+// own page (quick_on_page) uses its row and the quick label after the colon.
+inline Row quick_switch_row(const PackageView& view, const settings::ValueDecl& value, std::string switch_label)
+{
+	const std::string kept = number_text(value, kept_value(view, value));
+	return checkbox(std::move(switch_label), "active:" + folder_key(view.folder) + "/" + value.id, entry_applies(view, value),
+		"On: " + kept + ". Off: the default (" + default_text(value) + "); your number is kept. " + description(value));
+}
+
+inline Row quick_value_row(const PackageView& view, const settings::ValueDecl& value, std::string value_label)
+{
+	const std::string kept = number_text(value, kept_value(view, value));
+	const std::string target = !settings::editable_in_game(value)
+		? "open:val:" + view.folder + "/" + value.id
+		: "open:qval:" + view.folder + "/" + value.id;
+	const bool is_default = kept_value(view, value) == default_value(value);
+	return button(std::move(value_label), target, kept + (is_default ? " (default)" : ""),
+		"The value used while " + clean(value.quick) + " is on (default " + default_text(value) + ").");
+}
+
+// R17: "time between rewards" of "Survival: time between rewards", first letter
+// upper case; the row text when the quick label has nothing after a colon.
+inline std::string quick_pair_label(const settings::ValueDecl& declaration)
+{
+	const std::string quick = clean(declaration.quick);
+	const auto colon = quick.find(':');
+	std::string what = colon == std::string::npos ? std::string() : clean(quick.substr(colon + 1));
+	if (what.empty()) return row_text(declaration);
+	what[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(what[0])));
+	return what;
+}
+
+// R17: a value whose own page shows its Quick settings pair. A value the
+// player cannot type (baked literal, metadata) keeps its plain row.
+inline bool shows_quick_pair(const settings::ValueDecl& declaration) noexcept
+{
+	return declaration.quick_on_page && !declaration.quick.empty() && settings::editable_in_game(declaration);
+}
+
 inline Row value_row(const PackageView& view, const settings::ValueDecl& declaration)
 {
 	Row row;
@@ -628,11 +675,23 @@ inline Row node_row(const PackageView& view, const Tree& tree, const TreeNode& n
 		changed_detail(changed_count(view, values)), "Open " + clean(node.name) + ".");
 }
 
+// One value on a list page: its value row, or (R17 quick_on_page) its pair.
+inline void append_value(std::vector<Row>& rows, const PackageView& view, const settings::ValueDecl& value)
+{
+	if (shows_quick_pair(value))
+	{
+		rows.push_back(quick_switch_row(view, value, row_text(value)));
+		rows.push_back(quick_value_row(view, value, quick_pair_label(value)));
+		return;
+	}
+	rows.push_back(value_row(view, value));
+}
+
 inline void append_items(std::vector<Row>& rows, const PackageView& view, const Tree& tree, const TreeNode& node)
 {
 	for (const auto& item : node.items)
 	{
-		if (item.value != nullptr) rows.push_back(value_row(view, *item.value));
+		if (item.value != nullptr) append_value(rows, view, *item.value);
 		else rows.push_back(node_row(view, tree, tree.nodes[item.node]));
 	}
 }
@@ -721,7 +780,7 @@ inline Page build_package_page(const PackageView& view)
 				if (value->group != group->id) continue;
 				if (!titled && sections > 1) page.rows.push_back(title(group->label));
 				titled = true;
-				page.rows.push_back(value_row(view, *value));
+				append_value(page.rows, view, *value);
 			}
 		}
 	}
@@ -754,24 +813,13 @@ inline Page build_quick_page(const PackageView& view)
 	page.title = "QUICK SETTINGS";
 	page.search = stock_search_box;
 	if (view.declarations == nullptr) return page;
-	const std::string key = folder_key(view.folder);
 	for (const auto* value : quick_values(*view.declarations))
 	{
-		const std::string kept = number_text(*value, kept_value(view, *value));
-		page.rows.push_back(checkbox(value->quick, "active:" + key + "/" + value->id, quick_on(view, *value),
-			"On: " + kept + ". Off: the default (" + default_text(*value) + "); your number is kept. "
-				+ description(*value)));
-		const std::string target = !settings::editable_in_game(*value)
-			? "open:val:" + view.folder + "/" + value->id
-			: "open:qval:" + view.folder + "/" + value->id;
+		page.rows.push_back(quick_switch_row(view, *value, value->quick));
 		// "<mission>: <kept value>", the part of the quick label before its colon.
 		const std::string quick = clean(value->quick);
 		const auto colon = quick.find(':');
-		const std::string owner = colon == std::string::npos ? quick : quick.substr(0, colon);
-		const bool is_default = kept_value(view, *value) == default_value(*value);
-		Row open = button(owner, target, kept + (is_default ? " (default)" : ""),
-			"The value used while " + quick + " is on (default " + default_text(*value) + ").");
-		page.rows.push_back(std::move(open));
+		page.rows.push_back(quick_value_row(view, *value, colon == std::string::npos ? quick : quick.substr(0, colon)));
 	}
 	return page;
 }

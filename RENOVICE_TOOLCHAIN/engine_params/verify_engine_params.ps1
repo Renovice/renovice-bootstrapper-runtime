@@ -40,6 +40,7 @@ function Between([string]$Text, [string]$Start, [string]$End) {
 
 foreach ($name in @('package.json', 'engine_params.json')) {
     Require (Test-Path -LiteralPath (Join-Path $fixtureDir "Missions\$name") -PathType Leaf) "fixture Missions\$name present"
+    Require (Test-Path -LiteralPath (Join-Path $fixtureDir "MissionsR17\$name") -PathType Leaf) "fixture MissionsR17\$name present (contract R17)"
 }
 Write-Output "INFO`tfixture engine_params.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'Missions\engine_params.json') -Algorithm SHA256).Hash)"
 Write-Output "INFO`tfixture package.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'Missions\package.json') -Algorithm SHA256).Hash)"

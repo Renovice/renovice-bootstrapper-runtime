@@ -816,6 +816,128 @@ void image_bytes(const std::filesystem::path& exe, const std::string& digest)
 }
 }
 
+// Contract R17 (2026-10-01): an override may name a master knob (a mission-type
+// master: Railjack kill goals over the Corpus fighter limit, which the engine
+// writer owns). Fixture: the R17 Missions build (fixtures/MissionsR17).
+void r17_masters(const std::filesystem::path& fixtures)
+{
+	const std::string text = read_text(fixtures / "MissionsR17" / "engine_params.json");
+	settings::Declarations declarations;
+	{
+		packages::Manifest parsed;
+		const auto error = packages::parse_manifest(read_text(fixtures / "MissionsR17" / "package.json"), parsed);
+		std::vector<std::pair<std::string, std::string>> members;
+		for (const auto& member : parsed.members)
+			if (!member.settings_json.empty()) members.emplace_back(member.filename, member.settings_json);
+		const auto declared = settings::parse_declarations(parsed.settings_json, members, declarations);
+		check(error.empty() && declared.empty() && declarations.value("railjack.kill_goals_scale") != nullptr
+				&& declarations.value("railjack.kill_goals_scale")->quick_on_page,
+			"R17 fixture package.json parses (" + std::to_string(declarations.values.size()) + " declarations, the Railjack master on its page)");
+	}
+	ep::Recipe recipe;
+	const auto parse_error = ep::parse_recipe(text, "package:missions", recipe);
+	std::size_t with_master = 0;
+	for (const auto& item : recipe.overrides)
+		with_master += item.master == "railjack.kill_goals_scale" && item.scale == 1.0 && item.value == "railjack.corpus_fighter_limit_scale" ? 1 : 0;
+	check(parse_error.empty() && recipe.overrides.size() == 9 && recipe.value_ids().size() == 7 && recipe.modules().size() == 4
+			&& with_master == 2 && ep::validate_recipe(recipe, declarations, seed).empty(),
+		"R17 the generated engine_params.json parses and validates: 9 overrides, 7 values, 4 modules; the Corpus fighter "
+		"limit names its master (" + parse_error + ")");
+
+	const auto delivery_of = [](std::vector<settings::DeliveredValue> values)
+	{
+		settings::MemberDelivery delivery;
+		delivery.values = std::move(values);
+		delivery.identity = settings::delivery_identity(delivery.values);
+		return delivery;
+	};
+	const auto corpus = [](const std::vector<ep::PlanEntry>& entries)
+	{
+		std::vector<const ep::PlanEntry*> out;
+		for (const auto& entry : entries)
+			if (entry.module == 0x0a6394a10884c38aull) out.push_back(&entry);
+		return out;
+	};
+	{
+		const auto delivery = delivery_of({{"railjack.kill_goals_scale", 0.5f, 1.0f}});
+		const auto resolved = ep::resolve_entries(recipe, &delivery);
+		const auto entries = corpus(resolved);
+		check(entries.size() == 2 && entries[0]->value == 0.5f && entries[1]->value == 0.5f && entries[0]->source == "railjack.kill_goals_scale"
+				&& entries[0]->value_id == "railjack.corpus_fighter_limit_scale" && entries[0]->mode == ep::Mode::ScaleCount,
+			"R17 the master alone drives the natively owned row: both Corpus parameters at 0.5 (scale_count), source = the master");
+		const auto withheld = ep::withhold(delivery, recipe.value_ids());
+		check(withheld->values.size() == 1 && withheld->values[0].id == "railjack.kill_goals_scale",
+			"R17 the master is never withheld: the addon still gets it for the Grineer fighter and crewship rows");
+		float out = 0.0f;
+		check(ep::override_number(entries[0]->mode, 110.0f, entries[0]->value, out) && out == 55.0f
+				&& ep::override_number(entries[0]->mode, 35.0f, entries[0]->value, out) && out == 18.0f,
+			"R17 master 0.5 on the Corpus limits: 110 -> 55, 35 -> 18 (the R11 count rule)");
+	}
+	{
+		const auto delivery = delivery_of({{"railjack.kill_goals_scale", 0.5f, 1.0f}, {"railjack.corpus_fighter_limit_scale", 2.0f, 1.0f}});
+		const auto resolved = ep::resolve_entries(recipe, &delivery);
+		const auto entries = corpus(resolved);
+		check(entries.size() == 2 && entries[0]->value == 2.0f && entries[0]->source == "railjack.corpus_fighter_limit_scale",
+			"R17 precedence: the row's own value wins over its master (2, not 0.5)");
+	}
+	{
+		const auto at_stock = delivery_of({{"railjack.kill_goals_scale", 1.0f, 1.0f}});
+		const auto none = delivery_of({{"capture.target_health_player_mult.p1", 2.0f, 1.0f}});
+		const auto resolved_stock = ep::resolve_entries(recipe, &at_stock);
+		const auto resolved_none = ep::resolve_entries(recipe, &none);
+		check(corpus(resolved_stock).empty() && corpus(resolved_none).empty(),
+			"R17 a master at its stock, or not delivered, adds nothing");
+	}
+	{
+		const auto delivery = delivery_of({{"sabotage.gascity_meltdown_time_scale", 2.0f, 1.0f}});
+		const auto entries = ep::resolve_entries(recipe, &delivery);
+		float hack = 0.0f, mode_timer = 0.0f;
+		const bool both = entries.size() == 2 && entries[0].module == 0x5b59e2968c1ec7bfull && entries[0].mode == ep::Mode::Scale
+			&& ep::override_number(entries[0].mode, 10.0f, entries[0].value, hack)
+			&& ep::override_number(entries[1].mode, 60.0f, entries[1].value, mode_timer);
+		check(both && hack == 20.0f && mode_timer == 120.0f,
+			"R17 Gas City meltdown time x2 scales both engine-written parameters (hackTime 10 -> 20, modeTimer 60 -> 120)");
+	}
+	{
+		const auto snapshot_a = ep::make_snapshot(ep::resolve_entries(recipe, nullptr), recipe.modules());
+		const auto master = delivery_of({{"railjack.kill_goals_scale", 0.5f, 1.0f}});
+		const auto row = delivery_of({{"railjack.corpus_fighter_limit_scale", 0.5f, 1.0f}});
+		const auto by_master = ep::make_snapshot(ep::resolve_entries(recipe, &master), recipe.modules());
+		const auto by_row = ep::make_snapshot(ep::resolve_entries(recipe, &row), recipe.modules());
+		check(snapshot_a->modules.size() == 4 && by_master->identity != by_row->identity && by_master->entries.size() == by_row->entries.size(),
+			"R17 the plan identity records the source (master or row) of the same number");
+	}
+	// Rejects (recipe-local).
+	const auto reason_of = [&](const std::string& mutated_text)
+	{
+		ep::Recipe broken;
+		auto error = ep::parse_recipe(mutated_text, "package:missions", broken);
+		if (error.empty()) error = ep::validate_recipe(broken, declarations, seed);
+		return error;
+	};
+	const std::pair<std::string, std::string> negatives[] = {
+		{replace_once(text, "\"master\": \"railjack.kill_goals_scale\"", "\"master\": \"railjack.no_such_master\""), "recipe-master-not-declared"},
+		{replace_once(text, "\"master\": \"railjack.kill_goals_scale\"", "\"master\": \"mobiledefense.time_per_terminal\""),
+			"recipe-master-not-declared"},  // a live literal is not in package.json
+		{replace_once(text, "\"master\": \"railjack.kill_goals_scale\"", "\"master\": \"survival.reward_interval\""),
+			"recipe-master-stock-times-scale-is-not-the-row-stock"},
+		{replace_once(text, "\"master\": \"railjack.kill_goals_scale\"", "\"master\": \"exterminate.kills_scale\""),
+			"recipe-master-is-an-overridden-value"},
+		{replace_once(text, "\"master\": \"railjack.kill_goals_scale\"", "\"master\": \"railjack.corpus_fighter_limit_scale\""),
+			"recipe-override-master-invalid"},
+		{replace_once(text, "\"scale\": 1", "\"scale\": 0"), "recipe-override-scale-invalid"},
+		{replace_once(text, "\"master\": \"railjack.kill_goals_scale\",", ""), "recipe-override-scale-without-master"},
+		{replace_once(text, "\"scale\": 1", "\"scale\": 2"), "recipe-master-stock-times-scale-is-not-the-row-stock"},
+	};
+	bool rejected = true;
+	for (const auto& [mutated_text, reason] : negatives)
+	{
+		const auto error = mutated_text.empty() ? std::string("mutation-not-applied") : reason_of(mutated_text);
+		if (!starts(error, reason)) { rejected = false; std::cout << "INFO	R17 " << reason << " got " << error << '\n'; }
+	}
+	check(rejected, "R17 8 malformed master overrides are rejected with their exact reason (recipe-local)");
+}
+
 int main(int argc, char** argv)
 {
 	if (argc != 5)
@@ -840,6 +962,7 @@ int main(int argc, char** argv)
 	try
 	{
 		pure_rules(recipe_text, declarations);
+		r17_masters(fixtures);  // R17
 		ep::Recipe recipe;
 		(void)ep::parse_recipe(recipe_text, "package:missions", recipe);
 		hook_decision(recipe);

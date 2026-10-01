@@ -1,5 +1,17 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-01 Contract R17: mission-type masters (page pair, cross-module literal drives, masters on writer-owned rows) — staged (not deployed)
+
+Branch `feat/r17-type-masters-2026-10-01` from R16 `75e47a4`. Generic; no mission or ability rule in shared code. **Supersedes the R16 DLL; the R17 Missions package needs it** (older DLLs reject its settings and recipe, fail closed).
+
+- **Page pair.** A value declared `quick_on_page` shows its Quick settings on/off (`active:`) and kept number (`qval:`) on its own page instead of its value row (the "All <mission type> missions" masters). Same storage as Quick settings.
+- **Literal recipe.** A drive may name its own `module` (one master over several scripts); rows, overlaps and plans are per (module, row).
+- **Engine params.** An override may name `master` + `scale`: the row's own delivered value wins, else the master's delivered value x scale (not at its stock). Only the row is withheld from the addon.
+- **Gates.** `verify_addon_settings` (R17 page model), `verify_live_literals` part 6, `verify_engine_params` R17 cases, render gate section 1d (Missions -> Survival -> "All Survival missions" -> 60 -> back; Quick settings shows 60); all build-listed gates PASS.
+- **Build.** Main DLL `304b57deae8ef65e0e001f88ff20cd5aa0fec536738493a215ffe461934a0753` (6,051,328 B), 0 warnings, 0 errors.
+
+**Deployment and every live check are pending.** Install, rollback (R16 `2758b1ab…`) and live test: `work/staging/combined-r17/README.md`. [Record](../RESEARCH/TYPE_MASTERS_R17_2026-10-01/README.md). R16 is installed since 2026-10-01 (live: `ENGINE PARAMS hook=PASS`).
+
 ## 2026-10-01 Contract R16: ENGINE_PARAM_OVERRIDE (level parameters owned at the engine's writer) — staged (not deployed)
 
 Branch `feat/r16-engine-param-override-2026-10-01` from R13 `827027c`. Generic; no mission or ability rule in shared code. **Supersedes `combined-r13` for the DLL; the installed R15 Missions package stays and gains one file (`engine_params.json`).**
