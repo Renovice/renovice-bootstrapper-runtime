@@ -1,4 +1,5 @@
-# Deterministic gates for ENGINE_PARAM_OVERRIDE (contract R16, 2026-10-01; R17 masters; R19 Railjack encounter modules):
+# Deterministic gates for ENGINE_PARAM_OVERRIDE (contract R16, 2026-10-01; R17 masters; R19 Railjack encounter modules;
+# R21 Spy and Sabotage level-trigger parameters):
 # a declared level/encounter script parameter keeps its configured value
 # through every engine write (native hook on the engine's parameter writer).
 #
@@ -42,9 +43,12 @@ foreach ($name in @('package.json', 'engine_params.json')) {
     Require (Test-Path -LiteralPath (Join-Path $fixtureDir "Missions\$name") -PathType Leaf) "fixture Missions\$name present"
     Require (Test-Path -LiteralPath (Join-Path $fixtureDir "MissionsR17\$name") -PathType Leaf) "fixture MissionsR17\$name present (contract R17)"
     Require (Test-Path -LiteralPath (Join-Path $fixtureDir "MissionsR19\$name") -PathType Leaf) "fixture MissionsR19\$name present (contract R19)"
+    Require (Test-Path -LiteralPath (Join-Path $fixtureDir "MissionsR21\$name") -PathType Leaf) "fixture MissionsR21\$name present (contract R21)"
 }
 Require (Test-Path -LiteralPath (Join-Path $fixtureDir 'MissionsR19\encounter_entry_protos.txt') -PathType Leaf) 'fixture MissionsR19\encounter_entry_protos.txt present (contract R19: real entry prototypes of the Railjack encounter modules)'
+Require (Test-Path -LiteralPath (Join-Path $fixtureDir 'MissionsR21\trigger_entry_protos.txt') -PathType Leaf) 'fixture MissionsR21\trigger_entry_protos.txt present (contract R21: real entry prototypes of the Intel and Sabotage trigger modules)'
 Write-Output "INFO`tR19 fixture engine_params.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'MissionsR19\engine_params.json') -Algorithm SHA256).Hash)"
+Write-Output "INFO`tR21 fixture engine_params.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'MissionsR21\engine_params.json') -Algorithm SHA256).Hash)"
 Write-Output "INFO`tfixture engine_params.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'Missions\engine_params.json') -Algorithm SHA256).Hash)"
 Write-Output "INFO`tfixture package.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'Missions\package.json') -Algorithm SHA256).Hash)"
 

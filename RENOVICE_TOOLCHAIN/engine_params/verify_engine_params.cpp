@@ -1220,6 +1220,176 @@ void r19_railjack_encounters(const std::filesystem::path& fixtures)
 	}
 }
 
+// Contract R21 (2026-10-02): class audit after R19. R19 showed that a level or
+// encounter parameter classed REACHES (read inside the entry call, before any
+// yield) can still miss the R10 Lua entry write in game. The last two rows on
+// that plain entry write are level ScriptTrigger parameters whose only producer
+// is the engine writer: Spy "vault alarm time" (Intel P43 VaultAlarmTriggered,
+// intelTimerDurationMax/Min, scale) and Sabotage "surprise extraction"
+// (Sabotage P11 reactorDestroyedFunction, duration, absolute). Both are owned at
+// the writer now. Fixture: the R21 Missions build (fixtures/MissionsR21) and the
+// real entry prototypes of both trigger modules (trigger_entry_protos.txt, from
+// the 44.0.2 stock bytes). No runtime change: the same primitive as R16-R19.
+void r21_level_trigger_params(const std::filesystem::path& fixtures)
+{
+	constexpr std::uint64_t intel = 0xee15b583788c3e7dull, sabotage = 0x7e0adf2d83f7a086ull;
+	constexpr std::uint32_t alarm_max = 0xe7743c68u, alarm_min = 0xb8882841u, duration = 0xf4de5c39u;
+	const auto dir = fixtures / "MissionsR21";
+	const std::string text = read_text(dir / "engine_params.json");
+	settings::Declarations declarations;
+	{
+		packages::Manifest parsed;
+		const auto error = packages::parse_manifest(read_text(dir / "package.json"), parsed);
+		std::vector<std::pair<std::string, std::string>> members;
+		for (const auto& member : parsed.members)
+			if (!member.settings_json.empty()) members.emplace_back(member.filename, member.settings_json);
+		const auto declared = settings::parse_declarations(parsed.settings_json, members, declarations);
+		check(error.empty() && declared.empty() && declarations.value("spy.vault_alarm_scale") != nullptr
+				&& declarations.value("sabotage.random_extraction_timer") != nullptr,
+			"R21 fixture package.json parses (" + std::to_string(declarations.values.size()) + " declarations; the R20 package.json)");
+	}
+	ep::Recipe recipe;
+	const auto parse_error = ep::parse_recipe(text, "package:missions", recipe);
+	std::size_t spy = 0, extraction = 0, mastered = 0;
+	for (const auto& item : recipe.overrides)
+	{
+		spy += item.value == "spy.vault_alarm_scale" && item.module == intel && item.mode == ep::Mode::Scale ? 1 : 0;
+		extraction += item.value == "sabotage.random_extraction_timer" && item.module == sabotage && item.mode == ep::Mode::Absolute ? 1 : 0;
+		mastered += (item.value == "spy.vault_alarm_scale" || item.value == "sabotage.random_extraction_timer") && !item.master.empty() ? 1 : 0;
+	}
+	const auto modules = recipe.modules();
+	const auto names = [&](std::uint64_t key) { return std::find(modules.begin(), modules.end(), key) != modules.end(); };
+	check(parse_error.empty() && ep::validate_recipe(recipe, declarations, seed).empty() && recipe.overrides.size() == 20
+			&& recipe.value_ids().size() == 13 && modules.size() == 10 && spy == 2 && extraction == 1 && mastered == 0,
+		"R21 the generated engine_params.json parses and validates: 20 overrides, 13 values, 10 modules; Spy alarm = 2 scale "
+		"overrides on Intel, surprise extraction = 1 absolute override on Sabotage, no master on either (" + parse_error + ")");
+
+	// F1: the installed R19/R20 recipe names neither trigger module, so their loads were never recorded and only the R10 Lua
+	// entry write could reach them; the R21 recipe names both (production attach_recipe and module_wanted, hook installed).
+	{
+		ep::Recipe r19;
+		(void)ep::parse_recipe(read_text(fixtures / "MissionsR19" / "engine_params.json"), "package:missions", r19);
+		const auto r19_modules = r19.modules();
+		const bool r19_named = std::find(r19_modules.begin(), r19_modules.end(), intel) != r19_modules.end()
+			|| std::find(r19_modules.begin(), r19_modules.end(), sabotage) != r19_modules.end();
+		ep::gate_set_installed(&build_44_0_2());
+		const bool wanted_before = ep::module_wanted(intel) || ep::module_wanted(sabotage);
+		packages::Package package;
+		package.id = "package:missions";
+		package.folder = "Missions";
+		ep::attach_recipe(package, dir / "engine_params.json");
+		check(!r19_named && !wanted_before && names(intel) && names(sabotage) && package.engine_recipe != nullptr
+				&& ep::module_wanted(intel) && ep::module_wanted(sabotage),
+			"R21 F1 the R19/R20 recipe names neither Intel nor Sabotage (never recorded: R10 entry write only); the R21 recipe names "
+			"both, so their natural loads are recorded");
+		ep::gate_set_installed(nullptr);
+	}
+
+	const auto protos = read_entry_protos(dir / "trigger_entry_protos.txt");
+	check(protos.size() == 2 && protos.at(intel).bytecode_id == 43 && protos.at(intel).code.size() == 517 * 4
+			&& protos.at(sabotage).bytecode_id == 11 && protos.at(sabotage).code.size() == 326 * 4
+			&& starts(protos.at(intel).module_sha256, "51b3a553da84d23c") && starts(protos.at(sabotage).module_sha256, "0f1e3d2d0a2becb2"),
+		"R21 the real entry prototypes: Intel P43 VaultAlarmTriggered (517 words), Sabotage P11 reactorDestroyedFunction (326 words), "
+		"from the registered stock modules");
+
+	const auto delivery_of = [](std::vector<settings::DeliveredValue> values)
+	{
+		settings::MemberDelivery delivery;
+		delivery.values = std::move(values);
+		delivery.identity = settings::delivery_identity(delivery.values);
+		return delivery;
+	};
+	struct Write { float value = 0; bool overridden = false; ep::Skip skip = ep::Skip::None; std::uint64_t key = 0; std::size_t pushes = 0; };
+	const auto write = [&](Frame& frame, const ep::PlanSnapshot& plan, const ep::IdentitySnapshot& identities, std::uint32_t hash, float level)
+	{
+		ModelMemory memory;
+		const auto record = scalar_record(frame, 0, level);
+		const auto before = frame.stock_pushes;
+		const auto result = apply_param(frame, memory, plan, identities, record, hash, 0);
+		Write out;
+		out.value = result.values.at(0);
+		out.overridden = result.outcomes.at(0).overridden;
+		out.skip = result.outcomes.at(0).skip;
+		out.key = result.outcomes.at(0).key;
+		out.pushes = frame.stock_pushes - before;
+		return out;
+	};
+	const auto close_to = [](float a, float b) { return std::fabs(a - b) < 1e-3f; };
+	const auto recorded = [&](Frame& frame, std::uint64_t key)
+	{
+		ep::IdentitySnapshot identities;
+		identities.modules.push_back(frame.identity(key));
+		return identities;
+	};
+
+	// F2: the writer's output on the real entry prototypes (recorded natural load): Spy x0.5 on the most common pair 55/35 and
+	// the widest pair 120/90, surprise extraction 300 -> 120; one stock push per value; the addon gets neither value.
+	const auto live = delivery_of({{"sabotage.random_extraction_timer", 120.0f, 300.0f}, {"spy.vault_alarm_scale", 0.5f, 1.0f},
+		{"survival.reward_interval", 150.0f, 300.0f}});
+	const auto plan = ep::make_snapshot(ep::resolve_entries(recipe, &live), recipe.modules());
+	{
+		Frame vault(0x7ff00000, protos.at(intel).code, protos.at(intel).bytecode_id);
+		const auto ids = recorded(vault, intel);
+		const auto a = write(vault, *plan, ids, alarm_max, 55.0f);
+		const auto b = write(vault, *plan, ids, alarm_min, 35.0f);
+		const auto c = write(vault, *plan, ids, alarm_max, 120.0f);
+		const auto d = write(vault, *plan, ids, alarm_min, 90.0f);
+		check(plan->entries.size() == 3 && close_to(a.value, 27.5f) && close_to(b.value, 17.5f) && close_to(c.value, 60.0f) && close_to(d.value, 45.0f)
+				&& a.overridden && b.overridden && c.overridden && d.overridden && a.key == intel && a.pushes == 1 && d.pushes == 1,
+			"R21 F2 Intel P43 (recorded): Spy alarm x0.5 -> 55/35 stored as 27.5/17.5, 120/90 as 60/45 (per vault), one stock push each");
+		Frame trigger(0x7ff00000, protos.at(sabotage).code, protos.at(sabotage).bytecode_id);
+		const auto e = write(trigger, *plan, recorded(trigger, sabotage), duration, 300.0f);
+		check(close_to(e.value, 120.0f) && e.overridden && e.key == sabotage && e.pushes == 1,
+			"R21 F2 Sabotage P11 (recorded): surprise extraction 300 -> 120 (absolute), one stock push");
+		const auto withheld = ep::withhold(live, recipe.value_ids());
+		check(withheld->values.size() == 1 && withheld->values[0].id == "survival.reward_interval",
+			"R21 F2 with the hook installed the addon gets neither R21 value (no double application with the R10 fallback)");
+	}
+
+	// F3: the R19 failure order on the writer: the engine writes, the native entry runs (the addon writes nothing: withheld),
+	// the engine writes again three times; every stored value is the configured one. Control: the installed R19/R20 recipe on
+	// the same frame: neither hash is declared (and the module is never recorded), every write keeps the level value
+	// (hash-not-declared, the fast exit), i.e. only the R10 Lua entry write exists, the route R19 refuted live.
+	{
+		ep::Recipe r19;
+		(void)ep::parse_recipe(read_text(fixtures / "MissionsR19" / "engine_params.json"), "package:missions", r19);
+		const auto old_plan = ep::make_snapshot(ep::resolve_entries(r19, &live), r19.modules());
+		Frame vault(0x7ff00000, protos.at(intel).code, protos.at(intel).bytecode_id);
+		Frame trigger(0x7ff00000, protos.at(sabotage).code, protos.at(sabotage).bytecode_id);
+		const auto vault_ids = recorded(vault, intel);
+		const auto trigger_ids = recorded(trigger, sabotage);
+		bool survives = true;
+		for (int pass = 0; pass != 4; ++pass)
+		{
+			const auto a = write(vault, *plan, vault_ids, alarm_max, 55.0f);
+			const auto b = write(vault, *plan, vault_ids, alarm_min, 35.0f);
+			const auto c = write(trigger, *plan, trigger_ids, duration, 300.0f);
+			survives = survives && close_to(a.value, 27.5f) && close_to(b.value, 17.5f) && close_to(c.value, 120.0f) && a.overridden && c.overridden;
+		}
+		check(survives, "R21 F3 R19 order on the writer: the first write and 3 re-writes all store the configured values (Spy 27.5/17.5, extraction 120)");
+		const ep::IdentitySnapshot none;
+		const auto x = write(vault, *old_plan, none, alarm_max, 55.0f);
+		const auto y = write(trigger, *old_plan, none, duration, 300.0f);
+		check(close_to(x.value, 55.0f) && close_to(y.value, 300.0f) && x.skip == ep::Skip::HashNotDeclared && y.skip == ep::Skip::HashNotDeclared
+				&& !x.overridden && !y.overridden && x.pushes == 1 && old_plan->entries.empty(),
+			"R21 F3 control, the installed R19/R20 recipe: no plan entry for either module, the writer keeps 55 and 300 "
+			"(hash-not-declared, one stock push): the R10 entry write was the only owner");
+	}
+
+	// F4: the minimums (R20 rule): Spy 0.001 -> 0.055/0.035; surprise extraction at its minimum 1 s.
+	{
+		const auto low = delivery_of({{"sabotage.random_extraction_timer", 1.0f, 300.0f}, {"spy.vault_alarm_scale", 0.001f, 1.0f}});
+		const auto low_plan = ep::make_snapshot(ep::resolve_entries(recipe, &low), recipe.modules());
+		Frame vault(0x7ff00000, protos.at(intel).code, protos.at(intel).bytecode_id);
+		Frame trigger(0x7ff00000, protos.at(sabotage).code, protos.at(sabotage).bytecode_id);
+		const auto a = write(vault, *low_plan, recorded(vault, intel), alarm_max, 55.0f);
+		const auto b = write(vault, *low_plan, recorded(vault, intel), alarm_min, 35.0f);
+		const auto c = write(trigger, *low_plan, recorded(trigger, sabotage), duration, 300.0f);
+		check(std::fabs(a.value - 0.055f) < 1e-5f && std::fabs(b.value - 0.035f) < 1e-5f && close_to(c.value, 1.0f) && a.overridden && c.overridden,
+			"R21 F4 at the minimums: Spy 0.001 stores 0.055/0.035, surprise extraction stores 1");
+	}
+}
+
 int main(int argc, char** argv)
 {
 	if (argc != 5)
@@ -1252,6 +1422,8 @@ int main(int argc, char** argv)
 		image_bytes(argv[3], argv[4]);
 		// R19 last: its E1 attach adds the Railjack modules to the process-owned wanted set (C2 counts that set).
 		r19_railjack_encounters(fixtures);
+		// R21 after R19: F1 checks that nothing wanted Intel or Sabotage before the R21 attach.
+		r21_level_trigger_params(fixtures);
 	}
 	catch (const std::exception& error)
 	{
