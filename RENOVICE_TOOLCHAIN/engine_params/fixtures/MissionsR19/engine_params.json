@@ -1,0 +1,147 @@
+{
+  "format": "RENOVICE_ENGINE_PARAMS_V1",
+  "package": "package:missions",
+  "build": "2026.09.28.13.06",
+  "member": "Missions.targets.addon.lua_B",
+  "overrides": [
+    {
+      "value": "railjack.corpus_fighter_limit_scale",
+      "module": "0a6394a10884c38a",
+      "parameter": "minorKillGoals",
+      "hash": "288044d3",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.corpus_fighter_limit_scale",
+      "module": "0a6394a10884c38a",
+      "parameter": "minorKillGoalsMax",
+      "hash": "e290a5e6",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.pontis_ash_enemies_scale",
+      "module": "434d0132e720ed37",
+      "parameter": "spaceEnemyCountPerVariant",
+      "hash": "833d05b3",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.pontis_garuda_enemies_scale",
+      "module": "52145531e84e69ca",
+      "parameter": "spaceEnemyCountPerVariant",
+      "hash": "833d05b3",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "sabotage.gascity_meltdown_time_scale",
+      "module": "5b59e2968c1ec7bf",
+      "parameter": "hackTime",
+      "hash": "d37f0aaf",
+      "mode": "scale"
+    },
+    {
+      "value": "sabotage.gascity_meltdown_time_scale",
+      "module": "5b59e2968c1ec7bf",
+      "parameter": "modeTimer",
+      "hash": "ac8ee271",
+      "mode": "scale"
+    },
+    {
+      "value": "exterminate.archwing_kill_mult",
+      "module": "c05987eccd08c1ca",
+      "parameter": "spaceBattleKillCountMultiplier",
+      "hash": "e34f013b",
+      "mode": "absolute"
+    },
+    {
+      "value": "exterminate.kills_scale",
+      "module": "c05987eccd08c1ca",
+      "parameter": "metersPerEnemy",
+      "hash": "baa888a8",
+      "mode": "scale_inverse"
+    },
+    {
+      "value": "interception.round_end_timer",
+      "module": "c9605470a8c47d8d",
+      "parameter": "roundEndTimer",
+      "hash": "b68a06b6",
+      "mode": "absolute"
+    },
+    {
+      "value": "interception.score_goal_scale",
+      "module": "c9605470a8c47d8d",
+      "parameter": "scoreGoal",
+      "hash": "3a44eae1",
+      "mode": "scale"
+    },
+    {
+      "value": "interception.scoring_speed",
+      "module": "c9605470a8c47d8d",
+      "parameter": "scoreRatePerSecond",
+      "hash": "5241ca6c",
+      "mode": "scale"
+    },
+    {
+      "value": "railjack.crewship_kills_scale",
+      "module": "e773280ca7743441",
+      "parameter": "majorKillGoals",
+      "hash": "8cf8f4a0",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.crewship_kills_scale",
+      "module": "e773280ca7743441",
+      "parameter": "kuvaLichKillGoal",
+      "hash": "240bcba8",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.fighter_kills_scale",
+      "module": "feb4ca192ef69f0a",
+      "parameter": "minorKillGoals",
+      "hash": "288044d3",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.fighter_kills_scale",
+      "module": "feb4ca192ef69f0a",
+      "parameter": "minorKillGoalsMax",
+      "hash": "e290a5e6",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.fighter_kills_scale",
+      "module": "feb4ca192ef69f0a",
+      "parameter": "kuvaLichKillGoalMin",
+      "hash": "d4a29101",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    },
+    {
+      "value": "railjack.fighter_kills_scale",
+      "module": "feb4ca192ef69f0a",
+      "parameter": "kuvaLichKillGoalMax",
+      "hash": "1026ad29",
+      "mode": "scale_count",
+      "master": "railjack.kill_goals_scale",
+      "scale": 1
+    }
+  ]
+}

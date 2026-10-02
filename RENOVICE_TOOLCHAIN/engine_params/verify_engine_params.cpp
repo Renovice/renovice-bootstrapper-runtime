@@ -29,6 +29,8 @@
 #include <iostream>
 #include <iterator>
 #include <map>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -310,23 +312,35 @@ struct Frame
 	Arena arena;
 	std::uintptr_t state = 0, stack = 0, vm = 0, env = 0, closure = 0, proto = 0, code = 0;
 	std::vector<std::uint8_t> code_bytes;
+	std::int32_t instructions = 37, bytecode_id = 21;
 	std::size_t stock_pushes = 0;
 
-	Frame(std::uintptr_t vm_identity = 0x7ff00000)
+	// R19: `entry_code` / `entry_id` model a real prototype (the stock code words and bytecode id of an encounter entry);
+	// empty keeps the synthetic 37-instruction prototype of the R16 cases.
+	Frame(std::uintptr_t vm_identity = 0x7ff00000, const std::vector<std::uint8_t>& entry_code = {}, std::int32_t entry_id = 21)
 	{
 		state = arena.alloc(0x90);
 		stack = arena.alloc(64 * 16);
 		vm = vm_identity;
 		env = arena.alloc(0x40);
-		code_bytes.resize(4 * 37);
-		for (std::size_t i = 0; i != code_bytes.size(); ++i) code_bytes[i] = static_cast<std::uint8_t>(i * 7 + 3);
+		if (entry_code.empty())
+		{
+			code_bytes.resize(4 * 37);
+			for (std::size_t i = 0; i != code_bytes.size(); ++i) code_bytes[i] = static_cast<std::uint8_t>(i * 7 + 3);
+		}
+		else
+		{
+			code_bytes = entry_code;
+			instructions = static_cast<std::int32_t>(entry_code.size() / 4);
+			bytecode_id = entry_id;
+		}
 		code = arena.alloc(code_bytes.size());
 		std::memcpy(reinterpret_cast<void*>(code), code_bytes.data(), code_bytes.size());
 		proto = arena.alloc(0xb0);
 		arena.put<std::uint8_t>(proto, layout.proto_gc_tag);
 		arena.put<std::uintptr_t>(proto + layout.proto_code, code);
-		arena.put<std::int32_t>(proto + layout.proto_instructions, 37);
-		arena.put<std::int32_t>(proto + layout.proto_bytecode_id, 21);
+		arena.put<std::int32_t>(proto + layout.proto_instructions, instructions);
+		arena.put<std::int32_t>(proto + layout.proto_bytecode_id, bytecode_id);
 		closure = arena.alloc(0x30);
 		arena.put<std::uint8_t>(closure + layout.closure_is_c, 0);
 		arena.put<std::uintptr_t>(closure + layout.closure_env, env);
@@ -366,7 +380,7 @@ struct Frame
 		module.vm = vm;
 		module.root = proto;
 		module.sequence = 1;
-		module.prototypes = {{proto, code, 37, 21, ep::code_hash(code_bytes.data(), code_bytes.size())}};
+		module.prototypes = {{proto, code, instructions, bytecode_id, ep::code_hash(code_bytes.data(), code_bytes.size())}};
 		return module;
 	}
 	// The registered stock push (types 0/1 handler): the float at the value slot, tag 3, top += 16.
@@ -938,6 +952,274 @@ void r17_masters(const std::filesystem::path& fixtures)
 	check(rejected, "R17 8 malformed master overrides are rejected with their exact reason (recipe-local)");
 }
 
+// Contract R19 (2026-10-02): the Grineer Railjack fighter and crewship goals
+// (KillFightersExterminateEncounter / KillCrewShipsExterminateObjective
+// encounter parameters) are owned at the writer too. Live session pid 7128
+// (R17 DLL 304b57de): the R10 entry write logged {20/35/55/70/85/95} ->
+// {2/4/6/7/9/10} and the objective still used a stock-size goal; the writer
+// pushed the same parameter into KillFighters P9 and the R17 hook left it
+// stock with "module-identity-unknown key=0" because no recipe named that
+// module (it was never recorded). Fixture: the R19 Missions build
+// (fixtures/MissionsR19) and the real entry prototypes of the three Railjack
+// encounter modules (encounter_entry_protos.txt, from the 44.0.2 stock bytes).
+struct EntryProto
+{
+	std::uint64_t key = 0;
+	std::string module_sha256;
+	std::int32_t bytecode_id = 0;
+	std::vector<std::uint8_t> code;
+};
+
+std::map<std::uint64_t, EntryProto> read_entry_protos(const std::filesystem::path& path)
+{
+	std::map<std::uint64_t, EntryProto> protos;
+	std::istringstream lines(read_text(path));
+	std::string line;
+	while (std::getline(lines, line))
+	{
+		if (line.empty() || line[0] == '#') continue;
+		std::istringstream fields(line);
+		std::string key, sha, hex;
+		std::int32_t id = 0;
+		std::size_t words = 0;
+		fields >> key >> sha >> id >> words >> hex;
+		EntryProto proto;
+		proto.key = std::stoull(key, nullptr, 16);
+		proto.module_sha256 = sha;
+		proto.bytecode_id = id;
+		for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+			proto.code.push_back(static_cast<std::uint8_t>(std::stoul(hex.substr(i, 2), nullptr, 16)));
+		if (proto.code.size() != words * 4) throw std::runtime_error("encounter_entry_protos.txt: code size of " + key);
+		protos[proto.key] = std::move(proto);
+	}
+	return protos;
+}
+
+void r19_railjack_encounters(const std::filesystem::path& fixtures)
+{
+	constexpr std::uint64_t fighters = 0xfeb4ca192ef69f0aull, crewships = 0xe773280ca7743441ull, corpus = 0x0a6394a10884c38aull;
+	constexpr std::uint64_t pontis_ash = 0x434d0132e720ed37ull, pontis_garuda = 0x52145531e84e69caull;
+	constexpr std::uint64_t railjack_patrol = 0x96d6dcb371caa708ull;   // Grineer patrols: no kill-goal parameter
+	constexpr std::uint32_t minor = 0x288044d3u, minor_max = 0xe290a5e6u, lich_min = 0xd4a29101u, lich_max = 0x1026ad29u;
+	constexpr std::uint32_t major = 0x8cf8f4a0u, lich = 0x240bcba8u;
+	const auto dir = fixtures / "MissionsR19";
+	const std::string text = read_text(dir / "engine_params.json");
+	settings::Declarations declarations;
+	{
+		packages::Manifest parsed;
+		const auto error = packages::parse_manifest(read_text(dir / "package.json"), parsed);
+		std::vector<std::pair<std::string, std::string>> members;
+		for (const auto& member : parsed.members)
+			if (!member.settings_json.empty()) members.emplace_back(member.filename, member.settings_json);
+		const auto declared = settings::parse_declarations(parsed.settings_json, members, declarations);
+		check(error.empty() && declared.empty() && declarations.value("railjack.fighter_kills_scale") != nullptr
+				&& declarations.value("railjack.crewship_kills_scale") != nullptr,
+			"R19 fixture package.json parses (" + std::to_string(declarations.values.size()) + " declarations)");
+	}
+	ep::Recipe recipe;
+	const auto parse_error = ep::parse_recipe(text, "package:missions", recipe);
+	std::size_t railjack = 0, railjack_with_master = 0;
+	for (const auto& item : recipe.overrides)
+	{
+		if (item.value.rfind("railjack.", 0) != 0) continue;
+		++railjack;
+		railjack_with_master += item.master == "railjack.kill_goals_scale" && item.scale == 1.0 ? 1 : 0;
+	}
+	const auto modules = recipe.modules();
+	const auto names = [&](std::uint64_t key) { return std::find(modules.begin(), modules.end(), key) != modules.end(); };
+	check(parse_error.empty() && ep::validate_recipe(recipe, declarations, seed).empty() && recipe.overrides.size() == 17
+			&& recipe.value_ids().size() == 11 && modules.size() == 8 && railjack == 10 && railjack_with_master == 10,
+		"R19 the generated engine_params.json parses and validates: 17 overrides, 11 values, 8 modules; all 10 Railjack overrides "
+		"(Grineer fighters x4, crewships x2, Corpus x2, Pontis x2) name the Railjack master (" + parse_error + ")");
+
+	// E1: the recipe names every Railjack encounter module, so its natural load is recorded (production attach_recipe and
+	// module_wanted, hook installed). The R17 recipe named only the Corpus patrol module, which is why the live R17 hook
+	// could not attribute the KillFighters writes.
+	{
+		ep::Recipe r17;
+		(void)ep::parse_recipe(read_text(fixtures / "MissionsR17" / "engine_params.json"), "package:missions", r17);
+		const auto r17_modules = r17.modules();
+		const bool r17_named = std::find(r17_modules.begin(), r17_modules.end(), fighters) != r17_modules.end()
+			|| std::find(r17_modules.begin(), r17_modules.end(), crewships) != r17_modules.end();
+		ep::gate_set_installed(&build_44_0_2());
+		packages::Package package;
+		package.id = "package:missions";
+		package.folder = "Missions";
+		ep::attach_recipe(package, dir / "engine_params.json");
+		check(!r17_named && names(fighters) && names(crewships) && names(corpus) && names(pontis_ash) && names(pontis_garuda)
+				&& package.engine_recipe != nullptr && ep::module_wanted(fighters) && ep::module_wanted(crewships)
+				&& ep::module_wanted(corpus) && !ep::module_wanted(railjack_patrol),
+			"R19 E1 the recipe names KillFighters, KillCrewShips, BasicRailJackPatrol and both Pontis modules (the R17 recipe named "
+			"neither Grineer module): their natural loads are recorded; RailjackPatrol is not wanted");
+		ep::gate_set_installed(nullptr);
+	}
+
+	const auto protos = read_entry_protos(dir / "encounter_entry_protos.txt");
+	check(protos.size() == 3 && protos.at(fighters).code.size() == 126 * 4 && protos.at(fighters).bytecode_id == 9
+			&& protos.at(crewships).bytecode_id == 9 && protos.at(corpus).bytecode_id == 15
+			&& starts(protos.at(fighters).module_sha256, "870d531df5117518") && starts(protos.at(crewships).module_sha256, "741a81ad4b150ecd")
+			&& starts(protos.at(corpus).module_sha256, "fa1553b18402becc"),
+		"R19 the real entry prototypes: KillFighters P9 (126 words, as the live trace recorded it), KillCrewShips P9, "
+		"BasicRailJackPatrol P15, from the registered stock modules");
+
+	const auto delivery_of = [](std::vector<settings::DeliveredValue> values)
+	{
+		settings::MemberDelivery delivery;
+		delivery.values = std::move(values);
+		delivery.identity = settings::delivery_identity(delivery.values);
+		return delivery;
+	};
+	// The writer model on a frame whose function slot is the real entry prototype of `key`, recorded as a natural load.
+	struct Write { std::vector<float> values; bool overridden = true; bool unknown = true; std::uint64_t key = ~0ull; std::size_t pushes = 0; };
+	const auto write = [&](const ep::PlanSnapshot& plan, std::uint64_t key, bool recorded, std::uint32_t hash, const std::vector<float>& level)
+	{
+		Frame frame(0x7ff00000, protos.at(key).code, protos.at(key).bytecode_id);
+		ep::IdentitySnapshot identities;
+		if (recorded) identities.modules.push_back(frame.identity(key));
+		ModelMemory memory;
+		const bool array = level.size() > 1;
+		const auto record = array ? array_record(frame, level) : scalar_record(frame, 0, level[0]);
+		const auto before = frame.stock_pushes;
+		const auto result = apply_param(frame, memory, plan, identities, record, hash, array ? level.size() : 0);
+		Write out;
+		out.values = result.values;
+		out.pushes = frame.stock_pushes - before;
+		for (const auto& outcome : result.outcomes)
+		{
+			out.overridden = out.overridden && outcome.overridden;
+			out.unknown = out.unknown && outcome.skip == ep::Skip::ModuleUnknown && !outcome.overridden;
+			if (out.key == ~0ull) out.key = outcome.key;
+			else if (out.key != outcome.key) out.key = 0xbad;
+		}
+		return out;
+	};
+	const auto equal = [](const std::vector<float>& a, const std::vector<float>& b)
+	{
+		if (a.size() != b.size()) return false;
+		for (std::size_t i = 0; i != a.size(); ++i)
+			if (std::fabs(a[i] - b[i]) > 1e-4f) return false;
+		return true;
+	};
+	// The lists the engine wrote in the live session (Steel Path, six tiers) and the base Corpus list.
+	const std::vector<float> sp_minor{20, 35, 55, 70, 85, 95}, sp_minor_max{35, 55, 85, 90, 95, 105}, sp_major{2, 4, 6, 7, 8, 9};
+	const std::vector<float> corpus_minor{20, 35, 55, 85, 110};
+
+	// E2: the live settings (master 0.1, fighters 0.1, crewships 0.1) through the writer: exactly the numbers the R10 entry
+	// write logged, now stored by the engine itself, one stock push per value, attributed to the exact module.
+	{
+		const auto live = delivery_of({{"railjack.crewship_kills_scale", 0.1f, 1.0f}, {"railjack.fighter_kills_scale", 0.1f, 1.0f},
+			{"railjack.kill_goals_scale", 0.1f, 1.0f}, {"survival.reward_interval", 150.0f, 300.0f}});
+		const auto plan = ep::make_snapshot(ep::resolve_entries(recipe, &live), recipe.modules());
+		check(plan->entries.size() == 10,
+			"R19 E2 the installed values (master, fighters, crewships 0.1) give a plan of 10 overrides: fighters 4 + crewships 2 "
+			"(own values) + Corpus 2 + Pontis 2 (master); the startup line reads applying=10 withheld_from_addon=11");
+		const auto a = write(*plan, fighters, true, minor, sp_minor);
+		const auto b = write(*plan, fighters, true, minor_max, sp_minor_max);
+		const auto c = write(*plan, fighters, true, lich_min, {50});
+		const auto d = write(*plan, fighters, true, lich_max, {60});
+		check(equal(a.values, {2, 4, 6, 7, 9, 10}) && equal(b.values, {4, 6, 9, 9, 10, 11}) && equal(c.values, {5}) && equal(d.values, {6})
+				&& a.overridden && b.overridden && c.overridden && d.overridden && a.key == fighters && a.pushes == 6 && c.pushes == 1,
+			"R19 E2 KillFighters P9 (recorded): the writer stores {2/4/6/7/9/10}, {4/6/9/9/10/11}, 5, 6 for master 0.1 + fighters 0.1 "
+			"(the live entry-write numbers), one stock push per value");
+		const auto e = write(*plan, crewships, true, major, sp_major);
+		const auto f = write(*plan, crewships, true, lich, {3});
+		check(equal(e.values, {1, 1, 1, 1, 1, 1}) && equal(f.values, {1}) && e.overridden && f.overridden && e.key == crewships,
+			"R19 E2 KillCrewShips P9 (recorded): crewships 0.1 -> {1/1/1/1/1/1} and Lich 3 -> 1 (at least one)");
+		const auto g = write(*plan, corpus, true, minor, corpus_minor);
+		check(equal(g.values, {2, 4, 6, 9, 11}) && g.overridden && g.key == corpus,
+			"R19 E2 the same parameter name (minorKillGoals 288044d3) in BasicRailJackPatrol P15 gets the Corpus row (master 0.1): "
+			"{2/4/6/9/11}; the plan is keyed by (exact content key, hash)");
+		const auto withheld = ep::withhold(live, recipe.value_ids());
+		check(withheld->values.size() == 2 && withheld->values[0].id == "railjack.kill_goals_scale"
+				&& withheld->values[1].id == "survival.reward_interval",
+			"R19 E2 with the hook installed the addon gets the master and the other values, never the Grineer rows (no double application)");
+	}
+	{
+		const auto split = delivery_of({{"railjack.corpus_fighter_limit_scale", 0.5f, 1.0f}, {"railjack.fighter_kills_scale", 0.1f, 1.0f}});
+		const auto plan = ep::make_snapshot(ep::resolve_entries(recipe, &split), recipe.modules());
+		const auto grineer = write(*plan, fighters, true, minor, sp_minor);
+		const auto corp = write(*plan, corpus, true, minor, corpus_minor);
+		check(equal(grineer.values, {2, 4, 6, 7, 9, 10}) && equal(corp.values, {10, 18, 28, 43, 55}),
+			"R19 E2 one hash, two modules, two values: KillFighters x0.1 and BasicRailJackPatrol x0.5 in the same plan");
+	}
+
+	// E3: the R17 live state, reproduced: the R17 recipe (the live plan had only the Corpus entries) and a KillFighters module
+	// that was never recorded. Every element stays stock with module-identity-unknown (renovice_source.log L45012-45023:
+	// hash 288044d3 / e290a5e6, index 0..5). Recorded but not in the R17 plan: no-override-for-module, also stock.
+	{
+		ep::Recipe r17;
+		(void)ep::parse_recipe(read_text(fixtures / "MissionsR17" / "engine_params.json"), "package:missions", r17);
+		const auto live = delivery_of({{"railjack.crewship_kills_scale", 0.1f, 1.0f}, {"railjack.fighter_kills_scale", 0.1f, 1.0f},
+			{"railjack.kill_goals_scale", 0.1f, 1.0f}});
+		const auto plan = ep::make_snapshot(ep::resolve_entries(r17, &live), r17.modules());
+		const auto a = write(*plan, fighters, false, minor, sp_minor);
+		const auto b = write(*plan, fighters, false, minor_max, sp_minor_max);
+		check(plan->entries.size() == 2 && a.unknown && b.unknown && a.key == 0 && equal(a.values, sp_minor) && equal(b.values, sp_minor_max)
+				&& a.pushes == 6 && b.pushes == 6,
+			"R19 E3 the R17 live state: KillFighters not in the recipe, never recorded -> 12 writes left stock with "
+			"module-identity-unknown key=0 (the live SKIP lines)");
+		Frame frame(0x7ff00000, protos.at(fighters).code, protos.at(fighters).bytecode_id);
+		ep::IdentitySnapshot identities;
+		identities.modules.push_back(frame.identity(fighters));
+		ModelMemory memory;
+		const auto record = array_record(frame, sp_minor);
+		const auto result = apply_param(frame, memory, *plan, identities, record, minor, sp_minor.size());
+		bool not_declared = true;
+		for (const auto& outcome : result.outcomes) not_declared = not_declared && outcome.skip == ep::Skip::OverrideNotDeclared;
+		check(not_declared && equal(result.values, sp_minor) && memory.writes == 0,
+			"R19 E3 recorded but not in the R17 plan: no-override-for-module, stock kept, nothing written");
+	}
+
+	// E4: a module reloaded every mission (a new root each load): the newest load is attributed; a freed older load whose
+	// code was reused is not; at most 8 loads per (key, vm) are kept.
+	{
+		const auto live = delivery_of({{"railjack.fighter_kills_scale", 0.1f, 1.0f}});
+		const auto plan = ep::make_snapshot(ep::resolve_entries(recipe, &live), recipe.modules());
+		ep::IdentitySnapshot identities;
+		std::vector<std::unique_ptr<Frame>> loads;
+		for (int load = 0; load != 9; ++load)
+		{
+			loads.push_back(std::make_unique<Frame>(0x7ff00000, protos.at(fighters).code, protos.at(fighters).bytecode_id));
+			auto module = loads.back()->identity(fighters);
+			module.sequence = static_cast<std::uint64_t>(load + 1);
+			identities = *ep::with_module(identities, module);
+		}
+		ModelMemory memory;
+		Frame& newest = *loads.back();
+		const auto record = array_record(newest, sp_minor);
+		const auto now = apply_param(newest, memory, *plan, identities, record, minor, sp_minor.size());
+		Frame& oldest = *loads.front();
+		oldest.arena.put<std::uint8_t>(oldest.code, 0xee);   // the first load was freed and its memory reused
+		const auto old_record = array_record(oldest, sp_minor);
+		const auto stale = apply_param(oldest, memory, *plan, identities, old_record, minor, sp_minor.size());
+		check(identities.modules.size() == 8 && equal(now.values, {2, 4, 6, 7, 9, 10}) && now.outcomes[0].key == fighters
+				&& stale.outcomes[0].skip == ep::Skip::ModuleUnknown && equal(stale.values, sp_minor),
+			"R19 E4 per-mission reloads: 8 loads kept, the newest is attributed (x0.1), a freed reused one stays stock");
+	}
+
+	// E5: master and row precedence, checked on the values the writer actually stores.
+	{
+		const auto stored = [&](std::vector<settings::DeliveredValue> values, std::uint64_t key, std::uint32_t hash, const std::vector<float>& level)
+		{
+			const auto delivery = delivery_of(std::move(values));
+			const auto plan = ep::make_snapshot(ep::resolve_entries(recipe, &delivery), recipe.modules());
+			return write(*plan, key, true, hash, level);
+		};
+		const auto master_only = stored({{"railjack.kill_goals_scale", 0.1f, 1.0f}}, fighters, minor, sp_minor);
+		const auto master_only_crew = stored({{"railjack.kill_goals_scale", 0.1f, 1.0f}}, crewships, major, sp_major);
+		check(equal(master_only.values, {2, 4, 6, 7, 9, 10}) && master_only.overridden && equal(master_only_crew.values, {1, 1, 1, 1, 1, 1}),
+			"R19 E5 master 0.1 alone (rows off): the writer stores x0.1 for fighters and crewships");
+		const auto at_stock = stored({{"railjack.kill_goals_scale", 1.0f, 1.0f}}, crewships, major, sp_major);
+		check(equal(at_stock.values, sp_major) && !at_stock.overridden,
+			"R19 E5 master on at its stock x1, rows off (the R17 live run 1 settings): no override, {2/4/6/7/8/9} stays");
+		const auto row_wins = stored({{"railjack.kill_goals_scale", 0.1f, 1.0f}, {"railjack.crewship_kills_scale", 1.0f, 1.0f}}, crewships, major, sp_major);
+		const auto row_half = stored({{"railjack.kill_goals_scale", 0.1f, 1.0f}, {"railjack.crewship_kills_scale", 0.5f, 1.0f}}, crewships, major, sp_major);
+		const auto lich_half = stored({{"railjack.crewship_kills_scale", 0.5f, 1.0f}}, crewships, lich, {3});
+		check(equal(row_wins.values, sp_major) && row_wins.overridden && equal(row_half.values, {1, 2, 3, 4, 4, 5}) && equal(lich_half.values, {2}),
+			"R19 E5 a row that is on wins over the master: crewships x1 keeps {2/4/6/7/8/9}, x0.5 stores {1/2/3/4/4/5}, Lich 3 -> 2");
+	}
+}
+
 int main(int argc, char** argv)
 {
 	if (argc != 5)
@@ -968,6 +1250,8 @@ int main(int argc, char** argv)
 		hook_decision(recipe);
 		package_scan(work, fixtures);
 		image_bytes(argv[3], argv[4]);
+		// R19 last: its E1 attach adds the Railjack modules to the process-owned wanted set (C2 counts that set).
+		r19_railjack_encounters(fixtures);
 	}
 	catch (const std::exception& error)
 	{
