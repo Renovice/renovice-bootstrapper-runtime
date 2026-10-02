@@ -900,10 +900,11 @@ end
 -- Confirm, Back (Exit) and Close. Every host call must be the planned one.
 -- ---------------------------------------------------------------------------
 local r7Report = { calls = 0, returns = 0, refreshed = 0, inplace = 0, messages = 0, maxDepth = 0, pages = 0, switches = 0, r9 = 0,
-    r10 = 0, r11 = 0, r17 = 0 }
+    r10 = 0, r11 = 0, r17 = 0, r20 = 0 }
 -- 6. R17 (HARNESS_R17 + HARNESS_TAPE): the same host tape machinery on the R17
 -- Missions package; the walk is the "All Survival missions" master (below).
-if (HARNESS_R7 == true or HARNESS_R17 == true) and HARNESS_TAPE ~= nil then
+-- 7. R20 (HARNESS_R20 + HARNESS_TAPE): multiplier minimums typed as 0.001 on value pages (walk below).
+if (HARNESS_R7 == true or HARNESS_R17 == true or HARNESS_R20 == true) and HARNESS_TAPE ~= nil then
     local messages = {}
     rawset(UTIL, "ShowMessage", function(message) messages[#messages + 1] = tostring(message) end)
     local calls = 0
@@ -1105,7 +1106,71 @@ if (HARNESS_R7 == true or HARNESS_R17 == true) and HARNESS_TAPE ~= nil then
     root = newestInstance()
     tick(root, 3)
     noSwitches(root, "r7 root")
-    if HARNESS_R17 == true then
+    -- The field text of a value page's INPUTBOX as the stock screen drew it (the ThemedInputField initial text).
+    local function expectField(instance, text, context)
+        local element = elementBy(instance, function(row) return row.mType == LOTUS_UTILITIES.INPUTBOX end)
+        local shown = element ~= nil and element.InputField ~= nil
+            and instance.movie:GetStringVariable(element.InputField.mLabelClipName, 36) or nil
+        harnessCheck(element ~= nil and element.mContent == text and shown == text, context .. ": the INPUTBOX holds '" .. text
+            .. "' (content '" .. tostring(element and element.mContent) .. "', field '" .. tostring(shown) .. "')", "r20-field")
+        if element ~= nil and element.mContent == text and shown == text then r7Report.refreshed = r7Report.refreshed + 1 end
+    end
+    -- Types `text` on the value page a row of `page` opens, closes it with Confirm and checks the row reads `label`; then
+    -- opens the page again and checks the field shows `text` (Close: no completion pass, no host call).
+    local function typeMinimum(page, prefix, text, label, depth, context)
+        local valuePage = pressLabel(page, prefix, context, depth)
+        if valuePage == nil then return end
+        typeInto(valuePage, text)
+        closeR7(valuePage, "Confirm", depth, page, context .. " " .. prefix)
+        expectLabel(page, prefix, label, context .. " after " .. text)
+        valuePage = pressLabel(page, prefix, context .. " reopened", depth)
+        if valuePage == nil then return end
+        expectField(valuePage, text, context .. " " .. prefix .. " reopened")
+        closeR7(valuePage, "Close", depth, page, context .. " " .. prefix .. " reopened")
+        r7Report.r20 = r7Report.r20 + 1
+    end
+    if HARNESS_R20 == true then
+        -- R20: the multiplier minimum 0.001 typed into the stock INPUTBOX of value pages (a row, a master's kept number),
+        -- the row text after Confirm, and the field text when the page is opened again. The host tape then writes the
+        -- values file (EXPECTFILE: the exact number 0.001).
+        harnessCheck(listOf(root) ~= nil and listOf(root):GetHowManyElements() == 1, "r20 root: SCRIPT SETTINGS lists Missions", "r7-nav")
+        local missions = pressLabel(root, "Missions", "r20", 2)
+        for _, walk in ipairs(HARNESS_R20_WALK or {}) do
+            local page = missions
+            local depth = 2
+            local trail = {}
+            for _, name in ipairs(walk.path) do
+                depth = depth + 1
+                trail[#trail + 1] = page
+                page = page and pressLabel(page, name, "r20 " .. walk.name, depth)
+            end
+            if page ~= nil then
+                if walk.before ~= nil then expectLabel(page, walk.row, walk.before, "r20 " .. walk.name .. " before the edit") end
+                if walk.invalid then
+                    -- Under a floor: Back shows the row's stock message once, no host call, the row keeps its value.
+                    local valuePage = pressLabel(page, walk.row, "r20 " .. walk.name, depth + 1)
+                    if valuePage ~= nil then
+                        local before = #messages
+                        typeInto(valuePage, walk.text)
+                        closeR7(valuePage, "Exit", depth + 1, page, "r20 " .. walk.name)
+                        harnessCheck(#messages == before + 1, "r20 " .. walk.name .. ": Back with " .. walk.text
+                            .. " under the floor shows the row's stock message once", "r20-floor")
+                        r7Report.messages = r7Report.messages + (#messages - before)
+                        expectLabel(page, walk.row, walk.before, "r20 " .. walk.name .. " after the refused value")
+                    end
+                else
+                    typeMinimum(page, walk.row, walk.text, walk.after, depth + 1, "r20 " .. walk.name)
+                end
+                for level = #trail, 1, -1 do
+                    closeR7(page, "Close", depth, trail[level], "r20 " .. walk.name .. " page " .. level)
+                    page = trail[level]
+                    depth = depth - 1
+                end
+            end
+        end
+        if missions ~= nil then closeR7(missions, "Close", 2, root, "r20 Missions page") end
+        closeR7(root, "Confirm", 1, nil, "r20 root")
+    elseif HARNESS_R17 == true then
         -- R17: Missions -> Survival -> "All Survival missions" (CHECKBOX on, then its kept number) -> 60 -> back; the
         -- package's Quick settings must show the same value with its switch on (one storage).
         harnessCheck(listOf(root) ~= nil and listOf(root):GetHowManyElements() == 1, "r17 root: SCRIPT SETTINGS lists Missions", "r7-nav")
@@ -1322,7 +1387,7 @@ end
 print("R7REPORT\tcalls=" .. r7Report.calls .. " returns=" .. r7Report.returns .. " refreshed=" .. r7Report.refreshed
     .. " inplace=" .. r7Report.inplace .. " messages=" .. r7Report.messages .. " max_depth=" .. r7Report.maxDepth
     .. " pages=" .. r7Report.pages .. " switches=" .. r7Report.switches .. " r9=" .. r7Report.r9 .. " r10=" .. r7Report.r10
-    .. " r11=" .. r7Report.r11 .. " r17=" .. r7Report.r17)
+    .. " r11=" .. r7Report.r11 .. " r17=" .. r7Report.r17 .. " r20=" .. r7Report.r20)
 
 for index = 1, #HARNESS.errors do
     print("ERROR\t" .. HARNESS.errors[index])

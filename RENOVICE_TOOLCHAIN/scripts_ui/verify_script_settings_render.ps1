@@ -215,7 +215,7 @@ function ConvertTo-HarnessPage([string]$Path) {
     return @{ Text = $builder.ToString(); Rows = $rows.Count; ValuePages = $valpages.Count; InlineCounts = $inlineCounts; ExpectedPages = $expectedPages }
 }
 
-function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [switch]$R5, [string]$TapeData = '', [switch]$R17) {
+function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [switch]$R5, [string]$TapeData = '', [switch]$R17, [switch]$R20) {
     $builder = New-Object System.Text.StringBuilder
     $offsets = @{}
     $append = {
@@ -237,7 +237,7 @@ function Invoke-Harness([string]$Bridge, [string]$Tag, [string]$PageData = '', [
     & $append "end"
     if ($PageData -ne '') { & $append $PageData }
     if ($R5) { & $append "HARNESS_R5 = true" }
-    if ($TapeData -ne '') { & $append $TapeData; & $append $(if ($R17) { "HARNESS_R17 = true" } else { "HARNESS_R7 = true" }) }
+    if ($TapeData -ne '') { & $append $TapeData; & $append $(if ($R20) { "HARNESS_R20 = true" } elseif ($R17) { "HARNESS_R17 = true" } else { "HARNESS_R7 = true" }) }
     & $append ([IO.File]::ReadAllText((Join-Path $renderDir "harness_driver.luau")))
     $file = Join-Path $scratch "harness_$Tag.luau"
     [IO.File]::WriteAllText($file, $builder.ToString(), (New-Object System.Text.UTF8Encoding($false)))
@@ -571,6 +571,113 @@ if ($r17Line.Count -gt 0) { foreach ($pair in $r17Line[0].Substring(9).Split(' '
 Require ($r17.Exit -eq 0 -and @($r17.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0 -and @($r17.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "R17: the bridge renders the R17 pages (a CHECKBOX and its kept-number BUTTON on a mission-type page) through the stock screen with no Lua error"
 Require ([int]$r17Report['calls'] -eq $r17Plan.Count -and (Get-Category $r17 'r7-plan') -eq 0) "R17: the bridge made exactly the $($r17Plan.Count) planned host calls, in order"
 Require ([int]$r17Report['r17'] -eq 2 -and (Get-Category $r17 'r7-refresh') -eq 0 -and (Get-Category $r17 'r7-close') -eq 0 -and (Get-Category $r17 'r7-nav') -eq 0) "R17: Missions -> Survival -> 'All Survival missions' (on) -> 'Time between rewards: 150 s' -> 60 -> back reads 'Time between rewards: 60 s'; Quick settings then shows 'Survival: 60 s' with its switch on (one storage)"
+
+# 1e. R20 (2026-10-02): multiplier minimums. Every "x" multiplier of the
+# Missions package accepts 0.001 (or a floor with its reason). The real R20
+# Missions package (fixtures\r20, the build staged in work\staging\combined-r20)
+# goes through the host tape (the exact C++ page model, staging, values-file
+# writer and live-literal synthesis); the bridge under test types 0.001 into the
+# stock INPUTBOX of value pages of every editor shape (a scale_count row, a
+# master's kept number on its page pair, a scale_inverse master, a named-setting
+# count multiplier, a live literal, a multiplier that was whole-number only before
+# R20) and Confirms. Each row must then read "<row>: 0.001x", the page opened again
+# must show 0.001 in its field, and the written values file must hold exactly
+# 0.001. A value under a floor (Void orb value, minimum 0.06) is refused with the
+# row's stock message and changes nothing.
+$r20Fixture = Join-Path $renderDir 'fixtures\r20'
+$r20Packages = Join-Path $scratch 'r20-packages'
+if (Test-Path -LiteralPath $r20Packages) { Remove-Item -LiteralPath $r20Packages -Recurse -Force }
+$r20Keys = @([IO.File]::ReadAllLines((Join-Path $r20Fixture 'Missions.target_keys.txt')) | Where-Object { $_ -match '^[0-9a-f]{16}$' })
+$r20Dir = Join-Path $r20Packages 'Missions'
+New-Item -ItemType Directory -Path $r20Dir -Force | Out-Null
+foreach ($name in @('package.json', 'literals.json')) { Copy-Item -LiteralPath (Join-Path $r20Fixture "Missions\$name") -Destination $r20Dir }
+$r20Manifest = [IO.File]::ReadAllText((Join-Path $r20Fixture 'Missions\package.json')) | ConvertFrom-Json
+foreach ($member in $r20Manifest.members.PSObject.Properties.Name) {
+    $bytes = New-Object System.Collections.Generic.List[byte]
+    $bytes.AddRange([byte[]](0x09, 0x03, [byte]$r20Keys.Count))
+    foreach ($key in $r20Keys) { $bytes.Add([byte]$key.Length); $bytes.AddRange([Text.Encoding]::ASCII.GetBytes($key)) }
+    $bytes.AddRange([byte[]]::new(32))
+    [IO.File]::WriteAllBytes((Join-Path $r20Dir $member), $bytes.ToArray())
+}
+# Every declared x value accepts 0.001 unless it is one of the R20 floors (the host's own declaration parser is checked
+# by the tape run below; this is the fixture's declared range).
+$r20Declared = @{}
+foreach ($member in $r20Manifest.members.PSObject.Properties) { foreach ($value in $member.Value.settings.values.PSObject.Properties) { $r20Declared[$value.Name] = $value.Value } }
+foreach ($value in ([IO.File]::ReadAllText((Join-Path $r20Fixture 'Missions\literals.json')) | ConvertFrom-Json).values.PSObject.Properties) { $r20Declared[$value.Name] = $value.Value.declaration }
+$r20Floors = @{ 'interception.scoring_speed' = 0.1; 'void_flood.orb_value_scale' = 0.06; 'purge.alert_tiers.tier1_multiplier' = 0.134; 'purge.alert_tiers.tier2_multiplier' = 0.134; 'purge.alert_tiers.tier3_multiplier' = 0.134 }
+$r20X = @($r20Declared.Keys | Where-Object { $r20Declared[$_].unit -eq 'x' })
+$r20Above = @($r20X | Where-Object { [double]$r20Declared[$_].min -gt 0.001 -and -not ($r20Floors.ContainsKey($_) -and [double]$r20Declared[$_].min -eq $r20Floors[$_]) })
+Require ($r20X.Count -eq 51 -and $r20Above.Count -eq 0 -and @($r20X | Where-Object { $r20Declared[$_].type -ne 'float' }).Count -eq 0) "R20 fixture: the $($r20X.Count) x values of the Missions package are fractional and accept 0.001 except the five recorded floors (scoring speed 0.1, orb value 0.06, Alert Purge tiers 0.134)"
+# The walks: path from the Missions page, the row (label prefix), the text typed, the row before and after.
+$r20Walks = @(
+    @{ Name = 'railjack fighters'; Path = @('Railjack'); Row = 'Fighters to kill'; Before = 'Fighters to kill: x1 (20-130) (default)'; After = 'Fighters to kill: 0.001x'; Setting = 'value:missions/railjack.fighter_kills_scale'; Id = 'railjack.fighter_kills_scale'; Enabled = 1; Invalid = $false },
+    @{ Name = 'railjack master'; Path = @('Railjack'); Row = 'Kill goals'; Before = 'Kill goals: x1 (default)'; After = 'Kill goals: 0.001x'; Setting = 'stored:missions/railjack.kill_goals_scale'; Id = 'railjack.kill_goals_scale'; Enabled = 0; Invalid = $false },
+    @{ Name = 'exterminate master'; Path = @('Exterminate'); Row = 'Kills needed'; Before = 'Kills needed: x1 (formula) (default)'; After = 'Kills needed: 0.001x'; Setting = 'stored:missions/exterminate.kills_scale'; Id = 'exterminate.kills_scale'; Enabled = 0; Invalid = $false },
+    @{ Name = 'void flood capacity'; Path = @('Void Flood', 'Objectives'); Row = 'Tank capacity'; Before = 'Tank capacity: x1 (125-350) (default)'; After = 'Tank capacity: 0.001x'; Setting = 'value:missions/void_flood.tank_capacity_scale'; Id = 'void_flood.tank_capacity_scale'; Enabled = 1; Invalid = $false },
+    @{ Name = 'void flood orb floor'; Path = @('Void Flood', 'Objectives'); Row = 'Void orb value'; Before = 'Void orb value: x1 (5-60) (default)'; After = ''; Setting = 'value:missions/void_flood.orb_value_scale'; Id = 'void_flood.orb_value_scale'; Enabled = 0; Invalid = $true },
+    @{ Name = 'kela literal'; Path = @('Assassination', 'Enemies', 'Kela De Thaym health'); Row = 'Duo'; Before = 'Duo: 2x (default)'; After = 'Duo: 0.001x'; Setting = 'value:missions/assassination.kela_health.p2'; Id = 'assassination.kela_health.p2'; Enabled = 1; Invalid = $false },
+    @{ Name = 'capture solo'; Path = @('Capture', 'Objectives', 'Target health'); Row = 'Solo'; Before = 'Solo: 1x (default)'; After = 'Solo: 0.001x'; Setting = 'value:missions/capture.target_health_player_mult.p1'; Id = 'capture.target_health_player_mult.p1'; Enabled = 1; Invalid = $false }
+)
+# The bridge stages what the player typed on every close route (R5); the host refuses 0.001 under a floor
+# (outside-min-max), so the values file keeps that value unchanged.
+$r20Plan = @($r20Walks | ForEach-Object { "STAGE`t$($_.Setting)`ttext`t0.001`trestage" })
+$r20Expect = New-Object System.Collections.Generic.List[string]
+foreach ($walk in $r20Walks) { $r20Expect.Add("EXPECTFILE`tMissions`t$($walk.Id)`tenabled=$($walk.Enabled)`tvalue=$(if ($walk.Invalid) { '1' } else { '0.001' })") }
+# The Kela health literal: the written file resolves to a synthesis plan with the number constant 0.001 (and, with the
+# U44 stock corpus, the module is synthesized from its real stock bytes).
+$r20Expect.Add("EXPECTPLAN`tMissions`t9ddf18235b5c4abb`tvalues=assassination.kela_health.p2`trows=assassination.kela_health.p2=0.001`tpatches=1")
+$r20PlanFile = Join-Path $scratch 'r20_tape_plan.txt'
+[IO.File]::WriteAllText($r20PlanFile, ((@($r20Plan) + $r20Expect) -join "`n") + "`n", (New-Object System.Text.UTF8Encoding($false)))
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $r20TapeOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'RENOVICE_TOOLCHAIN\settings\verify_addon_settings.ps1') -Package $r20Dir -Settings (Join-Path $r20Fixture 'Settings\Missions.json') -Tape $r20PlanFile @corpusArgs 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    $r20TapeExit = $LASTEXITCODE
+}
+finally { $ErrorActionPreference = $previousPreference }
+$r20TapeOutput | Where-Object { $_ -like 'TAPEOP*' -or $_ -like 'TAPESTEPS*' -or $_ -like 'TAPEPLAN*' -or $_ -like 'FAIL*' -or ($_ -like 'PASS*' -and $_.Contains('tape')) } | ForEach-Object { Write-Output "R20-TAPE`t$_" }
+Require ($r20TapeExit -eq 0 -and ($r20TapeOutput -contains 'ADDON SETTINGS PASS') -and @($r20TapeOutput | Where-Object { $_ -like 'FAIL*' }).Count -eq 0 -and @($r20TapeOutput | Where-Object { $_ -like 'TAPEOP*' -and $_.Contains('REJECT') }).Count -eq 1 -and @($r20TapeOutput | Where-Object { $_ -like "TAPEOP*stage value:missions/void_flood.orb_value_scale = 0.001 (restage) -> REJECT outside-min-max" }).Count -eq 1) "R20 host tape: the R20 Missions package passes the scanner and page model, the host accepts every typed 0.001 except under the orb value floor (REJECT outside-min-max), and the values file holds exactly 0.001 for each accepted value and the default for the refused one ($($r20Expect.Count) checks)"
+if ($corpusArgs.Count -gt 0) { Require (@($r20TapeOutput | Where-Object { $_ -like "TAPEPLAN`tMissions`t9ddf18235b5c4abb`t*" -and $_.Contains("`tsynthesis=pass") }).Count -eq 1) "R20: the Kela health plan (number constant 0.001) synthesizes from the real U44 stock bytes" }
+$r20Steps = @{}
+$r20Labels = New-Object System.Collections.Generic.List[string]
+foreach ($line in $r20TapeOutput) {
+    $fields = $line.Split("`t")
+    if ($fields[0] -eq 'TAPEPAGE') {
+        $key = "$($fields[1])|$($fields[2])"
+        $r20Steps[$key] = @{ Step = [int]$fields[1]; Id = $fields[2]; Title = ($fields[3] -replace '^title=', ''); Empty = ($fields[4] -replace '^empty=', ''); Rows = (New-Object System.Collections.Generic.List[string]) }
+    }
+    elseif ($fields[0] -eq 'TAPEROW') {
+        $r20Steps["$($fields[1])|$($fields[2])"].Rows.Add((ConvertTo-LuauRow $fields[3..($fields.Count - 1)]))
+        $r20Labels.Add($fields[5])
+    }
+}
+foreach ($walk in ($r20Walks | Where-Object { -not $_.Invalid })) { Require ($r20Labels.Contains($walk.After)) "R20 host model: a page row reads '$($walk.After)' after the typed 0.001 (no rounding to 0 or to 2 decimals)" }
+$r20Tape = New-Object System.Text.StringBuilder
+[void]$r20Tape.Append("HARNESS_TAPE = { plan = {`n")
+foreach ($call in $r20Plan) { [void]$r20Tape.Append("  $(ConvertTo-LuauString $call),`n") }
+[void]$r20Tape.Append("}, steps = {}`n}`n")
+foreach ($entry in ($r20Steps.Values | Sort-Object { $_.Step })) {
+    [void]$r20Tape.Append("HARNESS_TAPE.steps[$($entry.Step)] = HARNESS_TAPE.steps[$($entry.Step)] or {}`n")
+    [void]$r20Tape.Append("HARNESS_TAPE.steps[$($entry.Step)][$(ConvertTo-LuauString $entry.Id)] = { title = $(ConvertTo-LuauString $entry.Title), empty = $(ConvertTo-LuauString $entry.Empty), search = false, rows = {`n")
+    foreach ($row in $entry.Rows) { [void]$r20Tape.Append("  $row,`n") }
+    [void]$r20Tape.Append("} }`n")
+}
+[void]$r20Tape.Append("HARNESS_R20_WALK = {`n")
+foreach ($walk in $r20Walks) {
+    $pathText = ($walk.Path | ForEach-Object { ConvertTo-LuauString $_ }) -join ', '
+    [void]$r20Tape.Append("  { name = $(ConvertTo-LuauString $walk.Name), path = { $pathText }, row = $(ConvertTo-LuauString $walk.Row), text = `"0.001`", before = $(ConvertTo-LuauString $walk.Before), after = $(ConvertTo-LuauString $walk.After), invalid = $(if ($walk.Invalid) { 'true' } else { 'false' }) },`n")
+}
+[void]$r20Tape.Append("}`n")
+$r20 = Invoke-Harness $bridgeSource 'r20' '' -TapeData $r20Tape.ToString() -R20
+$r20.Output | Where-Object { $_ -like 'TAPECALL*' -or $_ -like 'R7REPORT*' -or $_ -like 'FAIL*' -or $_ -like 'ERROR*' -or $_ -like 'SCRIPT SETTINGS RENDER HARNESS*' } | Select-Object -First 60 | ForEach-Object { Write-Output "R20`t$_" }
+$r20Line = @($r20.Output | Where-Object { $_ -like "R7REPORT`t*" })
+$r20Report = @{}
+if ($r20Line.Count -gt 0) { foreach ($pair in $r20Line[0].Substring(9).Split(' ')) { $kv = $pair.Split('=', 2); if ($kv.Count -eq 2) { $r20Report[$kv[0]] = $kv[1] } } }
+$r20Valid = @($r20Walks | Where-Object { -not $_.Invalid }).Count
+Require ($r20.Exit -eq 0 -and @($r20.Output | Where-Object { $_ -like 'ERROR*' }).Count -eq 0 -and @($r20.Output | Where-Object { $_ -like 'SCRIPT SETTINGS RENDER HARNESS PASS*' }).Count -eq 1) "R20: the bridge renders the R20 pages and value pages through the stock screen with no Lua error"
+Require ([int]$r20Report['calls'] -eq $r20Plan.Count -and (Get-Category $r20 'r7-plan') -eq 0) "R20: the bridge made exactly the $($r20Plan.Count) planned host calls (each 0.001 staged as the typed text)"
+Require ([int]$r20Report['r20'] -eq $r20Valid -and (Get-Category $r20 'r7-refresh') -eq 0 -and (Get-Category $r20 'r20-field') -eq 0 -and (Get-Category $r20 'r7-close') -eq 0 -and (Get-Category $r20 'r7-nav') -eq 0) "R20: for each of the $r20Valid value pages 0.001 is typed into the stock INPUTBOX and confirmed, the row then reads '<row>: 0.001x', and the page opened again shows 0.001 in its field"
+Require ([int]$r20Report['messages'] -eq 1 -and (Get-Category $r20 'r20-floor') -eq 0) "R20: 0.001 under the Void orb value floor (0.06) is refused with the row's stock message on Back and the row keeps its default"
 
 # 2. Negative control R3: the installed bridge 739d8177 on the same page
 # reproduces the live R4 defects.
