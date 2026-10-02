@@ -203,6 +203,21 @@ def run_build(repo: Path, out: Path, main_checkout: Path | None, client_exe: Pat
     return result
 
 
+STAGED = (('stage/wtsapi32.dll', 'WTSAPI32.dll'), ('stage/OpenWF/Hotfix.owf', 'OpenWF/Hotfix.owf'))
+
+
+def staged_files(out: Path) -> list[dict]:
+    """The install set of a successful build: {path (relative to --out), install_path (relative to the game folder),
+    sha256, bytes} (NATIVE_INTERFACE.md `staged_files`)."""
+    import hashlib
+    files = []
+    for rel, install in STAGED:
+        data = (out / rel).read_bytes()
+        files.append({'path': rel, 'install_path': install, 'sha256': hashlib.sha256(data).hexdigest(),
+                      'bytes': len(data)})
+    return files
+
+
 def snapshot_reference(new: Image, store: Path) -> str:
     label = new.product_version() or 'unknown'
     dest = store / f'{label}_{new.sha256[:12]}'
@@ -270,6 +285,8 @@ def main(argv=None) -> int:
             'facts': {k: v for k, v in facts.items() if k in ('undump', 'census_rows', 'toonew', 'game_version')},
             'items': items, 'tables': result['tables'], 'summary': summarize(items)})
         report['allowlist'] = allowlist_decision(src, facts, new.sha256, items)
+        report['exe_sha256'] = new.sha256                      # flat keys read by the script side
+        report['counts'] = {k: v for k, v in report['summary'].items() if k != 'by_kind'}
         reviews = [it for it in items if it['status'] == 'review']
         report['exit_code'] = EXIT_REVIEW if reviews else EXIT_OK
         report['result'] = 'REVIEW' if reviews else 'OK'
@@ -287,6 +304,8 @@ def main(argv=None) -> int:
             report['build'] = run_build(repo, out, main_checkout, exe)
             if report['build']['status'] != 'PASS':
                 report['exit_code'], report['result'] = EXIT_BUILD, 'BUILD FAILED'
+            else:
+                report['staged_files'] = staged_files(out)
         if not args.no_snapshot and report['allowlist']['decision'] in ('add', 'already') \
                 and report['exit_code'] in (EXIT_OK, EXIT_REVIEW):
             report['reference_snapshot'] = snapshot_reference(new, store)

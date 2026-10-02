@@ -25,6 +25,17 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# Windows PowerShell 5.1 turns a native command's stderr into a terminating error under
+# 'Stop' (git prints progress there); run native commands with 'Continue' and judge them
+# by their exit code only.
+function Invoke-Native([scriptblock]$Command) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $output = & $Command 2>&1 | ForEach-Object { $_.ToString() } }
+    finally { $ErrorActionPreference = $saved }
+    return @{ Exit = $LASTEXITCODE; Output = @($output) }
+}
+
 $Repo = (Resolve-Path -LiteralPath $Repo).Path
 if (-not $InputsFrom) {
     $workspace = $Repo
@@ -67,8 +78,8 @@ foreach ($m in $modules) {
     $source = Join-Path $InputsFrom $m.Path
     if (-not (Test-Path -LiteralPath (Join-Path $source '.git'))) { throw "NATIVE UPDATE BUILD FAIL: submodule source missing: $source" }
     $url = $source.Replace('\', '/')
-    $out = & git -C $Repo -c protocol.file.allow=always -c "submodule.$($m.Name).url=$url" submodule update --init -- $m.Path 2>&1
-    if ($LASTEXITCODE -ne 0) { $out | Write-Output; throw "NATIVE UPDATE BUILD FAIL: submodule $($m.Path) checkout failed" }
+    $r = Invoke-Native { git -C $Repo -c protocol.file.allow=always -c "submodule.$($m.Name).url=$url" submodule update --init -- $m.Path }
+    if ($r.Exit -ne 0) { $r.Output | Write-Output; throw "NATIVE UPDATE BUILD FAIL: submodule $($m.Path) checkout failed" }
     Write-Output "NATIVE UPDATE BUILD submodule $($m.Path) checked out from $source"
 }
 
@@ -82,12 +93,15 @@ foreach ($relative in @('modules\Soup\soup\soup.lib', 'modules\Pluto\src\Pluto.l
     Copy-Item -LiteralPath $from -Destination $to
     Write-Output "NATIVE UPDATE BUILD copied untracked input $relative"
 }
-$tracked = @(& git -C $Repo ls-files -- 'OpenWF/cert' 'modules/Soup/soup/soup.lib' 'modules/Pluto/src/Pluto.lib')
+$tracked = @((Invoke-Native { git -C $Repo ls-files -- 'OpenWF/cert' 'modules/Soup/soup/soup.lib' 'modules/Pluto/src/Pluto.lib' }).Output | Where-Object { $_ })
 if ($tracked.Count -ne 0) { throw "NATIVE UPDATE BUILD FAIL: an untracked build input is tracked: $($tracked -join ', ')" }
 
 # 4. Build (unchanged build_private.ps1: every gate, then the private MSVC build).
 $buildScript = Join-Path $Repo 'RENOVICE_TOOLCHAIN\build_private.ps1'
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript
+$saved = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript 2>&1 | ForEach-Object { $_.ToString() } }
+finally { $ErrorActionPreference = $saved }
 if ($LASTEXITCODE -ne 0) { throw "NATIVE UPDATE BUILD FAIL: build_private.ps1 exit $LASTEXITCODE" }
 
 # 5. Stage the DLL and the matching Hotfix.owf.
@@ -107,5 +121,5 @@ $lines = foreach ($relative in @('wtsapi32.dll', 'OpenWF/Hotfix.owf')) {
 $dllHash = ($lines[0] -split '\s+')[0]
 $hotfixHash = ($lines[1] -split '\s+')[0]
 $bytes = (Get-Item -LiteralPath (Join-Path $Stage 'wtsapi32.dll')).Length
-$commit = (& git -C $Repo rev-parse HEAD).Trim()
+$commit = ((Invoke-Native { git -C $Repo rev-parse HEAD }).Output -join '').Trim()
 Write-Output "NATIVE UPDATE STAGE PASS dll_sha256=$dllHash dll_bytes=$bytes hotfix_sha256=$hotfixHash commit=$commit stage=$Stage"
