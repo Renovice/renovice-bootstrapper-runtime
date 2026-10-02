@@ -2,7 +2,9 @@
 param(
     # Read-only executable images, one or more per registered ENGINE_DAMAGE build
     # (renovice/engine_damage_builds.hpp). Defaults: the pinned 43 native-analysis
-    # input, the 44.0.0 pre-update client copy and the installed 44.0.2 client.
+    # input, the 44.0.0 pre-update client copy, every native-update reference image
+    # (work\native-update\reference) and the client (RENOVICE_GATE_CLIENT_EXE or the
+    # installed Warframe.x64.exe); see Get-GateClientImages in gate_paths.ps1.
     [string[]]$Images = @()
 )
 $ErrorActionPreference = 'Stop'
@@ -20,9 +22,8 @@ if ($Images.Count -eq 0) {
     }
     $Images = @(
         (Join-Path $workspace 'work\native-analysis\inputs\wf-2026.08.19.11.06-cca46d60\Warframe.x64.exe'),
-        (Join-Path $workspace 'work\research\U44-2026-09-27\client-before\Warframe.x64.exe'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Steam\steamapps\common\Warframe\Warframe.x64.exe')
-    )
+        (Join-Path $workspace 'work\research\U44-2026-09-27\client-before\Warframe.x64.exe')
+    ) + @(Get-GateClientImages $repo)
 }
 foreach ($image in $Images) {
     if (-not (Test-Path -LiteralPath $image -PathType Leaf)) { throw "ENGINE_DAMAGE CODEC GATE FAIL: image missing: $image" }

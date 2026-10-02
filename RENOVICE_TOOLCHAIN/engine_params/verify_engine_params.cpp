@@ -15,10 +15,12 @@
 //   C. The package scan end to end (production packages.cpp + engine_params.cpp)
 //      on a temporary CustomScripts tree: not installed, installed, F9
 //      prepare/discard/commit, broken recipe, wrong hash, package conflict.
-//   D. The registered byte ranges against the installed executable mapped like
-//      the loader maps it (read-only; skipped when the image is not given).
+//   D. The registered byte ranges against every given executable whose digest is
+//      registered (the client and the native-update reference images), mapped
+//      like the loader maps it (read-only; skipped when no image is given; an
+//      unregistered image installs nothing and is reported, not failed).
 //
-// Usage: verify_engine_params <work dir> <fixture dir> <exe path|-> <exe sha256|->
+// Usage: verify_engine_params <work dir> <fixture dir> <exe path|-> <exe sha256|-> [<exe> <sha256>]...
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -794,10 +796,18 @@ void image_bytes(const std::filesystem::path& exe, const std::string& digest)
 		return;
 	}
 	const auto* build = ep::registration_for_digest(digest);
-	check(build == &build_44_0_2(), "D1 the executable's SHA-256 selects the 44.0.2 registration");
 	check(ep::registration_for_digest("00") == nullptr && ep::registration_for_digest("") == nullptr,
 		"D1 an unregistered digest selects nothing (fail closed, no fallback)");
-	if (build == nullptr) return;
+	// Native update (2026-10-02): every registered image is checked; an image the
+	// native update tool could not register (or has not processed) installs nothing.
+	if (build == nullptr)
+	{
+		std::cout << "INFO\t" << digest << " is not registered: ENGINE_PARAM_OVERRIDE installs nothing on it (fail closed)\n";
+		return;
+	}
+	bool listed = false;
+	for (const auto& known : build->digests) listed = listed || (!known.empty() && known == digest);
+	check(listed, std::string("D1 the executable's SHA-256 selects its exact registration (") + std::string(build->label) + ")");
 	std::ifstream input(exe, std::ios::binary);
 	const std::vector<std::uint8_t> file((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
 	const auto pe = load<std::uint32_t>(file, 0x3c);
@@ -1392,9 +1402,9 @@ void r21_level_trigger_params(const std::filesystem::path& fixtures)
 
 int main(int argc, char** argv)
 {
-	if (argc != 5)
+	if (argc < 5 || (argc - 3) % 2 != 0)
 	{
-		std::cerr << "usage: verify_engine_params <work dir> <fixture dir> <exe|-> <sha256|->\n";
+		std::cerr << "usage: verify_engine_params <work dir> <fixture dir> <exe|-> <sha256|-> [<exe> <sha256>]...\n";
 		return 2;
 	}
 	const std::filesystem::path work = argv[1];
@@ -1419,7 +1429,7 @@ int main(int argc, char** argv)
 		(void)ep::parse_recipe(recipe_text, "package:missions", recipe);
 		hook_decision(recipe);
 		package_scan(work, fixtures);
-		image_bytes(argv[3], argv[4]);
+		for (int i = 3; i + 1 < argc; i += 2) image_bytes(argv[i], argv[i + 1]);
 		// R19 last: its E1 attach adds the Railjack modules to the process-owned wanted set (C2 counts that set).
 		r19_railjack_encounters(fixtures);
 		// R21 after R19: F1 checks that nothing wanted Intel or Sabotage before the R21 attach.

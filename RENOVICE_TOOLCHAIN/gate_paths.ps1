@@ -84,6 +84,40 @@ function Copy-GateInput {
     return $to
 }
 
+# Client executables the per-build gates check (native update, 2026-10-02), read
+# only: the client under test (RENOVICE_GATE_CLIENT_EXE when set, else the
+# installed Steam Warframe.x64.exe when present) and every reference image the
+# native update tool stored (<workspace>\work\native-update\reference\*\
+# Warframe.x64.exe, the certified builds before the installed one). A registered
+# build stays covered after Steam replaces the installed executable.
+function Get-GateClientImages {
+    param([Parameter(Mandatory = $true)][string]$Repo)
+    $images = [System.Collections.Generic.List[string]]::new()
+    $client = if ($env:RENOVICE_GATE_CLIENT_EXE) { $env:RENOVICE_GATE_CLIENT_EXE }
+              else { Join-Path ${env:ProgramFiles(x86)} 'Steam\steamapps\common\Warframe\Warframe.x64.exe' }
+    if ($env:RENOVICE_GATE_CLIENT_EXE -and -not (Test-Path -LiteralPath $client -PathType Leaf)) {
+        throw "GATE PATHS FAIL: RENOVICE_GATE_CLIENT_EXE does not exist: $client"
+    }
+    if (Test-Path -LiteralPath $client -PathType Leaf) { $images.Add([IO.Path]::GetFullPath($client)) }
+    $workspace = [IO.Path]::GetFullPath($Repo)
+    while ($workspace -and -not (Test-Path -LiteralPath (Join-Path $workspace 'WORKSPACE.json') -PathType Leaf)) {
+        $parent = Split-Path -Parent $workspace
+        if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $workspace) { $workspace = $null; break }
+        $workspace = $parent
+    }
+    if ($workspace) {
+        $store = Join-Path $workspace 'work\native-update\reference'
+        if (Test-Path -LiteralPath $store -PathType Container) {
+            foreach ($exe in @(Get-ChildItem -LiteralPath $store -Directory | Sort-Object Name | ForEach-Object {
+                        Join-Path $_.FullName 'Warframe.x64.exe' } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })) {
+                if (-not $images.Contains($exe)) { $images.Add($exe) }
+            }
+        }
+    }
+    # Callers wrap the result in @(): the list is unrolled into plain strings.
+    return $images.ToArray()
+}
+
 function ConvertTo-GateLongPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     $full = [IO.Path]::GetFullPath($Path)

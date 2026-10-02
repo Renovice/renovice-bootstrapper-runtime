@@ -9,7 +9,8 @@
 #      packages.cpp, live_literals.cpp and engine_params.cpp: pure rules, the
 #      hook decision on a byte-exact model of the writer's frame (engine
 #      re-write order for every R16 row), the package scan end to end, and the
-#      registered byte ranges against the installed 44.0.2 image.
+#      registered byte ranges against every registered client / native-update reference image (gate_paths.ps1
+#      Get-GateClientImages; an unregistered image installs nothing and is reported).
 #   2. Source pins: hook order (stock push exactly once), no Lua API and no
 #      logging in the hook unless Diagnostics is on, startup/F9 integration,
 #      module identity at the natural load and the F9 refresh, no target names
@@ -52,16 +53,18 @@ Write-Output "INFO`tR21 fixture engine_params.json sha256=$((Get-FileHash -Liter
 Write-Output "INFO`tfixture engine_params.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'Missions\engine_params.json') -Algorithm SHA256).Hash)"
 Write-Output "INFO`tfixture package.json sha256=$((Get-FileHash -LiteralPath (Join-Path $fixtureDir 'Missions\package.json') -Algorithm SHA256).Hash)"
 
-# The installed executable (read-only); absent on another machine: the byte gate is skipped there.
-$exe = 'C:\Program Files (x86)\Steam\steamapps\common\Warframe\Warframe.x64.exe'
-$exeArgument = '-'
-$digestArgument = '-'
-if (Test-Path -LiteralPath $exe -PathType Leaf) {
-    $exeArgument = $exe
-    $digestArgument = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-    Write-Output "INFO`tinstalled executable sha256=$digestArgument (read-only)"
+# The client executable and the native-update reference images (read-only; Get-GateClientImages); none on another
+# machine: the byte gate is skipped there.
+$imageArguments = @()
+foreach ($exe in @(Get-GateClientImages $repo)) {
+    $digest = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+    $imageArguments += @($exe, $digest)
+    Write-Output "INFO`texecutable $exe sha256=$digest (read-only)"
 }
-else { Write-Output "INFO`tinstalled executable absent; registered byte ranges are not checked" }
+if ($imageArguments.Count -eq 0) {
+    $imageArguments = @('-', '-')
+    Write-Output "INFO`tno client executable; registered byte ranges are not checked"
+}
 
 # 1. Checker.
 $work = ConvertTo-GateLongPath (Join-Path $scratch 'work')
@@ -92,7 +95,7 @@ try {
     finally { Pop-Location }
     $output | Write-Output
     if ($compileExit -ne 0) { throw "ENGINE PARAMS GATE FAIL: checker compilation failed: $compileExit" }
-    & $binary $work (ConvertTo-GateLongPath $fixtureDir) $exeArgument $digestArgument
+    & $binary $work (ConvertTo-GateLongPath $fixtureDir) @imageArguments
     if ($LASTEXITCODE -ne 0) { throw "ENGINE PARAMS GATE FAIL: checker failed: $LASTEXITCODE" }
 }
 finally {
@@ -138,7 +141,7 @@ Require ((Index $runtimeCpp 'registration_for_digest(digest)') -lt (Index $runti
 $installBody = Between $runtimeCpp 'const char* install(' 'bool any_recipe_present()'
 Require ((Index $installBody 'push_value_hook.disable();') -ge 0 -and (Index $installBody 'push_value_hook.destroy();') -ge 0 -and (Index $installBody 'registration.store(nullptr') -ge 0) 'install failure path removes a created hook and publishes no registration'
 Require ((Count $core 'memory.write(') -eq 1) 'core: exactly one write, the number slot the stock push created'
-Require ((Index $builds 'inline constexpr std::array<BuildRegistration, 1> registered_builds') -ge 0 -and (Count $builds '"0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33"') -eq 1) 'registration: one build (44.0.2), keyed by the exact executable digest'
+Require (($builds -match 'inline constexpr std::array<BuildRegistration, [1-9][0-9]*> registered_builds\{\{') -and (Index $builds 'registered_builds{{' + "`n" + '    {' + "`n" + '        "44.0.2 2026.09.28.13.06",') -ge 0 -and (Count $builds '"0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33"') -eq 1) 'registration: 44.0.2 first (the A-C model build), each build keyed by its exact executable digests (rows added by the native update tool follow)'
 
 $scan = Between $packagesCpp 'void scan_package(' 'SourceClaims package_claims('
 Require ((Count $scan 'engine_params::attach_recipe(package, engine_recipe_path);') -eq 1) 'package scan: engine_params.json is attached (older DLLs ignore the file: no other parser reads it)'

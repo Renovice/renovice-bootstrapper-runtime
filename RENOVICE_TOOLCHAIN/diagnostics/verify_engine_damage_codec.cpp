@@ -169,7 +169,11 @@ int main(int argc, char** argv) {
         const auto digest = sha256(file);
         const auto build = registration_for_digest(digest);
         std::cout << "image " << argv[i] << " sha256 " << digest << '\n';
-        if (!build) { std::cout << "FAIL unregistered digest\n"; ok = false; continue; }
+        // Native update (2026-10-02): an image without a registration is a build the
+        // native update tool could not register (review) or has not processed yet.
+        // ENGINE_DAMAGE installs nothing on it (fail closed), which is not a gate
+        // failure; coverage of every registration below stays mandatory.
+        if (!build) { std::cout << "SKIP unregistered digest (ENGINE_DAMAGE installs nothing on this image)\n"; continue; }
         try {
             if (verify(argv[i], *build, map_image(file))) covered.insert(build->label);
             else ok = false;
