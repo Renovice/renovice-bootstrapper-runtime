@@ -237,6 +237,8 @@ def snapshot_reference(new: Image, store: Path) -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--game', required=True, help='Warframe game folder (read only); its Warframe.x64.exe is the new image')
+    ap.add_argument('--exe', help='the new image to analyse (default <game>/Warframe.x64.exe); the update tool passes its '
+                                  'sideloaded copy when the installed client blocks the proxy DLL')
     ap.add_argument('--out', required=True, help='output folder (report, proposed rows, build log, stage/)')
     ap.add_argument('--repo', help='bootstrapper source tree to read and (with --apply) update; default: this tool\'s repo')
     ap.add_argument('--reference', action='append', default=[], help='reference image(s) (default: the reference store)')
@@ -253,9 +255,9 @@ def main(argv=None) -> int:
     report: dict = {'format': FORMAT, 'tool_version': TOOL_VERSION,
                     'generated': dt.datetime.now().isoformat(timespec='seconds'), 'game_dir': str(game)}
     try:
-        exe = game / 'Warframe.x64.exe'
+        exe = Path(args.exe).resolve() if args.exe else game / 'Warframe.x64.exe'
         if not exe.is_file():
-            raise SystemExit(f'no Warframe.x64.exe in {game}')
+            raise SystemExit(f'no client executable at {exe}')
         if out == game or game in out.parents:
             raise SystemExit('the output folder must not be inside the game folder')
         out.mkdir(parents=True, exist_ok=True)
