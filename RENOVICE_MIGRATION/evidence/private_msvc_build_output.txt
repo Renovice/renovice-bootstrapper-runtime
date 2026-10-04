@@ -8,8 +8,8 @@ Linking...
 swf
 script_control
 riven
-replacements
 replacement_settings
+replacements
 packages
 live_literals
 injection
@@ -18,9 +18,9 @@ engine_damage
 de_vm_authority
 config
 owf_web
+owf_tunables
 owf_scripting
 owf_repo
-owf_tunables
 owf_overlay
 owf_label_replacements
 owf_hotkeys

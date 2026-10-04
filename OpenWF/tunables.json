@@ -12,6 +12,7 @@
 		"00cf876132443b8e2bcb7450d05c89d0f8695ec51c5881976f784233dbc94374", // 44.0.2 Steam
 		"0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33", // 44.0.2 Sideloadify 1.1.0
 		"e546599b62d0574db955fc93a6434728625be72ca1a0731e475d1ffa350ccf05", // 2026.09.30.14.45 (native update tool 2026-10-04)
+		"ab759d955ee56d08be6f27e2a4272914d64f216196ece8e994393f4a5c92db4d", // 2026.09.30.14.45 (native update tool 2026-10-04)
 	],
 	// Version-family boundaries alone cannot distinguish a certified U43 build
 	// from a later U43 hotfix with changed signatures. Keep U43 fail-closed.
