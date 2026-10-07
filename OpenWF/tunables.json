@@ -5,7 +5,7 @@
 	"toonew": { "$gv": "45.0.0" },
     // 2026.09.28.13.06 = Hotfix 44.0.2. Every version44 signature, the native-name seed, the Luau
     // dispatch body and all 14 bound stock modules were re-verified against it (2026-09-29).
-    "supported_builds_44": ["2026.09.24.13.29", "2026.09.28.13.06", "2026.09.30.14.45"],
+    "supported_builds_44": ["2026.09.24.13.29", "2026.09.28.13.06", "2026.09.30.14.45", "2026.10.06.16.12"],
     "supported_client_sha256_44": [
 		"45fa6ad0769cc8ca7fa7e0ffdee65c0c0932e11744146781ad18c45b16e4a81c", // 44.0.0 Steam
 		"87fc60ce65e015c6c8d4be5ac353538c37392efb6793dd17f0a17cf126d3fb5c", // 44.0.0 Sideloadify 1.1.0
@@ -13,6 +13,7 @@
 		"0124f0b93516e60ae362c59090809de24a42551143a6adf84963bd2120ab7d33", // 44.0.2 Sideloadify 1.1.0
 		"e546599b62d0574db955fc93a6434728625be72ca1a0731e475d1ffa350ccf05", // 2026.09.30.14.45 (native update tool 2026-10-04)
 		"ab759d955ee56d08be6f27e2a4272914d64f216196ece8e994393f4a5c92db4d", // 2026.09.30.14.45 (native update tool 2026-10-04)
+		"5802cf434999cdc563baab562e74999ebe55396d93f8f98d7d77c4b19e11cf77", // 2026.10.06.16.12 (native update tool 2026-10-08)
 	],
 	// Version-family boundaries alone cannot distinguish a certified U43 build
 	// from a later U43 hotfix with changed signatures. Keep U43 fail-closed.

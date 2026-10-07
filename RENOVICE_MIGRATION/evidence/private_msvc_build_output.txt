@@ -20,8 +20,8 @@ config
 owf_web
 owf_tunables
 owf_scripting
-owf_repo
 owf_overlay
+owf_repo
 owf_label_replacements
 owf_hotkeys
 owf_config
