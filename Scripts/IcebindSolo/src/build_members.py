@@ -85,6 +85,55 @@ MEMBERS = [
             },
         ],
     },
+    # Squad Side Objective events (added 2026-10-08): each event script has its own "scale to the real squad" flag
+    # (upvalue 0), set false by its MasterInit at i3 (LOADB R1 false; SETUPVAL 0). False = the event assumes 6 players.
+    {
+        'stock': 'Lotus_Scripts_KuvaPath_AntiVoidSurgeEvent.lua_B',
+        'key': '21f2b1172cc837b7',
+        'file': '21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B',
+        'edits': [
+            {   # MasterInit: `<scale-to-players flag> = false`
+                'proto': 19, 'i': 3,
+                'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
+                'why': 'Void Surge: the crystal-proximity objective needs GetNumHumanPlayers() Tenno inside the zone '
+                       'instead of a fixed 6 (all five flag reads are that count: gather, maintain, HUD)',
+            },
+        ],
+    },
+    {
+        'stock': 'Lotus_Scripts_KuvaPath_LockedCrateEvent.lua_B',
+        'key': 'd6111f1566eb30f9',
+        'file': 'd6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B',
+        'edits': [
+            {   # MasterInit: `<scale-to-players flag> = false`
+                'proto': 21, 'i': 3,
+                'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
+                'why': 'Locked Crate: the unlock needs the real player count at the crate instead of a fixed 6 (count '
+                       'and "n / 6" HUD reads). The flag also registers the event\'s debug ImGui panel on the '
+                       'blackboard, shown only by DE\'s developer ImGui overlay',
+            },
+        ],
+    },
+    {
+        'stock': 'Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B',
+        'key': '8aad3115f1204cf2',
+        'file': '8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B',
+        'edits': [
+            {   # MasterInit: `<scale-to-players flag> = false`
+                'proto': 24, 'i': 3,
+                'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
+                'why': 'Signal Chain (master): the chain is sized for GetNumHumanPlayers() nodes instead of 6 (console '
+                       'spawn range MapToRange((n-1)/5) of 20..30 and node distance ceil(dist/(n+1)+3)), so a solo '
+                       'Tenno can link device and console',
+            },
+            {   # ReplicaInit: the replica's copy of the same flag (upvalue 6), read when it sizes the chain locally
+                'proto': 25, 'i': 55,
+                'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
+                'why': 'Signal Chain (replica): same flag on clients, so the replica sizes the chain with the same '
+                       'player count as the host',
+            },
+        ],
+    },
 ]
 
 

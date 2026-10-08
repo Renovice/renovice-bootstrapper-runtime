@@ -122,3 +122,26 @@ squad-scaling member now also sets it to `true` (one byte, `B=1`). The flag's on
 event from the ImGui debug "Start Event" button, which is unreachable in normal play. Gates: all PASS
 (`src/build_members.py`; the shifted-rebase gate now counts the inserts before each of several edits in one
 prototype). Member sha256 `2b5c352a1681c358…`. Not yet live-tested.
+
+## 2026-10-08: the side-objective events themselves scale too
+
+Starting an objective was not enough: three event scripts keep their own copy of the same "scale to the real squad"
+flag (upvalue 0), set `false` by their `MasterInit` at i3 (`LOADB R1 false; SETUPVAL 0`), and then demand 6 players
+inside the event:
+
+| Event script | Content key | Flag reads (all evidence: `work/research/U44.1.0-2026-10-08/icebind-solo/events`) | Edit |
+|---|---|---|---|
+| `AntiVoidSurgeEvent` | `21f2b1172cc837b7` | players needed inside the crystal zone (gather, maintain, HUD): `flag ? GetNumHumanPlayers() : 6` | P19 i3 `LOADB` B 0 -> 1 |
+| `LockedCrateEvent` | `d6111f1566eb30f9` | players needed at the crate and the "n / 6" HUD; also registers the event's debug ImGui panel (DE developer overlay only) | P21 i3 `LOADB` B 0 -> 1 |
+| `SignalBridgeEvent` (Signal Chain, "link point A to point B") | `8aad3115f1204cf2` | chain sized for `n` nodes: console spawn range `MapToRange((n-1)/5)` of 20..30, node distance `ceil(dist/(n+1)+3)`; n = 6 made one Tenno unable to bridge | P24 i3 (MasterInit) and P25 i55 (ReplicaInit) `LOADB` B 0 -> 1 |
+
+`HotPotatoEvent` and `RegenCrystalEvent` also set a flag in `MasterInit` but never read it and have no player-count
+requirement (no "missing players" objective), so they are unchanged.
+
+Members `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` (sha256 `34ffe9267df7bb87…`),
+`d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` (`268bbbb8fb0d34c3…`),
+`8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` (`1a12543b2dc41521…`). Gates: 48/48 PASS
+(`src/build_members.py`; cfg-identity reports exactly the intended `LOAD B:false -> LOAD B:true` labels). Registered in
+the update tool (`authored_addons.json`, package-replacement test 7/7 PASS). Installed into the active game folder
+(`Packages/IcebindSolo`, package enabled); prior package backed up in
+`work/backups/icebindsolo-before-sideobj-events-2026-10-08`. Not yet live-tested.
