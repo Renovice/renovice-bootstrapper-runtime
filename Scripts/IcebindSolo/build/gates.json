@@ -254,6 +254,66 @@
    "detail": "exit 1: proto 21 CFG_DIFF kind=LABEL depth=3 stock[3]=\"LOAD B:false\" candidate[3]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=28 protos_candidate=28 cfg_equal=27 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
   },
   {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "stock-key",
+   "pass": true,
+   "detail": "Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B key 8aa38f1093ce7abc, sha256 7ba55c87cdc45397295dd0d71c535f5741b7a50d9c8e002364fc30bc8235b141"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-word P9 i77",
+   "pass": true,
+   "detail": "12073c00"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "parse-u44",
+   "pass": true,
+   "detail": "36 prototypes, walk errors []"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "byte-diff",
+   "pass": true,
+   "detail": "1 bytes differ at [4904]"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "same-shape+edit-script",
+   "pass": true,
+   "detail": "edits [(9, 77)]"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "self-rebase",
+   "pass": true,
+   "detail": "auto"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "shifted-rebase",
+   "pass": true,
+   "detail": "edits [{'old': 'P9 i77', 'new': 'P11 i80'}]"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "de-roundtrip",
+   "pass": true,
+   "detail": "nps=36   consts re-encode exact: 36/36  FULL BODY identical: True"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "const-identity",
+   "pass": true,
+   "detail": "CONST_IDENTITY protos_stock=36 protos_candidate=36 hash_equal=36 string_equal=36 keyuse_equal=36 verdict=PASS"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "cfg-identity (report)",
+   "pass": null,
+   "detail": "exit 1: proto 9 CFG_DIFF kind=LABEL depth=46 stock[77]=\"LOAD N:60\" candidate[77]=\"LOAD N:10\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=36 protos_candidate=36 cfg_equal=35 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+  },
+  {
    "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
    "gate": "stock-key",
    "pass": true,

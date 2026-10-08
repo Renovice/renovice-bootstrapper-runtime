@@ -48,6 +48,17 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 - Candidate: size 13220 (stock 13220), sha256 `268bbbb8fb0d34c306e3638abe0580199383b0da5211105f6875dcc02fa888eb`, content key of the candidate body `7ddc304a6cac923e` (the loader matches the FILENAME key `d6111f1566eb30f9`).
 - Bytes differing from stock: 1 (all inside the edited instruction words).
 
+## `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B`
+
+- Target: `Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B` , content key `8aa38f1093ce7abc`, stock size 15779, stock sha256 `7ba55c87cdc45397295dd0d71c535f5741b7a50d9c8e002364fc30bc8235b141`.
+
+| Prototype | Instruction | File offset | Stock (canonical) | Edit (canonical) | Stock raw | Edit raw | Why |
+|---|---|---|---|---|---|---|---|
+| P9 | i77 | 4902 (0x1326) | `12073c00` LOADN | `12070a00` LOADN | `08073c00` | `08070a00` | Cryothermia: the core is neutralized after 10 s of total hold instead of 60 s, a full squad's per-player share (60 / 6); a solo holder peaks at 10 x 5 % = 50 % of max health. The 5 % per second ramp is unchanged. The HUD percentage (P1/P2 divide by the constant 60) reads about 17 % at completion |
+
+- Candidate: size 15779 (stock 15779), sha256 `5dedfeb7c63bd1d2b187ce64c61e50466af6ce669d32b33b2f9190685c0c6eea`, content key of the candidate body `fbbd832073ed1ca2` (the loader matches the FILENAME key `8aa38f1093ce7abc`).
+- Bytes differing from stock: 1 (all inside the edited instruction words).
+
 ## `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B`
 
 - Target: `Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B` , content key `8aad3115f1204cf2`, stock size 16546, stock sha256 `00159d21024137521a3981518821621572af37398878fa19574370819bb3bff2`.
@@ -106,6 +117,16 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | de-roundtrip | PASS | nps=28   consts re-encode exact: 28/28  FULL BODY identical: True |
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | const-identity | PASS | CONST_IDENTITY protos_stock=28 protos_candidate=28 hash_equal=28 string_equal=28 keyuse_equal=28 verdict=PASS |
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | cfg-identity (report) | report | exit 1: proto 21 CFG_DIFF kind=LABEL depth=3 stock[3]="LOAD B:false" candidate[3]="LOAD B:true" class="LABEL LOAD -> LOAD" / CFG_CLASSES {LABEL LOAD -> LOAD:1} / CFG_IDENTITY protos_stock=28 protos_candidate=28 cfg_equal=27 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | stock-key | PASS | Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B key 8aa38f1093ce7abc, sha256 7ba55c87cdc45397295dd0d71c535f5741b7a50d9c8e002364fc30bc8235b141 |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | expected-old-word P9 i77 | PASS | 12073c00 |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | parse-u44 | PASS | 36 prototypes, walk errors [] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | byte-diff | PASS | 1 bytes differ at [4904] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | same-shape+edit-script | PASS | edits [(9, 77)] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | self-rebase | PASS | auto |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | shifted-rebase | PASS | edits [{'old': 'P9 i77', 'new': 'P11 i80'}] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | de-roundtrip | PASS | nps=36   consts re-encode exact: 36/36  FULL BODY identical: True |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | const-identity | PASS | CONST_IDENTITY protos_stock=36 protos_candidate=36 hash_equal=36 string_equal=36 keyuse_equal=36 verdict=PASS |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | cfg-identity (report) | report | exit 1: proto 9 CFG_DIFF kind=LABEL depth=46 stock[77]="LOAD N:60" candidate[77]="LOAD N:10" class="LABEL LOAD -> LOAD" / CFG_CLASSES {LABEL LOAD -> LOAD:1} / CFG_IDENTITY protos_stock=36 protos_candidate=36 cfg_equal=35 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | stock-key | PASS | Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B key 8aad3115f1204cf2, sha256 00159d21024137521a3981518821621572af37398878fa19574370819bb3bff2 |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | expected-old-word P24 i3 | PASS | 04010000 |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | expected-old-word P25 i55 | PASS | 04010000 |

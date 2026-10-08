@@ -145,3 +145,14 @@ Members `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` (sha256 `34
 the update tool (`authored_addons.json`, package-replacement test 7/7 PASS). Installed into the active game folder
 (`Packages/IcebindSolo`, package enabled); prior package backed up in
 `work/backups/icebindsolo-before-sideobj-events-2026-10-08`. Not yet live-tested.
+
+## 2026-10-08: Cryothermia (Cryo Core) for small squads
+
+`HotPotatoEvent` (`8aa38f1093ce7abc`) has no squad-size input (its MasterInit flag is never read). The core is
+neutralized when the holders' combined `DefuseTimer` reaches 60 s; each holder takes `floor(own hold seconds) x 5 %`
+of max health per tick (P9 i135-140, bypassing invulnerability and Overguard), so a solo Tenno reaches 100 % at
+about 20 s. Member `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B`: P9 i77 `LOADN R7 60 -> 10`, so the
+core is neutralized after 10 s of total hold: a full squad's per-player share (60 / 6); a solo holder peaks at 50 %.
+The ramp is unchanged. The HUD percentage (P1/P2 divide by the constant 60) reads about 17 % at completion. Gates
+PASS (1 byte differs). Installed; prior package backed up in `work/backups/icebindsolo-before-cryocore-2026-10-08`.
+Not yet live-tested.

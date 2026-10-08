@@ -115,6 +115,25 @@ MEMBERS = [
         ],
     },
     {
+        # Cryothermia (Cryo Core): the core is neutralized once the holders' combined DefuseTimer reaches 60 s; each
+        # holder takes floor(own hold seconds) * 5 % of max health per tick (P9 i135-140), so one Tenno reaches 100 %
+        # at about 20 s and cannot finish alone. No squad-size input exists in this script (its MasterInit flag is
+        # never read).
+        'stock': 'Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B',
+        'key': '8aa38f1093ce7abc',
+        'file': '8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B',
+        'edits': [
+            {   # tick: `if DefuseTimer < 60 then <hold and damage> else <neutralized>`
+                'proto': 9, 'i': 77,
+                'old': (LOADN, 7, 60), 'new': (LOADN, 7, 10),
+                'why': 'Cryothermia: the core is neutralized after 10 s of total hold instead of 60 s, a full squad\'s '
+                       'per-player share (60 / 6); a solo holder peaks at 10 x 5 % = 50 % of max health. The 5 % per '
+                       'second ramp is unchanged. The HUD percentage (P1/P2 divide by the constant 60) reads about '
+                       '17 % at completion',
+            },
+        ],
+    },
+    {
         'stock': 'Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B',
         'key': '8aad3115f1204cf2',
         'file': '8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B',
