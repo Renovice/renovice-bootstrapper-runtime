@@ -7,8 +7,8 @@ Linking...
 >>> Now compiling wtsapi32
 swf
 script_control
-riven
 replacement_settings
+riven
 replacements
 packages
 live_literals
@@ -24,7 +24,7 @@ owf_repo
 owf_overlay
 owf_label_replacements
 owf_hotkeys
+owf_config
 owf_archive_data
 main
-owf_config
 Linking...
