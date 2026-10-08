@@ -91,7 +91,7 @@ struct BuildRegistration {
     std::array<ByteCheck, 8> checks;
 };
 
-inline constexpr std::array<BuildRegistration, 4> registered_builds{{
+inline constexpr std::array<BuildRegistration, 5> registered_builds{{
     {
         "44.0.2 2026.09.28.13.06",
         {"00cf876132443b8e2bcb7450d05c89d0f8695ec51c5881976f784233dbc94374",
@@ -258,6 +258,50 @@ inline constexpr std::array<BuildRegistration, 4> registered_builds{{
              "1549c7c1ffffffff4c8bc6498bd6488bcbe8e1661d00",
              "apply-param-key-then-value-contract-mismatch"},
             {0x11328d0,
+             "8b480c4c8b0283f908742583f90a741741c7400c0000000048830210488b5c24304883c4205fc3488b00488b4858eb07488b00488b48"
+             "10488b5c243041c7400c0700000049890848",
+             "getfenv-function-env-contract-mismatch"},
+        }},
+    },
+    {
+        "44.x 2026.10.08.13.05",
+        {"5be8e18f2d1cc9a3c78365db2d6bde9ba073ef2020fbd562e9254433fb69e8c5", ""},
+        0x19199c0,
+        0x768e5ed0,
+        {
+            0x08, 0x18, 0x30,
+            0x10, 0x0c,
+            1, 3, 7, 8,
+            0x03, 0x10, 0x18,
+            12, 0x10, 0x88, 0xa8,
+            0x04, 0x06, 0x10, 0x30, 0x38, 0x20,
+            {0, 1},
+        },  // DE Luau / parameter-record layout: carried over from 44.x 2026.10.06.16.12 (2026.10.08.13.05 (native update tool 2026-10-09))
+        {{
+            {0x19199c0,
+             "48895c240848896c24104889742418574883ec30410fb64004498bd9498bf0488bea488bf983f80e0f87c3020000",
+             "push-value-prologue-or-type-dispatch-mismatch"},
+            {0x1919d78,
+             "039a9101039a9101",
+             "push-value-number-types-not-shared"},
+            {0x1919a03,
+             "4883fbff741948c1e305488bcf49035830f30f100be84371fcfee93e030000f3410f104810498d5810488bcfe82c71fcfee927030000",
+             "push-value-number-handler-mismatch"},
+            {0x8e0b60,
+             "488b4108f30f1108c7400c030000004883410810c3",
+             "lua-pushnumber-mismatch"},
+            {0x11fe5a0,
+             "488b41088910c7400c010000004883410810c3",
+             "hash-key-push-mismatch"},
+            {0x91dc90,
+             "b8d05e8e764885d2741e660f1f440000440fb601488d49014433c04169c0930100014883ea0175e8f7d0c1c011c3",
+             "name-hash-seed-or-algorithm-mismatch"},
+            {0x11dbbbd,
+             "e8ce2074ff8bd0488bcbe8d4290200807e06007458488bcee806aed9ff4533c08bd0488bcb488be8e80673aaff488bcbe80ed4690033"
+             "ff448bf84885ed74430f1f40004c8bcf4c8bc6498bd6488bcbe8afdd7300448d4701418bd7488bcbe860800c0048ffc7483bfd72d8eb"
+             "1549c7c1ffffffff4c8bc6498bd6488bcbe881dd7300",
+             "apply-param-key-then-value-contract-mismatch"},
+            {0xceb220,
              "8b480c4c8b0283f908742583f90a741741c7400c0000000048830210488b5c24304883c4205fc3488b00488b4858eb07488b00488b48"
              "10488b5c243041c7400c0700000049890848",
              "getfenv-function-env-contract-mismatch"},
