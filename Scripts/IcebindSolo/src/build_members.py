@@ -41,7 +41,7 @@ DERECOMP = ROOT / 'repos/toolchains/de-luau-toolchain/bin/derecomp.exe'
 BUILD = '2026.10.06.16.12'
 
 # canonical (U43-numbered) opcodes
-JUMPIFNOTEQ, JUMPIFNOTLE, JUMPIFNOTLT, LOADN, LOADNIL = 0x27, 0x33, 0x1c, 0x12, 0x0d
+JUMPIFNOTEQ, JUMPIFNOTLE, JUMPIFNOTLT, LOADN, LOADNIL, LOADB = 0x27, 0x33, 0x1c, 0x12, 0x0d, 0x04
 
 MEMBERS = [
     {
@@ -74,6 +74,14 @@ MEMBERS = [
                 'why': 'MasterInit stores nil instead of the fixed 6, so the KuvaPath ComplicationsMgr (created right '
                        'after, master only) computes the stock value Clamp(GetNumHumanPlayers() + '
                        'Server.NumVirtualTestClients, 1, 6) and prints "Calculated squad size = N"',
+            },
+            {   # MasterInit: `<scale-to-players flag upvalue> = false` (i9 LOADB, i10 SETUPVAL 1), added 2026-10-08
+                'proto': 65, 'i': 9,
+                'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
+                'why': 'MasterInit sets the KuvaPath flag that makes Squad Side Objectives require min(GetNumHumanPlayers(), 6) '
+                       'nearby players (else a fixed 6, the "requires 1/6 players" a solo run cannot meet) to true. Its '
+                       'only other use runs a pending event from the ImGui debug "Start Event" button, unreachable '
+                       'in normal play',
             },
         ],
     },
@@ -125,6 +133,8 @@ def main():
             old_op, old_a, old_x = e['old']
             if old_op == LOADN:
                 ok = op == LOADN and w[1] == old_a and struct.unpack_from('<h', w, 2)[0] == old_x
+            elif old_op == LOADB:
+                ok = op == LOADB and w[1] == old_a and w[2] == old_x and w[3] == 0
             else:
                 ok = op == old_op and w[1] == old_a and struct.unpack_from('<I', w, 4)[0] == old_x
             gate(name, f'expected-old-word P{e["proto"]} i{e["i"]}', ok, w.hex())
@@ -134,6 +144,8 @@ def main():
             nw[1] = new_a
             if new_op == LOADNIL:
                 nw[2] = nw[3] = 0
+            elif new_op == LOADB:
+                nw[2] = new_x                              # B = the boolean value; C (skip) stays 0
             elif new_op in (JUMPIFNOTLE, JUMPIFNOTLT):
                 struct.pack_into('<I', nw, 4, new_x)       # Bx (branch target) unchanged
             raw = bytearray(nw)
@@ -174,10 +186,14 @@ def main():
         moved_ok = r['action'] == 'auto'
         if moved_ok:
             rb = B.Module(r['bytes'], om)
+            # 3 no-op MOVEs are inserted before EVERY edited instruction, so an instruction moves by 3 for each
+            # edited instruction at or before it in the same prototype (two edits in one prototype: +3 and +6).
+            def moved(pi, li):
+                return li + 3 * sum(1 for p2, l2 in intended if p2 == pi and l2 <= li)
             for pi, li in intended:
                 want = cand.word(cand.protos[pi], li)
                 q = rb.protos[pi + 2]
-                got = rb.word(q, li + 3)
+                got = rb.word(q, moved(pi, li))
                 same_op = want[:2] == got[:2] and want[4:] == got[4:]
                 if disasm.NAMES.get(want[0], '').startswith('JUMP'):
                     # branch: re-aimed to the moved target; compare the target instruction instead of the offset
@@ -188,8 +204,8 @@ def main():
                     pos_b, at = [], 0
                     for k in range(len(q.instructions)):
                         pos_b.append(at); at += len(rb.word(q, k)) // 4
-                    tgt_b = {w: k for k, w in enumerate(pos_b)}.get(pos_b[li + 3] + 1 + struct.unpack_from('<h', got, 2)[0])
-                    same_op &= tgt_b == tgt_c + 3
+                    tgt_b = {w: k for k, w in enumerate(pos_b)}.get(pos_b[moved(pi, li)] + 1 + struct.unpack_from('<h', got, 2)[0])
+                    same_op &= tgt_b == moved(pi, tgt_c)
                 else:
                     same_op &= want == got
                 moved_ok &= same_op

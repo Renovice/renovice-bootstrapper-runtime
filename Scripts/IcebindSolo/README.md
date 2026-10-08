@@ -112,3 +112,13 @@ Log lines that confirm each part:
 - Server-side Icebind support (Cryobell offers, rewards, consumption) is separate (SpaceNinjaServer).
 - For client 44.1.0 only. After an update, `renovice_update.py` rebases both members (registered in
   `tools/update_check/authored_addons.json` and the update baseline of the ability editor repository).
+
+## 2026-10-08: Squad Side Objectives scale too
+
+Squad Side Objectives (Lockbox, Cryothermia, Indomitable Ice, Entropy Orb, Signal Chain) wait for
+`required = flag ? min(GetNumHumanPlayers(), 6) : 6` nearby players. `KuvaPath.MasterInit` sets that flag to `false`
+(P65 i9 `LOADB A=1 B=0`, stored by i10 `SETUPVAL 1`), so a solo run showed "1 / 6" and could never start one. The
+squad-scaling member now also sets it to `true` (one byte, `B=1`). The flag's only other reader runs a pending
+event from the ImGui debug "Start Event" button, which is unreachable in normal play. Gates: all PASS
+(`src/build_members.py`; the shifted-rebase gate now counts the inserts before each of several edits in one
+prototype). Member sha256 `2b5c352a1681c358…`. Not yet live-tested.

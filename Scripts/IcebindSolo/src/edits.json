@@ -48,6 +48,21 @@
    "edits": [
     {
      "prototype": 65,
+     "instruction": 9,
+     "stock": {
+      "op": "LOADB",
+      "A": 1,
+      "operand": 0
+     },
+     "edit": {
+      "op": "LOADB",
+      "A": 1,
+      "operand": 1
+     },
+     "why": "MasterInit sets the KuvaPath flag that makes Squad Side Objectives require min(GetNumHumanPlayers(), 6) nearby players (else a fixed 6) to true; its only other use is the ImGui debug Start Event path (added 2026-10-08)"
+    },
+    {
+     "prototype": 65,
      "instruction": 76,
      "stock": {
       "op": "LOADN",
