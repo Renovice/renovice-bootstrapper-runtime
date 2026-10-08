@@ -171,3 +171,36 @@ Each edited constant is read only by the listed instructions (gate `expected-old
 rebased automatically by the update tool since ability-editor `uc_artifacts` 2026-10-08 (test_package_replacements
 14/14). Gates PASS (17 bytes differ). The shield/overshield/overguard-related calls are unchanged.
 Installed; previous build backed up in `work/backups/icebindsolo-before-cryoramp-2026-10-08`. Not yet live-tested.
+
+## 2026-10-09: Hotfix 44.1.1 (client 2026.10.08.13.05)
+
+The hotfix changed every Icebind script this package edits (voting timer, Cryo Core throw removed, side-objective
+script errors). `renovice_update.py` rebased five members automatically, Cryothermia's four number-constant edits
+included (update tool number-constant rebase). The squad gate was a review item, because DE moved the full-squad test
+out of `OnSquadMembersChanged` into a new `CanStart` helper.
+
+New stock helper (`SixStackSetup` proto 5, decompiled):
+
+```lua
+ok = true
+if #members ~= ICE_BLADE_HUB_MAX_PLAYERS then ok = IsDevServer() end
+if ok and AllPlayersOfferedKey(members) then ok = <no duplicate Warframe> end
+return ok
+```
+
+It gates the host's new Start button and cancels a running countdown in `OnSquadMembersChanged` (proto 42).
+
+| Member (new key) | Edit |
+|---|---|
+| `94825e22a3427b34` squad gate | P5 i10 `JUMPIFEQ R3 R4` -> `JUMPIFLE R3 R4` (a squad of 1-6 counts as full); hint P18 i51 as before (was P17) |
+| `248d54e0074e52c2` squad scaling | P65 i9, P65 i76 (unchanged sites) |
+| `6ada7a9b075edb74` void surge | P22 i3 (was P19) |
+| `e505b900b6f52758` locked crate | P24 i3 (was P21) |
+| `93b4bb73bf20069c` signal chain | P27 i3, P28 i55 (was P24, P25) |
+| `8416e33425fb8b4f` cryo core | P12 i77; constants P12 K37, P7 K0, P4 K1, P5 K18 (was P9, P4, P1, P2) |
+
+`src/build_members.py` targets the new stock pack. ALL GATES PASS (61). The five auto-rebased members rebuild
+byte-identical to the update tool's output. The old void-surge site P19 i3 still held the expected stock word in the
+new module (another event's MasterInit), so an "expected old word" match alone does not prove an edit site: the
+indices here come from the update tool's module map. In game, a solo player now offers a Cryobell and presses the
+host Start button (stock 44.1.1 flow). Not yet live-tested.

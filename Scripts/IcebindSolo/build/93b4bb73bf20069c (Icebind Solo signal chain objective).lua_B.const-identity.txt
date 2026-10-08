@@ -1,0 +1,4 @@
+BOOLEANS protos_with_boolean_constant_differences=0 (value constants; not part of the verdict)
+CLASS_SWAPS hash_string_class_swaps=0 other_keyuse_differences=0
+CODE_DIFF protos_code_equal=32 protos_code_size_differs=0 differing_bytes_by_canonical_op_field={04.B:2}
+CONST_IDENTITY protos_stock=34 protos_candidate=34 hash_equal=34 string_equal=34 keyuse_equal=34 verdict=PASS

@@ -1,0 +1,3 @@
+proto 22 CFG_DIFF kind=LABEL depth=3 stock[3]="LOAD B:false" candidate[3]="LOAD B:true" class="LABEL LOAD -> LOAD"
+CFG_CLASSES {LABEL LOAD -> LOAD:1}
+CFG_IDENTITY protos_stock=29 protos_candidate=29 cfg_equal=28 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL

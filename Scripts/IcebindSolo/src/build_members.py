@@ -39,12 +39,13 @@ import uc_synthetic as S  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 OUT = HERE.parent / 'build'
-STOCK = ROOT / 'work/temp/update-check/stock-a71c700d9520b4a5'
+STOCK = ROOT / 'work/temp/update-check/stock-726365cc81044d28'
 DERECOMP = ROOT / 'repos/toolchains/de-luau-toolchain/bin/derecomp.exe'
-BUILD = '2026.10.06.16.12'
+BUILD = '2026.10.08.13.05'
 
 # canonical (U43-numbered) opcodes
 JUMPIFNOTEQ, JUMPIFNOTLE, JUMPIFNOTLT, LOADN, LOADNIL, LOADB, MOVE = 0x27, 0x33, 0x1c, 0x12, 0x0d, 0x04, 0x14
+JUMPIFEQ, JUMPIFLE = 0x37, 0x23
 LOADK = 0x4e
 K_OPS = {0x38, 0x09, 0x32, 0x3c, 0x08, 0x24, 0x06, 0x3b, 0x3e, 0x31, 0x2b}  # ...K arithmetic/logic: C = constant index
 KAUX_OPS = {0x20, 0x41, 0x34, 0x3a}  # JUMPXEQK*: aux low 24 bits = constant index
@@ -52,17 +53,20 @@ KAUX_OPS = {0x20, 0x41, 0x34, 0x3a}  # JUMPXEQK*: aux low 24 bits = constant ind
 MEMBERS = [
     {
         'stock': 'Lotus_Interface_SixStackSetup.lua_B',
-        'key': '112349dd35bbea7a',
-        'file': '112349dd35bbea7a (Icebind Solo squad gate).lua_B',
+        'key': '94825e22a3427b34',
+        'file': '94825e22a3427b34 (Icebind Solo squad gate).lua_B',
         'edits': [
-            {   # OnSquadMembersChanged: `if #members ~= ICE_BLADE_HUB_MAX_PLAYERS then <cancel countdown>`
-                'proto': 40, 'i': 18,
-                'old': (JUMPIFNOTEQ, 3, 4), 'new': (JUMPIFNOTLE, 3, 4),
-                'why': 'countdown gate: cancel only when #members > ICE_BLADE_HUB_MAX_PLAYERS (was: whenever ~= 6); '
-                       'keeps AllPlayersOfferedKey and the one-of-each-Warframe check as the remaining start conditions',
+            {   # 44.1.1 CanStart helper (v49): `ok = true; if #members ~= ICE_BLADE_HUB_MAX_PLAYERS then ok = IsDevServer()
+                # end; if ok and AllPlayersOfferedKey(members) then ok = <no duplicate Warframe> end; return ok`. It gates
+                # the host's Start button (v50) and cancels a running countdown in OnSquadMembersChanged (proto 42).
+                'proto': 5, 'i': 10,
+                'old': (JUMPIFEQ, 3, 4), 'new': (JUMPIFLE, 3, 4),
+                'why': 'start gate: a squad of up to ICE_BLADE_HUB_MAX_PLAYERS counts as full (was: exactly 6, else only '
+                       'on a dev server); keeps AllPlayersOfferedKey, the one-of-each-Warframe check and the host Start '
+                       'button as the remaining start conditions',
             },
             {   # squad hint: `if not (#members < MAX) then <equip-keys hint> else <SetupFullSquadHint>`
-                'proto': 17, 'i': 51,
+                'proto': 18, 'i': 51,
                 'old': (JUMPIFNOTLT, 3, 4), 'new': (JUMPIFNOTLT, 4, 3),
                 'why': 'hint: show the equip-Cryobell hint path when #members <= MAX (was: only when #members >= MAX); '
                        'SetupFullSquadHint is shown only above the maximum',
@@ -71,8 +75,8 @@ MEMBERS = [
     },
     {
         'stock': 'Lotus_Scripts_KuvaPath_KuvaPath.lua_B',
-        'key': '4db007fa8f0145bd',
-        'file': '4db007fa8f0145bd (Icebind Solo squad scaling).lua_B',
+        'key': '248d54e0074e52c2',
+        'file': '248d54e0074e52c2 (Icebind Solo squad scaling).lua_B',
         'edits': [
             {   # MasterInit: `_T.CalculatedSquadSize = 6`
                 'proto': 65, 'i': 76,
@@ -95,11 +99,11 @@ MEMBERS = [
     # (upvalue 0), set false by its MasterInit at i3 (LOADB R1 false; SETUPVAL 0). False = the event assumes 6 players.
     {
         'stock': 'Lotus_Scripts_KuvaPath_AntiVoidSurgeEvent.lua_B',
-        'key': '21f2b1172cc837b7',
-        'file': '21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B',
+        'key': '6ada7a9b075edb74',
+        'file': '6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B',
         'edits': [
             {   # MasterInit: `<scale-to-players flag> = false`
-                'proto': 19, 'i': 3,
+                'proto': 22, 'i': 3,
                 'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
                 'why': 'Void Surge: the crystal-proximity objective needs GetNumHumanPlayers() Tenno inside the zone '
                        'instead of a fixed 6 (all five flag reads are that count: gather, maintain, HUD)',
@@ -108,11 +112,11 @@ MEMBERS = [
     },
     {
         'stock': 'Lotus_Scripts_KuvaPath_LockedCrateEvent.lua_B',
-        'key': 'd6111f1566eb30f9',
-        'file': 'd6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B',
+        'key': 'e505b900b6f52758',
+        'file': 'e505b900b6f52758 (Icebind Solo locked crate objective).lua_B',
         'edits': [
             {   # MasterInit: `<scale-to-players flag> = false`
-                'proto': 21, 'i': 3,
+                'proto': 24, 'i': 3,
                 'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
                 'why': 'Locked Crate: the unlock needs the real player count at the crate instead of a fixed 6 (count '
                        'and "n / 6" HUD reads). The flag also registers the event\'s debug ImGui panel on the '
@@ -128,11 +132,11 @@ MEMBERS = [
         # held, with enemy fire; the first build, 10 s defuse with the stock 5 % ramp, was not enough). No squad-size
         # input exists in this script (its MasterInit flag is never read).
         'stock': 'Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B',
-        'key': '8aa38f1093ce7abc',
-        'file': '8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B',
+        'key': '8416e33425fb8b4f',
+        'file': '8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B',
         'edits': [
             {   # tick: `if DefuseTimer < 60 then <hold and damage> else <neutralized>`
-                'proto': 9, 'i': 77,
+                'proto': 12, 'i': 77,
                 'old': (LOADN, 7, 60), 'new': (LOADN, 7, 10),
                 'why': 'Cryothermia: the core is neutralized after 10 s of total hold instead of 60 s, a full squad\'s '
                        'per-player share (60 / 6)',
@@ -140,38 +144,38 @@ MEMBERS = [
         ],
         'consts': [
             {   # damage: baseAmount = MaxHealth * (floor(ownSeconds) * K37)
-                'proto': 9, 'k': 37, 'old': 0.05, 'new': 0.01, 'users': [139],
+                'proto': 12, 'k': 37, 'old': 0.05, 'new': 0.01, 'users': [139],
                 'why': 'Cryothermia damage ramp 1 % per held second instead of 5 %: a solo 10 s hold totals 55 % of '
                        'max health (stock ramp: about 105 % after 6 s)',
             },
             {   # ramp helper v39: floor(x) * K0, the same ramp
-                'proto': 4, 'k': 0, 'old': 0.05, 'new': 0.01, 'users': [4],
+                'proto': 7, 'k': 0, 'old': 0.05, 'new': 0.01, 'users': [4],
                 'why': 'the ramp helper uses the same 1 % per second as the damage',
             },
             {   # HUD tracker text: floor(DefuseTimer / K1 * 100) .. "%"
-                'proto': 1, 'k': 1, 'old': 60.0, 'new': 10.0, 'users': [2],
+                'proto': 4, 'k': 1, 'old': 60.0, 'new': 10.0, 'users': [2],
                 'why': 'the defuse percentage reaches 100 % at the 10 s neutralize point',
             },
             {   # HUD objective text (holder name and percentage): DefuseTimer / K18 * 100, both branches
-                'proto': 2, 'k': 18, 'old': 60.0, 'new': 10.0, 'users': [45, 60],
+                'proto': 5, 'k': 18, 'old': 60.0, 'new': 10.0, 'users': [45, 60],
                 'why': 'the defuse percentage reaches 100 % at the 10 s neutralize point',
             },
         ],
     },
     {
         'stock': 'Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B',
-        'key': '8aad3115f1204cf2',
-        'file': '8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B',
+        'key': '93b4bb73bf20069c',
+        'file': '93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B',
         'edits': [
             {   # MasterInit: `<scale-to-players flag> = false`
-                'proto': 24, 'i': 3,
+                'proto': 27, 'i': 3,
                 'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
                 'why': 'Signal Chain (master): the chain is sized for GetNumHumanPlayers() nodes instead of 6 (console '
                        'spawn range MapToRange((n-1)/5) of 20..30 and node distance ceil(dist/(n+1)+3)), so a solo '
                        'Tenno can link device and console',
             },
             {   # ReplicaInit: the replica's copy of the same flag (upvalue 6), read when it sizes the chain locally
-                'proto': 25, 'i': 55,
+                'proto': 28, 'i': 55,
                 'old': (LOADB, 1, 0), 'new': (LOADB, 1, 1),
                 'why': 'Signal Chain (replica): same flag on clients, so the replica sizes the chain with the same '
                        'player count as the host',

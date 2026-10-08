@@ -1,0 +1,3 @@
+proto 5 CFG_DIFF kind=LABEL depth=10 stock[10]="IF EQ" candidate[10]="IF LE" class="LABEL IF EQ -> IF LE"
+CFG_CLASSES {LABEL IF EQ -> IF LE:1}
+CFG_IDENTITY protos_stock=80 protos_candidate=80 cfg_equal=79 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL

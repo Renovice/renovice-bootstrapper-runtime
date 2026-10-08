@@ -1,0 +1,6 @@
+proto 4 CFG_DIFF kind=LABEL depth=2 stock[2]="DIVK N:60" candidate[2]="DIVK N:10" class="LABEL DIVK -> DIVK"
+proto 5 CFG_DIFF kind=LABEL depth=35 stock[60]="DIVK N:60" candidate[60]="DIVK N:10" class="LABEL DIVK -> DIVK"
+proto 7 CFG_DIFF kind=LABEL depth=2 stock[4]="MULK N:0.05" candidate[4]="MULK N:0.01" class="LABEL MULK -> MULK"
+proto 12 CFG_DIFF kind=LABEL depth=46 stock[77]="LOAD N:60" candidate[77]="LOAD N:10" class="LABEL LOAD -> LOAD"
+CFG_CLASSES {LABEL DIVK -> DIVK:2;LABEL LOAD -> LOAD:1;LABEL MULK -> MULK:1}
+CFG_IDENTITY protos_stock=40 protos_candidate=40 cfg_equal=36 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL

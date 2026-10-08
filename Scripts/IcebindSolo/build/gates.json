@@ -1,407 +1,407 @@
 {
- "build": "2026.10.06.16.12",
+ "build": "2026.10.08.13.05",
  "gates": [
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "stock-key",
    "pass": true,
-   "detail": "Lotus_Interface_SixStackSetup.lua_B key 112349dd35bbea7a, sha256 f3ac9ba786b9a316031e676b5bb906b552e4c667b620b20acd3fbf82c2254abc"
+   "detail": "Lotus_Interface_SixStackSetup.lua_B key 94825e22a3427b34, sha256 3d8349c712e3065d57d7f7a2278675daa3abe1e9d8e7d198733eca9ee31a0f73"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
-   "gate": "expected-old-word P40 i18",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
+   "gate": "expected-old-word P5 i10",
    "pass": true,
-   "detail": "2703110004000000"
+   "detail": "3703020004000000"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
-   "gate": "expected-old-word P17 i51",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
+   "gate": "expected-old-word P18 i51",
    "pass": true,
    "detail": "1c030a0004000000"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "parse-u44",
    "pass": true,
-   "detail": "76 prototypes, walk errors []"
+   "detail": "80 prototypes, walk errors []"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "byte-diff",
    "pass": true,
-   "detail": "3 bytes differ at [12475, 12478, 28392]"
+   "detail": "3 bytes differ at [8274, 12710, 12713]"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(17, 51), (40, 18)] constants []"
+   "detail": "edits [(5, 10), (18, 51)] constants []"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "self-rebase",
    "pass": true,
    "detail": "auto"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "shifted-rebase",
    "pass": true,
-   "detail": "edits [{'old': 'P17 i51', 'new': 'P19 i54'}, {'old': 'P40 i18', 'new': 'P42 i21'}]"
+   "detail": "edits [{'old': 'P5 i10', 'new': 'P7 i13'}, {'old': 'P18 i51', 'new': 'P20 i54'}]"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "de-roundtrip",
    "pass": true,
-   "detail": "nps=76   consts re-encode exact: 76/76  FULL BODY identical: True"
+   "detail": "nps=80   consts re-encode exact: 80/80  FULL BODY identical: True"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "const-identity",
    "pass": true,
-   "detail": "CONST_IDENTITY protos_stock=76 protos_candidate=76 hash_equal=76 string_equal=76 keyuse_equal=76 verdict=PASS"
+   "detail": "CONST_IDENTITY protos_stock=80 protos_candidate=80 hash_equal=80 string_equal=80 keyuse_equal=80 verdict=PASS"
   },
   {
-   "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "member": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "gate": "cfg-identity (report)",
    "pass": null,
-   "detail": "exit 1: proto 40 CFG_DIFF kind=LABEL depth=12 stock[18]=\"IF EQ\" candidate[18]=\"IF LE\" class=\"LABEL IF EQ -> IF LE\" | CFG_CLASSES {LABEL IF EQ -> IF LE:1} | CFG_IDENTITY protos_stock=76 protos_candidate=76 cfg_equal=75 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+   "detail": "exit 1: proto 5 CFG_DIFF kind=LABEL depth=10 stock[10]=\"IF EQ\" candidate[10]=\"IF LE\" class=\"LABEL IF EQ -> IF LE\" | CFG_CLASSES {LABEL IF EQ -> IF LE:1} | CFG_IDENTITY protos_stock=80 protos_candidate=80 cfg_equal=79 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "stock-key",
    "pass": true,
-   "detail": "Lotus_Scripts_KuvaPath_KuvaPath.lua_B key 4db007fa8f0145bd, sha256 493167ab4f8a12c3c26a087fdd9c654e382e6a4cc8a28a6d472ca6f75d64a39f"
+   "detail": "Lotus_Scripts_KuvaPath_KuvaPath.lua_B key 248d54e0074e52c2, sha256 51c7eafe3cf173940bdadd6b949fc75201deba73a554e0bedb64613cda4c8267"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "expected-old-word P65 i76",
    "pass": true,
    "detail": "12050600"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "expected-old-word P65 i9",
    "pass": true,
    "detail": "04010000"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "parse-u44",
    "pass": true,
    "detail": "76 prototypes, walk errors []"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "byte-diff",
    "pass": true,
-   "detail": "3 bytes differ at [42435, 42809, 42811]"
+   "detail": "3 bytes differ at [46942, 47316, 47318]"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
    "detail": "edits [(65, 9), (65, 76)] constants []"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "self-rebase",
    "pass": true,
    "detail": "auto"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "shifted-rebase",
    "pass": true,
    "detail": "edits [{'old': 'P65 i9', 'new': 'P67 i12'}, {'old': 'P65 i76', 'new': 'P67 i82'}]"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "de-roundtrip",
    "pass": true,
    "detail": "nps=76   consts re-encode exact: 76/76  FULL BODY identical: True"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "const-identity",
    "pass": true,
    "detail": "CONST_IDENTITY protos_stock=76 protos_candidate=76 hash_equal=76 string_equal=76 keyuse_equal=76 verdict=PASS"
   },
   {
-   "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "member": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "gate": "cfg-identity (report)",
    "pass": null,
    "detail": "exit 1: proto 65 CFG_DIFF kind=LABEL depth=9 stock[9]=\"LOAD B:false\" candidate[9]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=76 protos_candidate=76 cfg_equal=75 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "stock-key",
    "pass": true,
-   "detail": "Lotus_Scripts_KuvaPath_AntiVoidSurgeEvent.lua_B key 21f2b1172cc837b7, sha256 5a8c9f5a4024a5d6f832081c26ee048b3b9af56309b293a0a27a5559d14a3391"
+   "detail": "Lotus_Scripts_KuvaPath_AntiVoidSurgeEvent.lua_B key 6ada7a9b075edb74, sha256 b28b309f7a14bdec823915a3d9b3d605f55130a2c42fa7e161402b78edf0192c"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
-   "gate": "expected-old-word P19 i3",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
+   "gate": "expected-old-word P22 i3",
    "pass": true,
    "detail": "04010000"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "parse-u44",
    "pass": true,
-   "detail": "26 prototypes, walk errors []"
+   "detail": "29 prototypes, walk errors []"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "byte-diff",
    "pass": true,
-   "detail": "1 bytes differ at [8515]"
+   "detail": "1 bytes differ at [10228]"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(19, 3)] constants []"
+   "detail": "edits [(22, 3)] constants []"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "self-rebase",
    "pass": true,
    "detail": "auto"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "shifted-rebase",
    "pass": true,
-   "detail": "edits [{'old': 'P19 i3', 'new': 'P21 i6'}]"
+   "detail": "edits [{'old': 'P22 i3', 'new': 'P24 i6'}]"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "de-roundtrip",
    "pass": true,
-   "detail": "nps=26   consts re-encode exact: 26/26  FULL BODY identical: True"
+   "detail": "nps=29   consts re-encode exact: 29/29  FULL BODY identical: True"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "const-identity",
    "pass": true,
-   "detail": "CONST_IDENTITY protos_stock=26 protos_candidate=26 hash_equal=26 string_equal=26 keyuse_equal=26 verdict=PASS"
+   "detail": "CONST_IDENTITY protos_stock=29 protos_candidate=29 hash_equal=29 string_equal=29 keyuse_equal=29 verdict=PASS"
   },
   {
-   "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "member": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "gate": "cfg-identity (report)",
    "pass": null,
-   "detail": "exit 1: proto 19 CFG_DIFF kind=LABEL depth=3 stock[3]=\"LOAD B:false\" candidate[3]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=26 protos_candidate=26 cfg_equal=25 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+   "detail": "exit 1: proto 22 CFG_DIFF kind=LABEL depth=3 stock[3]=\"LOAD B:false\" candidate[3]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=29 protos_candidate=29 cfg_equal=28 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
   },
   {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "stock-key",
    "pass": true,
-   "detail": "Lotus_Scripts_KuvaPath_LockedCrateEvent.lua_B key d6111f1566eb30f9, sha256 53c5b4f813662d1cc6d4d6e1af39b12868b8cb95bd22dcd4ddefa3aa93f1dbe7"
+   "detail": "Lotus_Scripts_KuvaPath_LockedCrateEvent.lua_B key e505b900b6f52758, sha256 d10e745618c7885cb6d8e3619ceea1ef06b5631048ae1eeb5dd2387027d6738c"
   },
   {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "expected-old-word P21 i3",
-   "pass": true,
-   "detail": "04010000"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "parse-u44",
-   "pass": true,
-   "detail": "28 prototypes, walk errors []"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "byte-diff",
-   "pass": true,
-   "detail": "1 bytes differ at [7343]"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "same-shape+edit-script",
-   "pass": true,
-   "detail": "edits [(21, 3)] constants []"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "self-rebase",
-   "pass": true,
-   "detail": "auto"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "shifted-rebase",
-   "pass": true,
-   "detail": "edits [{'old': 'P21 i3', 'new': 'P23 i6'}]"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "de-roundtrip",
-   "pass": true,
-   "detail": "nps=28   consts re-encode exact: 28/28  FULL BODY identical: True"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "const-identity",
-   "pass": true,
-   "detail": "CONST_IDENTITY protos_stock=28 protos_candidate=28 hash_equal=28 string_equal=28 keyuse_equal=28 verdict=PASS"
-  },
-  {
-   "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
-   "gate": "cfg-identity (report)",
-   "pass": null,
-   "detail": "exit 1: proto 21 CFG_DIFF kind=LABEL depth=3 stock[3]=\"LOAD B:false\" candidate[3]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=28 protos_candidate=28 cfg_equal=27 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "stock-key",
-   "pass": true,
-   "detail": "Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B key 8aa38f1093ce7abc, sha256 7ba55c87cdc45397295dd0d71c535f5741b7a50d9c8e002364fc30bc8235b141"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "expected-old-word P9 i77",
-   "pass": true,
-   "detail": "12073c00"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "expected-old-const P9 K37",
-   "pass": true,
-   "detail": "0.05 read by [139]"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "expected-old-const P4 K0",
-   "pass": true,
-   "detail": "0.05 read by [4]"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "expected-old-const P1 K1",
-   "pass": true,
-   "detail": "60.0 read by [2]"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "expected-old-const P2 K18",
-   "pass": true,
-   "detail": "60.0 read by [45, 60]"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "parse-u44",
-   "pass": true,
-   "detail": "36 prototypes, walk errors []"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "byte-diff",
-   "pass": true,
-   "detail": "17 bytes differ at [1909, 2542, 3205, 3206, 3207, 3208, 3209, 3210, 3211, 4904, 5977, 5978, 5979, 5980, 5981, 5982, 5983]"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "same-shape+edit-script",
-   "pass": true,
-   "detail": "edits [(9, 77)] constants [(1, 1, 60.0, 10.0), (2, 18, 60.0, 10.0), (4, 0, 0.05, 0.01), (9, 37, 0.05, 0.01)]"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "self-rebase",
-   "pass": true,
-   "detail": "auto"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "shifted-rebase",
-   "pass": true,
-   "detail": "edits [{'old': 'P1 K1', 'new': 'P3 K1'}, {'old': 'P2 K18', 'new': 'P4 K18'}, {'old': 'P4 K0', 'new': 'P6 K0'}, {'old': 'P9 K37', 'new': 'P11 K37'}, {'old': 'P9 i77', 'new': 'P11 i80'}]"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "de-roundtrip",
-   "pass": true,
-   "detail": "nps=36   consts re-encode exact: 36/36  FULL BODY identical: True"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "const-identity",
-   "pass": true,
-   "detail": "CONST_IDENTITY protos_stock=36 protos_candidate=36 hash_equal=36 string_equal=36 keyuse_equal=36 verdict=PASS"
-  },
-  {
-   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
-   "gate": "cfg-identity (report)",
-   "pass": null,
-   "detail": "exit 1: proto 9 CFG_DIFF kind=LABEL depth=46 stock[77]=\"LOAD N:60\" candidate[77]=\"LOAD N:10\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL DIVK -> DIVK:2;LABEL LOAD -> LOAD:1;LABEL MULK -> MULK:1} | CFG_IDENTITY protos_stock=36 protos_candidate=36 cfg_equal=32 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
-  },
-  {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
-   "gate": "stock-key",
-   "pass": true,
-   "detail": "Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B key 8aad3115f1204cf2, sha256 00159d21024137521a3981518821621572af37398878fa19574370819bb3bff2"
-  },
-  {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "expected-old-word P24 i3",
    "pass": true,
    "detail": "04010000"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
-   "gate": "expected-old-word P25 i55",
-   "pass": true,
-   "detail": "04010000"
-  },
-  {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "parse-u44",
    "pass": true,
    "detail": "31 prototypes, walk errors []"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "byte-diff",
    "pass": true,
-   "detail": "2 bytes differ at [11457, 12424]"
+   "detail": "1 bytes differ at [8803]"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(24, 3), (25, 55)] constants []"
+   "detail": "edits [(24, 3)] constants []"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "self-rebase",
    "pass": true,
    "detail": "auto"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "shifted-rebase",
    "pass": true,
-   "detail": "edits [{'old': 'P24 i3', 'new': 'P26 i6'}, {'old': 'P25 i55', 'new': 'P27 i58'}]"
+   "detail": "edits [{'old': 'P24 i3', 'new': 'P26 i6'}]"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "de-roundtrip",
    "pass": true,
    "detail": "nps=31   consts re-encode exact: 31/31  FULL BODY identical: True"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "const-identity",
    "pass": true,
    "detail": "CONST_IDENTITY protos_stock=31 protos_candidate=31 hash_equal=31 string_equal=31 keyuse_equal=31 verdict=PASS"
   },
   {
-   "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "member": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "gate": "cfg-identity (report)",
    "pass": null,
-   "detail": "exit 1: proto 25 CFG_DIFF kind=LABEL depth=24 stock[55]=\"LOAD B:false\" candidate[55]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:2} | CFG_IDENTITY protos_stock=31 protos_candidate=31 cfg_equal=29 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+   "detail": "exit 1: proto 24 CFG_DIFF kind=LABEL depth=3 stock[3]=\"LOAD B:false\" candidate[3]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=31 protos_candidate=31 cfg_equal=30 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "stock-key",
+   "pass": true,
+   "detail": "Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B key 8416e33425fb8b4f, sha256 4e551bcfe3a55dc5b38177bcab1a820aa3f92e99f50a0f1a94422ace1fcc57f0"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-word P12 i77",
+   "pass": true,
+   "detail": "12073c00"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P12 K37",
+   "pass": true,
+   "detail": "0.05 read by [139]"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P7 K0",
+   "pass": true,
+   "detail": "0.05 read by [4]"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P4 K1",
+   "pass": true,
+   "detail": "60.0 read by [2]"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P5 K18",
+   "pass": true,
+   "detail": "60.0 read by [45, 60]"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "parse-u44",
+   "pass": true,
+   "detail": "40 prototypes, walk errors []"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "byte-diff",
+   "pass": true,
+   "detail": "17 bytes differ at [2311, 2944, 3608, 3609, 3610, 3611, 3612, 3613, 3614, 5307, 6392, 6393, 6394, 6395, 6396, 6397, 6398]"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "same-shape+edit-script",
+   "pass": true,
+   "detail": "edits [(12, 77)] constants [(4, 1, 60.0, 10.0), (5, 18, 60.0, 10.0), (7, 0, 0.05, 0.01), (12, 37, 0.05, 0.01)]"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "self-rebase",
+   "pass": true,
+   "detail": "auto"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "shifted-rebase",
+   "pass": true,
+   "detail": "edits [{'old': 'P4 K1', 'new': 'P6 K1'}, {'old': 'P5 K18', 'new': 'P7 K18'}, {'old': 'P7 K0', 'new': 'P9 K0'}, {'old': 'P12 K37', 'new': 'P14 K37'}, {'old': 'P12 i77', 'new': 'P14 i80'}]"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "de-roundtrip",
+   "pass": true,
+   "detail": "nps=40   consts re-encode exact: 40/40  FULL BODY identical: True"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "const-identity",
+   "pass": true,
+   "detail": "CONST_IDENTITY protos_stock=40 protos_candidate=40 hash_equal=40 string_equal=40 keyuse_equal=40 verdict=PASS"
+  },
+  {
+   "member": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
+   "gate": "cfg-identity (report)",
+   "pass": null,
+   "detail": "exit 1: proto 12 CFG_DIFF kind=LABEL depth=46 stock[77]=\"LOAD N:60\" candidate[77]=\"LOAD N:10\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL DIVK -> DIVK:2;LABEL LOAD -> LOAD:1;LABEL MULK -> MULK:1} | CFG_IDENTITY protos_stock=40 protos_candidate=40 cfg_equal=36 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "stock-key",
+   "pass": true,
+   "detail": "Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B key 93b4bb73bf20069c, sha256 82721f587c3aaac69753d8e968dd71dd70c57b50369f8036b00d248a5fd600d5"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "expected-old-word P27 i3",
+   "pass": true,
+   "detail": "04010000"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "expected-old-word P28 i55",
+   "pass": true,
+   "detail": "04010000"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "parse-u44",
+   "pass": true,
+   "detail": "34 prototypes, walk errors []"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "byte-diff",
+   "pass": true,
+   "detail": "2 bytes differ at [12882, 13849]"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "same-shape+edit-script",
+   "pass": true,
+   "detail": "edits [(27, 3), (28, 55)] constants []"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "self-rebase",
+   "pass": true,
+   "detail": "auto"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "shifted-rebase",
+   "pass": true,
+   "detail": "edits [{'old': 'P27 i3', 'new': 'P29 i6'}, {'old': 'P28 i55', 'new': 'P30 i58'}]"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "de-roundtrip",
+   "pass": true,
+   "detail": "nps=34   consts re-encode exact: 34/34  FULL BODY identical: True"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "const-identity",
+   "pass": true,
+   "detail": "CONST_IDENTITY protos_stock=34 protos_candidate=34 hash_equal=34 string_equal=34 keyuse_equal=34 verdict=PASS"
+  },
+  {
+   "member": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
+   "gate": "cfg-identity (report)",
+   "pass": null,
+   "detail": "exit 1: proto 28 CFG_DIFF kind=LABEL depth=24 stock[55]=\"LOAD B:false\" candidate[55]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:2} | CFG_IDENTITY protos_stock=34 protos_candidate=34 cfg_equal=32 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
   }
  ],
  "all_pass": true

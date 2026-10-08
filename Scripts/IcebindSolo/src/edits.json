@@ -1,31 +1,31 @@
 {
  "format": "RENOVICE_INSTRUCTION_EDITS_V1",
- "build": "2026.10.06.16.12",
- "stock_pack": "stock-a71c700d9520b4a5",
+ "build": "2026.10.08.13.05",
+ "stock_pack": "stock-726365cc81044d28",
  "opcode_numbering": "canonical U43 (toolchain OPCODE_MAP.md); files hold the U44 permutation (src/de_opcode_profile.h)",
  "members": [
   {
-   "file": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "file": "94825e22a3427b34 (Icebind Solo squad gate).lua_B",
    "stock_module": "Lotus_Interface_SixStackSetup.lua_B",
-   "content_key": "112349dd35bbea7a",
+   "content_key": "94825e22a3427b34",
    "edits": [
     {
-     "prototype": 40,
-     "instruction": 18,
+     "prototype": 5,
+     "instruction": 10,
      "stock": {
-      "op": "JUMPIFNOTEQ",
+      "op": "JUMPIFEQ",
       "A": 3,
-      "operand": 4
+      "aux": 4
      },
      "edit": {
-      "op": "JUMPIFNOTLE",
+      "op": "JUMPIFLE",
       "A": 3,
-      "operand": 4
+      "aux": 4
      },
-     "why": "countdown gate: cancel only when #members > ICE_BLADE_HUB_MAX_PLAYERS (was: whenever ~= 6); keeps AllPlayersOfferedKey and the one-of-each-Warframe check as the remaining start conditions"
+     "why": "44.1.1 CanStart helper: a squad of up to ICE_BLADE_HUB_MAX_PLAYERS counts as full (stock: exactly 6, else only IsDevServer()); AllPlayersOfferedKey, the one-of-each-Warframe check and the host Start button stay the remaining start conditions"
     },
     {
-     "prototype": 17,
+     "prototype": 18,
      "instruction": 51,
      "stock": {
       "op": "JUMPIFNOTLT",
@@ -42,9 +42,9 @@
    ]
   },
   {
-   "file": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "file": "248d54e0074e52c2 (Icebind Solo squad scaling).lua_B",
    "stock_module": "Lotus_Scripts_KuvaPath_KuvaPath.lua_B",
-   "content_key": "4db007fa8f0145bd",
+   "content_key": "248d54e0074e52c2",
    "edits": [
     {
      "prototype": 65,
@@ -79,12 +79,12 @@
    ]
   },
   {
-   "file": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
+   "file": "6ada7a9b075edb74 (Icebind Solo void surge objective).lua_B",
    "stock_module": "Lotus_Scripts_KuvaPath_AntiVoidSurgeEvent.lua_B",
-   "content_key": "21f2b1172cc837b7",
+   "content_key": "6ada7a9b075edb74",
    "edits": [
     {
-     "prototype": 19,
+     "prototype": 22,
      "instruction": 3,
      "stock": {
       "op": "LOADB",
@@ -101,12 +101,12 @@
    ]
   },
   {
-   "file": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
+   "file": "e505b900b6f52758 (Icebind Solo locked crate objective).lua_B",
    "stock_module": "Lotus_Scripts_KuvaPath_LockedCrateEvent.lua_B",
-   "content_key": "d6111f1566eb30f9",
+   "content_key": "e505b900b6f52758",
    "edits": [
     {
-     "prototype": 21,
+     "prototype": 24,
      "instruction": 3,
      "stock": {
       "op": "LOADB",
@@ -123,12 +123,12 @@
    ]
   },
   {
-   "file": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
+   "file": "93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B",
    "stock_module": "Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B",
-   "content_key": "8aad3115f1204cf2",
+   "content_key": "93b4bb73bf20069c",
    "edits": [
     {
-     "prototype": 24,
+     "prototype": 27,
      "instruction": 3,
      "stock": {
       "op": "LOADB",
@@ -143,7 +143,7 @@
      "why": "Signal Chain (master): the chain is sized for GetNumHumanPlayers() nodes instead of 6 (console spawn range MapToRange((n-1)/5) of 20..30 and node distance ceil(dist/(n+1)+3)), so a solo Tenno can link device and console"
     },
     {
-     "prototype": 25,
+     "prototype": 28,
      "instruction": 55,
      "stock": {
       "op": "LOADB",
@@ -160,12 +160,12 @@
    ]
   },
   {
-   "file": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "file": "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B",
    "stock_module": "Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B",
-   "content_key": "8aa38f1093ce7abc",
+   "content_key": "8416e33425fb8b4f",
    "edits": [
     {
-     "prototype": 9,
+     "prototype": 12,
      "instruction": 77,
      "stock": {
       "op": "LOADN",
@@ -182,7 +182,7 @@
    ],
    "constants": [
     {
-     "prototype": 9,
+     "prototype": 12,
      "constant": 37,
      "readers": [
       139
@@ -192,7 +192,7 @@
      "why": "Cryothermia damage ramp 1 % per held second instead of 5 % (cumulative: a solo 10 s hold totals 55 % of max health; stock about 105 % after 6 s)"
     },
     {
-     "prototype": 4,
+     "prototype": 7,
      "constant": 0,
      "readers": [
       4
@@ -202,7 +202,7 @@
      "why": "the ramp helper uses the same 1 % per second as the damage"
     },
     {
-     "prototype": 1,
+     "prototype": 4,
      "constant": 1,
      "readers": [
       2
@@ -212,7 +212,7 @@
      "why": "HUD tracker: the defuse percentage reaches 100 % at the 10 s neutralize point"
     },
     {
-     "prototype": 2,
+     "prototype": 5,
      "constant": 18,
      "readers": [
       45,
