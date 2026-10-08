@@ -1,15 +1,16 @@
 # Inputs of record for verify_script_settings_render.ps1 (R3 2026-09-30; renders refreshed R4 2026-09-30).
 # stock:  Steam 2026.09.28.13.06 (44.0.2) bytecode, repos/toolchains/de-luau-toolchain/work/u44-rawhash-2026-09-29/stock/<stem>.lua_B
-# render: derecomp.exe decompile-mod-u44 <stock> <out> (derecomp 65c4657239eebc194f8aa9c62cb919153449ec05a163e88086decf5c990ecf1c,
-#         de-luau-toolchain fix/natural-loop-header-cfg-gate 9c008ae: SETLIST into an existing table and by-value capture
-#         snapshots are rendered correctly, so the harness applies no render corrections besides DE `#nil` = 0)
+# render: derecomp.exe decompile-mod-u44 <stock> <out> (derecomp 701a2adfe2e34b9d4e600191862b9234f7b2fb00977590314a74626290ab6d53,
+#         de-luau-toolchain fix/natural-loop-header-cfg-gate 44e358b: as 9c008ae (SETLIST into an existing table and
+#         by-value capture snapshots rendered correctly, no harness render corrections besides DE `#nil` = 0); renders
+#         re-pinned 2026-10-08 for the generated loop names __renovice_for_<proto>_<loop>_<var> (identical otherwise)
 # fixture r2: ScriptSettingsBridgeV1.luau at fb9655e (compiles to the installed 2e337a43 bytes)
 # fixture r3: ScriptSettingsBridgeV1.luau at cf5ee2e (compiles to the installed 739d8177 bytes)
 # fixture r4: ScriptSettingsBridgeV1.luau at 1a67d99 (compiles to the installed 7b9b9950 bytes)
 stock	Lotus_Interface_ThemedGenericSettings	397f46de090dc55d31ba493dc22d91b17680e4a4d2341bb335450d5d07ab2d3d
 stock	EE_Interface_Components_List	2f5237c67640ead0bdca78e71b69ba5f44728159808184acca965327b651345c
-render	Lotus_Interface_ThemedGenericSettings	9f9190c1b04efaaa917ea5b5a657abb54e183341bae8652d8d35a0dfb53399dc
-render	EE_Interface_Components_List	19684450121abf4f5cd10d9b15d2fb0d439479d7da3180854aef4841a7828630
+render	Lotus_Interface_ThemedGenericSettings	8975ad358f05de6e264dddda8c68c6af98522b9c6eb3a92f1435ed18272590ca
+render	EE_Interface_Components_List	cc9256345bc7e413be2c24260c71aeaac36c6c3d8d97381257efd1cddf62713d
 render	ScriptSettingsBridgeV1.r2-2e337a43	e947f065f0631f5d0a9cb1cd39cdbceaa5f61d6b9dc1eb022a4db9dbbc18fa6d
 render	ScriptSettingsBridgeV1.r3-739d8177	e1b6e8bb30be7142b835f7186e14148785615a74aae4cc9da78199083b96b0f3
 render	ScriptSettingsBridgeV1.r4-7b9b9950	e57781feca61a86e24bceb7d38fee0fd8fd6f342a8df960bfe4b0ea497373e9d

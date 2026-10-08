@@ -186,12 +186,12 @@
     c5v1 = ipairs
     c5v2 = v21
     c5v1, c5v2, c5v3 = c5v1(c5v2)
-    for __renovice_for_0_0, __renovice_for_0_1 in c5v1, c5v2, c5v3 do
-      c5v6 = __renovice_for_0_1.mChanged
+    for __renovice_for_4_0_0, __renovice_for_4_0_1 in c5v1, c5v2, c5v3 do
+      c5v6 = __renovice_for_4_0_1.mChanged
       if not c5v6 then
         continue
       end
-      c5v7 = __renovice_for_0_1.mOnValidateSetting
+      c5v7 = __renovice_for_4_0_1.mOnValidateSetting
       c5v6 = IsNull
       c5v6 = c5v6(c5v7)
       if c5v6 then
@@ -202,7 +202,7 @@
       if not c5v6 then
         continue
       end
-      c5v6 = __renovice_for_0_1.mOnValidateSetting
+      c5v6 = __renovice_for_4_0_1.mOnValidateSetting
       c5v6, c5v7 = c5v6()
       if c5v6 then
         continue
@@ -488,8 +488,8 @@
     c11v3 = 1
     c11v1 = #c11v0
     c11v2 = 1
-    for __renovice_for_0_0 = c11v3, c11v1, c11v2 do
-      c11v4 = c11v0[__renovice_for_0_0]
+    for __renovice_for_10_0_0 = c11v3, c11v1, c11v2 do
+      c11v4 = c11v0[__renovice_for_10_0_0]
       c11v5 = mMovie
       c11v8 = 11
       c11v9 = v27
@@ -1021,17 +1021,17 @@
       c14v2 = pairs
       c14v3 = v42
       c14v2, c14v3, c14v4 = c14v2(c14v3)
-      for __renovice_for_0_0, __renovice_for_0_1 in c14v2, c14v3, c14v4 do
+      for __renovice_for_13_0_0, __renovice_for_13_0_1 in c14v2, c14v3, c14v4 do
         c14v7 = Engine.IsMobile
         c14v7 = c14v7()
         if c14v7 then
           c14v9 = c14v1 * 0.9
-          __renovice_for_0_1:SetWidth(c14v9)
+          __renovice_for_13_0_1:SetWidth(c14v9)
         else
-          __renovice_for_0_1:SetWidth(c14v1)
+          __renovice_for_13_0_1:SetWidth(c14v1)
         end
         c14v7 = v58
-        c14v7(__renovice_for_0_1, __renovice_local_0)
+        c14v7(__renovice_for_13_0_1, __renovice_local_0)
       end
     end
     __renovice_local_0 = _T.SetButtons
@@ -1295,8 +1295,8 @@
     c19v10 = 1
     c19v8 = #c19v4
     c19v9 = 1
-    for __renovice_for_0_0 = c19v10, c19v8, c19v9 do
-      c19v11 = c19v4[__renovice_for_0_0]
+    for __renovice_for_18_0_0 = c19v10, c19v8, c19v9 do
+      c19v11 = c19v4[__renovice_for_18_0_0]
       c19v12 = c19v11.mXOffset
       if c19v12 == nil then
         c19v12 = 0
@@ -1616,10 +1616,10 @@
           c20v7 = c20v7.mUnfilteredElements
           c20v4 = #c20v7
           c20v5 = 1
-          for __renovice_for_0_0 = c20v6, c20v4, c20v5 do
+          for __renovice_for_19_0_0 = c20v6, c20v4, c20v5 do
             c20v8 = v12
             c20v8 = c20v8.mUnfilteredElements
-            c20v7 = c20v8[__renovice_for_0_0]
+            c20v7 = c20v8[__renovice_for_19_0_0]
             if not c20v7 then
               continue
             end
@@ -2858,9 +2858,9 @@
                           c47v2 = c47v0.mButtonInfo
                           __renovice_local_0 = #c47v2
                           __renovice_local_1 = 1
-                          for __renovice_for_0_0 = c47v1, __renovice_local_0, __renovice_local_1 do
+                          for __renovice_for_46_0_0 = c47v1, __renovice_local_0, __renovice_local_1 do
                             c47v3 = c47v0.mButtonInfo
-                            c47v2 = c47v3[__renovice_for_0_0]
+                            c47v2 = c47v3[__renovice_for_46_0_0]
                             c47v4 = c47v0.mClipName
                             c47v5 = "."
                             c47v6 = c47v2.Name
@@ -3351,11 +3351,11 @@
                             c47v5 = c47v0.mIcons
                             c47v2 = #c47v5
                             c47v3 = 1
-                            for __renovice_for_1_0 = c47v4, c47v2, c47v3 do
+                            for __renovice_for_46_1_0 = c47v4, c47v2, c47v3 do
                               c47v5 = c47v0.mIconGrid
                               c47v7 = {}
                               c47v10 = c47v0.mIcons
-                              c47v9 = c47v10[__renovice_for_1_0]
+                              c47v9 = c47v10[__renovice_for_46_1_0]
                               c47v7.Icon = c47v9
                               c47v8 = true
                               c47v7[1] = c47v8
@@ -3494,12 +3494,12 @@
                             c47v8 = c47v0.NoBtn
                             c47v5 = {c47v7, c47v8}
                             c47v4, c47v5, c47v6 = c47v4(c47v5)
-                            for __renovice_for_2_0, __renovice_for_2_1 in c47v4, c47v5, c47v6 do
+                            for __renovice_for_46_2_0, __renovice_for_46_2_1 in c47v4, c47v5, c47v6 do
                               c47v9 = "center"
-                              __renovice_for_2_1.mAlignment = c47v9
-                              __renovice_for_2_1:Redraw()
+                              __renovice_for_46_2_1.mAlignment = c47v9
+                              __renovice_for_46_2_1:Redraw()
                               c47v10 = mMovie
-                              c47v13 = __renovice_for_2_1.mClipName
+                              c47v13 = __renovice_for_46_2_1.mClipName
                               c47v14 = ".Label"
                               c47v12 = c47v13 .. c47v14
                               c47v13 = 40
@@ -3515,7 +3515,7 @@
                               c47v12 = c47v3 * c47v2
                               c47v11 = c47v1 + c47v12
                               c47v10 = c47v11 + c47v9
-                              __renovice_for_2_1:SetPosition(c47v10)
+                              __renovice_for_46_2_1:SetPosition(c47v10)
                               c47v3 = c47v3 + 1
                             end
                           else
@@ -3974,9 +3974,9 @@
         c48v7 = c48v1.NoBtn
         c48v4 = {c48v6, c48v7}
         c48v3, c48v4, c48v5 = c48v3(c48v4)
-        for __renovice_for_0_0, __renovice_for_0_1 in c48v3, c48v4, c48v5 do
+        for __renovice_for_47_0_0, __renovice_for_47_0_1 in c48v3, c48v4, c48v5 do
           c48v8 = mMovie
-          c48v11 = __renovice_for_0_1.mClipName
+          c48v11 = __renovice_for_47_0_1.mClipName
           c48v12 = ".Label"
           c48v10 = c48v11 .. c48v12
           c48v11 = 41
@@ -3988,7 +3988,7 @@
           c48v10 = c48v10()
           if c48v10 then
             c48v10 = mMovie
-            c48v12 = __renovice_for_0_1.mClipName
+            c48v12 = __renovice_for_47_0_1.mClipName
             c48v13 = 1
             c48v15 = v50
             c48v15 = c48v15.CheckboxY
@@ -3997,7 +3997,7 @@
             continue
           end
           c48v10 = mMovie
-          c48v12 = __renovice_for_0_1.mClipName
+          c48v12 = __renovice_for_47_0_1.mClipName
           c48v13 = 1
           c48v10:SetNumberVariable(c48v12, c48v13, c48v9)
         end
@@ -4094,9 +4094,9 @@
       c51v7 = c51v3
       c51v5 = c51v2 - 1
       c51v6 = 1
-      for __renovice_for_0_0 = c51v7, c51v5, c51v6 do
+      for __renovice_for_50_0_0 = c51v7, c51v5, c51v6 do
         c51v8 = v12
-        c51v8 = c51v8:GetElementById(__renovice_for_0_0)
+        c51v8 = c51v8:GetElementById(__renovice_for_50_0_0)
         c51v9 = v12
         c51v9 = c51v9:CalculateHeight(c51v8)
         c51v4 = c51v4 + c51v9
@@ -4125,9 +4125,9 @@
       c52v7 = c52v2
       c52v5 = c52v3
       c52v6 = 1
-      for __renovice_for_0_0 = c52v7, c52v5, c52v6 do
+      for __renovice_for_51_0_0 = c52v7, c52v5, c52v6 do
         c52v8 = v12
-        c52v8 = c52v8:GetElementById(__renovice_for_0_0)
+        c52v8 = c52v8:GetElementById(__renovice_for_51_0_0)
         c52v9 = v12
         c52v9 = c52v9:CalculateHeight(c52v8)
         c52v10 = c52v0.mForcedVerticalSeparation
@@ -4395,28 +4395,28 @@
         c57v14 = c57v10
         c57v12 = c57v11
         c57v13 = 1
-        for __renovice_for_0_0 = c57v14, c57v12, c57v13 do
+        for __renovice_for_56_0_0 = c57v14, c57v12, c57v13 do
           c57v16 = v26
           c57v16 = c57v16.Tags
-          c57v15 = c57v16[__renovice_for_0_0]
+          c57v15 = c57v16[__renovice_for_56_0_0]
           c57v18 = 1
           c57v16 = string.sub
           c57v16 = c57v16(c57v15, c57v18, c57v8)
           if c57v16 == __renovice_local_0 then
             c57v18 = v26
             c57v18 = c57v18.Real
-            c57v17 = c57v18[__renovice_for_0_0]
+            c57v17 = c57v18[__renovice_for_56_0_0]
             if c57v7 ~= c57v17 then
               c57v4 = true
               c57v20 = v26
               c57v20 = c57v20.Real
-              c57v18 = c57v20[__renovice_for_0_0]
+              c57v18 = c57v20[__renovice_for_56_0_0]
               c57v19 = "|"
               c57v5 = c57v5 .. c57v18 .. c57v19
               c57v6 = c57v6 + 1
               c57v17 = v26
               c57v17 = c57v17.Real
-              c57v7 = c57v17[__renovice_for_0_0]
+              c57v7 = c57v17[__renovice_for_56_0_0]
               c57v17 = 8
               if c57v17 <= c57v6 then break end
               continue
@@ -4737,26 +4737,26 @@
       c63v5 = 1
       c63v3 = #c63v2
       c63v4 = 1
-      for __renovice_for_0_0 = c63v5, c63v3, c63v4 do
+      for __renovice_for_62_0_0 = c63v5, c63v3, c63v4 do
         c63v6 = ResetLineCount
         c63v7 = 0
         c63v6(c63v7)
-        c63v6 = c63v2[__renovice_for_0_0]
+        c63v6 = c63v2[__renovice_for_62_0_0]
         c63v6 = c63v6.mHeight
         if c63v6 == nil then
           c63v7 = v47
-          c63v8 = c63v2[__renovice_for_0_0]
+          c63v8 = c63v2[__renovice_for_62_0_0]
           c63v8 = c63v8.mType
           c63v6 = c63v7[c63v8]
         end
         repeat
-          if (__renovice_for_0_0 == 1 or c63v1 == c63v6) then
-            c63v7 = c63v2[__renovice_for_0_0]
+          if (__renovice_for_62_0_0 == 1 or c63v1 == c63v6) then
+            c63v7 = c63v2[__renovice_for_62_0_0]
             c63v7 = c63v7.mType
             c63v8 = v0
             c63v8 = c63v8.INPUTBOX
             if c63v7 ~= c63v8 then
-              c63v7 = c63v2[__renovice_for_0_0]
+              c63v7 = c63v2[__renovice_for_62_0_0]
               c63v7 = c63v7.mMultiLine
               if c63v7 ~= true then break end
             end
@@ -4764,26 +4764,26 @@
           c63v0 = false
         until true
         c63v1 = c63v6
-        c63v7 = c63v2[__renovice_for_0_0]
-        c63v7.Id = __renovice_for_0_0
-        c63v7 = c63v2[__renovice_for_0_0]
-        c63v8 = c63v2[__renovice_for_0_0]
+        c63v7 = c63v2[__renovice_for_62_0_0]
+        c63v7.Id = __renovice_for_62_0_0
+        c63v7 = c63v2[__renovice_for_62_0_0]
+        c63v8 = c63v2[__renovice_for_62_0_0]
         c63v8 = c63v8.mValue
         c63v7.mOriginalValue = c63v8
-        c63v7 = c63v2[__renovice_for_0_0]
+        c63v7 = c63v2[__renovice_for_62_0_0]
         c63v7 = c63v7.mOriginalValue
         if c63v7 == nil then
-          c63v7 = c63v2[__renovice_for_0_0]
-          c63v8 = c63v2[__renovice_for_0_0]
+          c63v7 = c63v2[__renovice_for_62_0_0]
+          c63v8 = c63v2[__renovice_for_62_0_0]
           c63v8 = c63v8.mContent
           c63v7.mOriginalValue = c63v8
         end
-        c63v7 = c63v2[__renovice_for_0_0]
+        c63v7 = c63v2[__renovice_for_62_0_0]
         c63v7 = c63v7.mLabel
         if c63v7 ~= nil then
-          c63v7 = c63v2[__renovice_for_0_0]
+          c63v7 = c63v2[__renovice_for_62_0_0]
           c63v8 = ToSearchable
-          c63v9 = c63v2[__renovice_for_0_0]
+          c63v9 = c63v2[__renovice_for_62_0_0]
           c63v9 = c63v9.mLabel
           c63v8 = c63v8(c63v9)
           c63v7.mSearchTerm = c63v8
@@ -4792,11 +4792,11 @@
         c63v8 = c63v8.mUnfilteredElements
         c63v9 = v1
         c63v9 = c63v9.CopyTable
-        c63v10 = c63v2[__renovice_for_0_0]
+        c63v10 = c63v2[__renovice_for_62_0_0]
         c63v7 = table.insert
         c63v7(c63v8, c63v9(c63v10))
         c63v7 = v12
-        c63v9 = c63v2[__renovice_for_0_0]
+        c63v9 = c63v2[__renovice_for_62_0_0]
         c63v10 = true
         c63v7:AddElement(c63v9, c63v10)
       end
@@ -4965,9 +4965,9 @@
     c67v4 = 1
     c67v2 = #c67v1
     c67v3 = 1
-    for __renovice_for_0_0 = c67v4, c67v2, c67v3 do
+    for __renovice_for_66_0_0 = c67v4, c67v2, c67v3 do
       c67v5 = mMovie
-      c67v7 = c67v1[__renovice_for_0_0]
+      c67v7 = c67v1[__renovice_for_66_0_0]
       c67v8 = leftLineMaterial
       c67v5:OverrideMaterial(c67v7, c67v8)
     end
@@ -4979,9 +4979,9 @@
     c67v4 = 1
     c67v2 = #c67v1
     c67v3 = 1
-    for __renovice_for_1_0 = c67v4, c67v2, c67v3 do
+    for __renovice_for_66_1_0 = c67v4, c67v2, c67v3 do
       c67v5 = mMovie
-      c67v7 = c67v1[__renovice_for_1_0]
+      c67v7 = c67v1[__renovice_for_66_1_0]
       c67v8 = rightLineMaterial
       c67v5:OverrideMaterial(c67v7, c67v8)
     end
@@ -5264,10 +5264,10 @@
         c86v0 = ipairs
         c86v1 = gGameData
         c86v0, c86v1, c86v2 = c86v0(c86v1:Name__c2a28467())
-        for __renovice_for_0_0, __renovice_for_0_1 in c86v0, c86v1, c86v2 do
+        for __renovice_for_85_0_0, __renovice_for_85_0_1 in c86v0, c86v1, c86v2 do
           c86v6 = v26
           c86v6 = c86v6.Real
-          c86v7 = __renovice_for_0_1.mDisplayName
+          c86v7 = __renovice_for_85_0_1.mDisplayName
           c86v5 = table.insert
           c86v5(c86v6, c86v7)
         end
@@ -5294,18 +5294,18 @@
         c86v4 = c86v4.Real
         c86v1 = #c86v4
         c86v2 = 1
-        for __renovice_for_1_0 = c86v3, c86v1, c86v2 do
+        for __renovice_for_85_1_0 = c86v3, c86v1, c86v2 do
           c86v5 = v26
           c86v5 = c86v5.Tags
           c86v6 = string.lower
           c86v8 = v26
           c86v8 = c86v8.Real
-          c86v7 = c86v8[__renovice_for_1_0]
+          c86v7 = c86v8[__renovice_for_85_1_0]
           c86v4 = table.insert
           c86v4(c86v5, c86v6(c86v7))
           c86v6 = v26
           c86v6 = c86v6.Tags
-          c86v5 = c86v6[__renovice_for_1_0]
+          c86v5 = c86v6[__renovice_for_85_1_0]
           c86v6 = 1
           c86v7 = 1
           c86v4 = string.sub
@@ -5316,7 +5316,7 @@
           c86v0 = c86v4
           c86v5 = v26
           c86v5 = c86v5.Indexer
-          c86v5[c86v4] = __renovice_for_1_0
+          c86v5[c86v4] = __renovice_for_85_1_0
         end
       end
     end
@@ -5820,10 +5820,10 @@
       c111v4 = c111v4.mElements
       c111v1 = #c111v4
       c111v2 = 1
-      for __renovice_for_0_0 = c111v3, c111v1, c111v2 do
+      for __renovice_for_110_0_0 = c111v3, c111v1, c111v2 do
         c111v5 = v12
         c111v5 = c111v5.mElements
-        c111v4 = c111v5[__renovice_for_0_0]
+        c111v4 = c111v5[__renovice_for_110_0_0]
         if not c111v4 then
           continue
         end
@@ -5850,10 +5850,10 @@
     c111v5 = c111v5.mElements
     c111v2 = #c111v5
     c111v3 = 1
-    for __renovice_for_1_0 = c111v4, c111v2, c111v3 do
+    for __renovice_for_110_1_0 = c111v4, c111v2, c111v3 do
       c111v6 = v12
       c111v6 = c111v6.mElements
-      c111v5 = c111v6[__renovice_for_1_0]
+      c111v5 = c111v6[__renovice_for_110_1_0]
       if not c111v5 then
         continue
       end
@@ -5863,16 +5863,16 @@
       if c111v6 ~= c111v7 then
         continue
       end
-      c111v1 = __renovice_for_1_0
+      c111v1 = __renovice_for_110_1_0
     end
     if c111v1 == c111v0 then
       c111v4 = 1
       c111v2 = c111v1 - 1
       c111v3 = 1
-      for __renovice_for_2_0 = c111v4, c111v2, c111v3 do
+      for __renovice_for_110_2_0 = c111v4, c111v2, c111v3 do
         c111v6 = v12
         c111v6 = c111v6.mElements
-        c111v5 = c111v6[__renovice_for_2_0]
+        c111v5 = c111v6[__renovice_for_110_2_0]
         if not c111v5 then
           continue
         end
@@ -5882,7 +5882,7 @@
         if c111v6 ~= c111v7 then
           continue
         end
-        c111v1 = __renovice_for_2_0
+        c111v1 = __renovice_for_110_2_0
       end
     end
     if c111v1 ~= c111v0 then

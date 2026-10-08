@@ -1,5 +1,36 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-08 Native fault guard: non-unwinding jump (fix for F9 hot-swap abort) — installed
+
+Branch `fix/guard-nonunwinding-jump-2026-10-08` from `main` `f5df0ef` (44.1 runtime `a1a518d`, no other runtime change).
+
+- **Live defect.** 2026-10-08 21:55:10, enabling the `Syndicate Syandanas Full Glow` replacement (SyndicateScarves, loaded
+  for the equipped syandana) and F9 crashed the game: Windows event 1000, faulting module `WTSAPI32.dll` (`8dc9b175…`),
+  `0xc0000409`, offset `0x3e19c5` = UCRT `abort()` -> `__fastfail(7)`. The log stops after `RELOAD PASS trigger=F9
+  generation=17`, before `F9 module refresh summary`, i.e. inside `drain_pending_for_vm` ->
+  `execute_native_module_refresh` (first F9 of the session with `changed` > 0).
+- **Cause (TRUE offline, toolchain probe).** The native fault guard armed `setjmp(guard.jump)` (CRT, unwinding on the
+  MSVC target) in a noexcept leaf and the VEH `fault_handler` called `std::longjmp`. Unwinding across the noexcept
+  frames between (`invoke_stock_loader_protected`, `protected_stock_loader_leaf`) calls `std::terminate`. Probe
+  (clang 20.1.8, x86_64-pc-windows-msvc, -O3): CRT jump + noexcept -> `0xC0000409`; builtin jump + noexcept -> recovered.
+  DE's own Lua-error jump is not affected (the Circuit addon's assert error crossed the noexcept lifecycle leaf 30 times
+  in the same session without a crash).
+- **Fix.** `GuardState::jump` is `void* jump[5]`; the three guard sites use `__builtin_setjmp`, the handler
+  `__builtin_longjmp` (non-unwinding, as the destructor-free leaves were designed for). A native fault in a guarded
+  run, load or F9 module refresh is reported (`native module refresh FAULT … stage= exception_code=`) instead of aborting.
+  The underlying loader fault during the live SyndicateScarves refresh is UNRESOLVED; the next toggle + F9 logs it.
+- **Gates.** New `RENOVICE_TOOLCHAIN/runtime/verify_guard_nonunwinding_jump.ps1` (source sites + the 2x2 toolchain
+  probe `guard_jump_probe.cpp`), in `build_private.ps1`. Render fixtures re-pinned for derecomp `701a2adf…`
+  (de-luau-toolchain `44e358b`: loop names `__renovice_for_<proto>_<loop>_<var>`, renders identical otherwise):
+  `settings_render/stock/*.u44.luau` + `STOCK_INPUTS.txt`, `replacements/fixtures/replacement_settings/RetrievalMission.settings.u44.luau`.
+- **Build.** `nu_build.ps1` (client image `5802cf43…`, the installed sideloaded exe): every gate PASS, PRIVATE BUILD PASS
+  warnings=0 errors=0, DLL `5dd039cb1c39b1725e10472a0f28afe18c56f19889b6520fc844b5483bdc2697` (6,055,936 B). Hotfix.owf
+  identical to the installed `b23ff058…` except its 3-byte build timestamp, so it was not replaced.
+- **Installed 2026-10-08** into the active game folder (game closed): only `WTSAPI32.dll` changed (inventory before/after
+  in `work/backups/loader-before-guardfix-2026-10-08/`). Rollback: copy that folder's `WTSAPI32.dll` (`8dc9b175…`) back.
+- **Pending live:** startup (`DE_VM_AUTHORITY PASS`, `RELOAD PASS`), Scripts menu, F9, F10/Pluto, and one replacement
+  toggle + F9 on a loaded module (expect `native module refresh PASS` or a logged FAULT, never a crash).
+
 ## 2026-10-02 Native update resilience (steps 2 and 4, native side): native update tool — staged (not deployed; no runtime change)
 
 Branch `feat/native-update-resilience-2026-10-02` from `main` `f97215c`. Tooling and gates only: **no runtime source changed** (the DLL has R17's runtime; R17 `304b57de…` stays the installed/recommended DLL).

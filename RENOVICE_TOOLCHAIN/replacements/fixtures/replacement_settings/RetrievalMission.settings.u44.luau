@@ -287,14 +287,14 @@
     c2v6 = 1
     c2v4 = #c2v0
     c2v5 = 1
-    for __renovice_for_0_0 = c2v6, c2v4, c2v5 do
-      c2v7 = c2v0[__renovice_for_0_0]
+    for __renovice_for_1_0_0 = c2v6, c2v4, c2v5 do
+      c2v7 = c2v0[__renovice_for_1_0_0]
       c2v7 = c2v7:DistanceToPoint(c2v1)
       if not (c2v7 < c2v2) then
         continue
       end
       c2v2 = c2v7
-      c2v3 = c2v0[__renovice_for_0_0]
+      c2v3 = c2v0[__renovice_for_1_0_0]
     end
     do return c2v3 end
   end
@@ -408,19 +408,19 @@
           c3v8 = c3v6:GetPosition()
           c3v9 = ipairs
           c3v9, c3v10, c3v11 = c3v9(c3v7)
-          for __renovice_for_0_0, __renovice_for_0_1 in c3v9, c3v10, c3v11 do
-            c3v14 = __renovice_for_0_1:DistanceToPoint(c3v8)
+          for __renovice_for_2_0_0, __renovice_for_2_0_1 in c3v9, c3v10, c3v11 do
+            c3v14 = __renovice_for_2_0_1:DistanceToPoint(c3v8)
             c3v15 = 10
             if not (c3v14 <= c3v15) then
               continue
             end
-            c3v15 = __renovice_for_0_1:GetPosition()
+            c3v15 = __renovice_for_2_0_1:GetPosition()
             c3v14 = c3v15 - c3v8
             c3v15 = v30
             c3v16 = c3v14 * 100
             c3v15:SetImpulse(c3v16)
             c3v16 = v30
-            __renovice_for_0_1:DamageDD(c3v16)
+            __renovice_for_2_0_1:DamageDD(c3v16)
           end
           c3v9 = gRegion
           c3v11 = v29
@@ -567,9 +567,9 @@
     c7v20 = v12
     c7v17 = #c7v20
     c7v18 = 1
-    for __renovice_for_0_0 = c7v19, c7v17, c7v18 do
+    for __renovice_for_6_0_0 = c7v19, c7v17, c7v18 do
       c7v20 = ObjectPortHandler
-      c7v21 = v12[__renovice_for_0_0]
+      c7v21 = v12[__renovice_for_6_0_0]
       c7v22 = "OnDone"
       c7v20(c7v21, c7v22)
     end
@@ -722,24 +722,24 @@
       c7v33 = 1
       c7v31 = #c7v21
       c7v32 = 1
-      for __renovice_for_1_0 = c7v33, c7v31, c7v32 do
-        c7v34 = c7v21[__renovice_for_1_0]
+      for __renovice_for_6_1_0 = c7v33, c7v31, c7v32 do
+        c7v34 = c7v21[__renovice_for_6_1_0]
         c7v36 = gLotusOperatorAvatarType
         c7v34 = c7v34:IsA(c7v36)
         if c7v34 then
           continue
         end
-        c7v34 = c7v21[__renovice_for_1_0]
+        c7v34 = c7v21[__renovice_for_6_1_0]
         c7v34 = c7v34:IsKilled()
         if c7v34 then
           continue
         end
-        c7v34 = c7v21[__renovice_for_1_0]
+        c7v34 = c7v21[__renovice_for_6_1_0]
         c7v34 = c7v34:IsPreDeath()
         if c7v34 then
           continue
         end
-        c7v35 = c7v21[__renovice_for_1_0]
+        c7v35 = c7v21[__renovice_for_6_1_0]
         c7v35 = c7v35:DistanceToEntity(c7v0)
         c7v36 = retrievalPushRadius
         if not (c7v35 < c7v36) then
@@ -749,13 +749,13 @@
         end
         if c7v34 then
           c7v24 = c7v24 or c7v34
-          c7v35 = c7v21[__renovice_for_1_0]
+          c7v35 = c7v21[__renovice_for_6_1_0]
           c7v35 = c7v35:DamageControl()
           c7v35 = c7v35:GetShield()
-          c7v36 = c7v21[__renovice_for_1_0]
+          c7v36 = c7v21[__renovice_for_6_1_0]
           c7v36 = c7v36:DamageControl()
           c7v36 = c7v36:GetMaxShield()
-          c7v37 = c7v21[__renovice_for_1_0]
+          c7v37 = c7v21[__renovice_for_6_1_0]
           c7v37 = c7v37:GetHealth()
           c7v38 = 0
           if c7v38 < c7v35 then
@@ -1339,14 +1339,14 @@
         c7v37 = 1
         c7v35 = #c7v16
         c7v36 = 1
-        for __renovice_for_2_0 = c7v37, c7v35, c7v36 do
+        for __renovice_for_6_2_0 = c7v37, c7v35, c7v36 do
           c7v38 = _T.moverState
           if c7v38 == "FORWARD" then
-            c7v38 = c7v16[__renovice_for_2_0]
+            c7v38 = c7v16[__renovice_for_6_2_0]
             c7v38:Enable()
             continue
           end
-          c7v38 = c7v16[__renovice_for_2_0]
+          c7v38 = c7v16[__renovice_for_6_2_0]
           c7v38:Disable()
         end
       end
@@ -1357,8 +1357,8 @@
         c7v37 = 1
         c7v35 = #c7v21
         c7v36 = 1
-        for __renovice_for_3_0 = c7v37, c7v35, c7v36 do
-          c7v39 = c7v21[__renovice_for_3_0]
+        for __renovice_for_6_3_0 = c7v37, c7v35, c7v36 do
+          c7v39 = c7v21[__renovice_for_6_3_0]
           c7v39 = c7v39:DistanceToEntity(c7v0)
           c7v40 = retrievalPushRadius
           if not (c7v39 < c7v40) then
@@ -1366,21 +1366,21 @@
           else
             c7v38 = true
           end
-          c7v39 = c7v21[__renovice_for_3_0]
+          c7v39 = c7v21[__renovice_for_6_3_0]
           c7v39 = c7v39:DamageControl()
-          c7v40 = c7v21[__renovice_for_3_0]
+          c7v40 = c7v21[__renovice_for_6_3_0]
           c7v40 = c7v40:GetHealth()
           c7v41 = c7v39:GetShield()
           c7v42 = c7v39:GetMaxShield()
           if ((c7v38 and c7v25) and c7v26) then
-            c7v44 = c7v21[__renovice_for_3_0]
+            c7v44 = c7v21[__renovice_for_6_3_0]
             c7v46 = beamType
             c7v43 = IsNull
             c7v43 = c7v43(c7v44:GetAttachment(c7v46))
             if not c7v43 then
               continue
             end
-            c7v43 = c7v21[__renovice_for_3_0]
+            c7v43 = c7v21[__renovice_for_6_3_0]
             c7v43 = c7v43:Name__7f7b27a9()
             if not c7v43 then
               continue
@@ -1391,18 +1391,18 @@
             if not c7v43 then
               continue
             end
-            c7v43 = c7v21[__renovice_for_3_0]
+            c7v43 = c7v21[__renovice_for_6_3_0]
             c7v45 = gLotusOperatorAvatarType
             c7v43 = c7v43:IsA(c7v45)
             if c7v43 then
               continue
             end
-            c7v43 = c7v21[__renovice_for_3_0]
+            c7v43 = c7v21[__renovice_for_6_3_0]
             c7v43 = c7v43:IsKilled()
             if c7v43 then
               continue
             end
-            c7v43 = c7v21[__renovice_for_3_0]
+            c7v43 = c7v21[__renovice_for_6_3_0]
             c7v43 = c7v43:IsPreDeath()
             if c7v43 then
               continue
@@ -1416,10 +1416,10 @@
               end
               c7v45 = 0
               c7v43 = c7v39:Name__ccefdb4a(c7v45)
-              c7v44 = c7v21[__renovice_for_3_0]
+              c7v44 = c7v21[__renovice_for_6_3_0]
               c7v46 = beamType
               c7v44:Attach(c7v46, c7v43)
-              c7v44 = c7v21[__renovice_for_3_0]
+              c7v44 = c7v21[__renovice_for_6_3_0]
               c7v46 = avProjType
               c7v47 = EMPTY_SYMBOL
               c7v44:Attach(c7v46, c7v47)
@@ -1437,7 +1437,7 @@
             c7v37 = 1
             c7v35 = #c7v21
             c7v36 = 1
-            for __renovice_for_4_0 = c7v37, c7v35, c7v36 do
+            for __renovice_for_6_4_0 = c7v37, c7v35, c7v36 do
               c7v41 = Name__f49faa77
               c7v40 = c7v41 * 0.2
               c7v39 = c7v40 / c7v23
@@ -1450,7 +1450,7 @@
               c7v42 = 1
               c7v40 = math.max
               c7v39 = c7v40(c7v39, c7v42)
-              c7v41 = c7v21[__renovice_for_4_0]
+              c7v41 = c7v21[__renovice_for_6_4_0]
               c7v41 = c7v41:DistanceToEntity(c7v0)
               c7v42 = retrievalPushRadius
               if not (c7v41 < c7v42) then
@@ -1465,16 +1465,16 @@
                 if not c7v41 then
                   continue
                 end
-                c7v41 = c7v21[__renovice_for_4_0]
+                c7v41 = c7v21[__renovice_for_6_4_0]
                 c7v43 = gLotusOperatorAvatarType
                 c7v41 = c7v41:IsA(c7v43)
                 if c7v41 then
                   continue
                 end
-                c7v41 = c7v21[__renovice_for_4_0]
+                c7v41 = c7v21[__renovice_for_6_4_0]
                 c7v41 = c7v41:DamageControl()
                 c7v42 = c7v41:GetShield()
-                c7v43 = c7v21[__renovice_for_4_0]
+                c7v43 = c7v21[__renovice_for_6_4_0]
                 c7v43 = c7v43:GetHealth()
                 c7v44 = c7v41:GetMaxShield()
                 c7v45 = 0
@@ -1503,7 +1503,7 @@
                 c7v47 = 0
                 c7v45 = math.max
                 c7v45 = c7v45(c7v46, c7v47)
-                c7v46 = c7v21[__renovice_for_4_0]
+                c7v46 = c7v21[__renovice_for_6_4_0]
                 c7v46:SetHealth(c7v45)
                 c7v46 = math.floor
                 c7v46 = c7v46(c7v39)
@@ -1709,8 +1709,8 @@
           c9v8 = 2
           c9v6 = 4
           c9v7 = 1
-          for __renovice_for_0_0 = c9v8, c9v6, c9v7 do
-            c9v9 = perfSpawns[__renovice_for_0_0]
+          for __renovice_for_8_0_0 = c9v8, c9v6, c9v7 do
+            c9v9 = perfSpawns[__renovice_for_8_0_0]
             c9v11 = Symbol
             c9v12 = "G3Spawn"
             c9v9:SetTag(c9v11(c9v12))
@@ -1928,9 +1928,9 @@
     c12v16 = v12
     c12v13 = #c12v16
     c12v14 = 1
-    for __renovice_for_0_0 = c12v15, c12v13, c12v14 do
+    for __renovice_for_11_0_0 = c12v15, c12v13, c12v14 do
       c12v16 = ObjectPortHandler
-      c12v17 = v12[__renovice_for_0_0]
+      c12v17 = v12[__renovice_for_11_0_0]
       c12v18 = "OnDone"
       c12v16(c12v17, c12v18)
     end
@@ -1941,8 +1941,8 @@
       c12v15 = 1
       c12v13 = #c12v3
       c12v14 = 1
-      for __renovice_for_1_0 = c12v15, c12v13, c12v14 do
-        c12v16 = c12v3[__renovice_for_1_0]
+      for __renovice_for_11_1_0 = c12v15, c12v13, c12v14 do
+        c12v16 = c12v3[__renovice_for_11_1_0]
         c12v16:Disable()
       end
     end
@@ -2142,8 +2142,8 @@
       c12v24 = 1
       c12v22 = #c12v4
       c12v23 = 1
-      for __renovice_for_2_0 = c12v24, c12v22, c12v23 do
-        __renovice_local_0 = c12v4[__renovice_for_2_0]
+      for __renovice_for_11_2_0 = c12v24, c12v22, c12v23 do
+        __renovice_local_0 = c12v4[__renovice_for_11_2_0]
         __renovice_local_0:Enable()
       end
     end
@@ -2187,8 +2187,8 @@
         __renovice_local_0 = ipairs
         c12v25 = v39
         __renovice_local_0, c12v25, c12v26 = __renovice_local_0(c12v25)
-        for __renovice_for_3_0, __renovice_for_3_1 in __renovice_local_0, c12v25, c12v26 do
-          c12v29 = __renovice_for_3_1:GetAvatar()
+        for __renovice_for_11_3_0, __renovice_for_11_3_1 in __renovice_local_0, c12v25, c12v26 do
+          c12v29 = __renovice_for_11_3_1:GetAvatar()
           c12v30 = IsNull
           c12v30 = c12v30(c12v29)
           if c12v30 then
@@ -2724,7 +2724,7 @@
     c15v8 = 1
     c15v6 = c15v2
     c15v7 = 1
-    for __renovice_for_0_0 = c15v8, c15v6, c15v7 do
+    for __renovice_for_14_0_0 = c15v8, c15v6, c15v7 do
       c15v11 = c15v5 * 175
       c15v9 = c15v0:Name__9ae7e882(c15v11)
       c15v12 = c15v5 * 175

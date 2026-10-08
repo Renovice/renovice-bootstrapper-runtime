@@ -236,14 +236,14 @@
       c8v5 = c8v0.mElements
       c8v2 = #c8v5
       c8v3 = 1
-      for __renovice_for_0_0 = c8v4, c8v2, c8v3 do
+      for __renovice_for_7_0_0 = c8v4, c8v2, c8v3 do
         c8v6 = c8v0.mElements
-        c8v5 = c8v6[__renovice_for_0_0]
+        c8v5 = c8v6[__renovice_for_7_0_0]
         c8v5 = c8v5.Id
         if c8v5 ~= c8v1 then
           continue
         end
-        do return __renovice_for_0_0 end
+        do return __renovice_for_7_0_0 end
       end
       c8v2 = nil
       do return c8v2 end
@@ -677,10 +677,10 @@
         c20v9 = 1
         c20v7 = c20v5
         c20v8 = 1
-        for __renovice_for_0_0 = c20v9, c20v7, c20v8 do
+        for __renovice_for_19_0_0 = c20v9, c20v7, c20v8 do
           c20v11 = c20v0.mElements
-          c20v10 = c20v11[__renovice_for_0_0]
-          c20v10.mIndex = __renovice_for_0_0
+          c20v10 = c20v11[__renovice_for_19_0_0]
+          c20v10.mIndex = __renovice_for_19_0_0
         end
       end
       c20v7 = c20v2.mOverrideClipName
@@ -920,15 +920,15 @@
             c23v16 = 1
             c23v14 = c23v12
             c23v15 = 1
-            for __renovice_for_0_0 = c23v16, c23v14, c23v15 do
+            for __renovice_for_22_0_0 = c23v16, c23v14, c23v15 do
               c23v18 = c23v0.mElements
-              c23v17 = c23v18[__renovice_for_0_0]
+              c23v17 = c23v18[__renovice_for_22_0_0]
               c23v17 = c23v17.Id
               if not (c23v13 < c23v17) then
                 continue
               end
               c23v18 = c23v0.mElements
-              c23v17 = c23v18[__renovice_for_0_0]
+              c23v17 = c23v18[__renovice_for_22_0_0]
               c23v13 = c23v17.Id
             end
             c23v0.mTopId = c23v13
@@ -939,10 +939,10 @@
           c23v15 = 1
           c23v13 = c23v12
           c23v14 = 1
-          for __renovice_for_1_0 = c23v15, c23v13, c23v14 do
+          for __renovice_for_22_1_0 = c23v15, c23v13, c23v14 do
             c23v17 = c23v0.mElements
-            c23v16 = c23v17[__renovice_for_1_0]
-            c23v16.mIndex = __renovice_for_1_0
+            c23v16 = c23v17[__renovice_for_22_1_0]
+            c23v16.mIndex = __renovice_for_22_1_0
           end
         end
       end
@@ -972,8 +972,8 @@
       c25v6 = 0
       c25v4 = c25v3 - 1
       c25v5 = 1
-      for __renovice_for_0_0 = c25v6, c25v4, c25v5 do
-        c25v9 = c25v3 - __renovice_for_0_0
+      for __renovice_for_24_0_0 = c25v6, c25v4, c25v5 do
+        c25v9 = c25v3 - __renovice_for_24_0_0
         c25v12 = true
         c25v13 = c25v0.mPreserveClips
         c25v14 = true
@@ -994,23 +994,23 @@
         c25v4 = pairs
         c25v5 = c25v0.mClips
         c25v4, c25v5, c25v6 = c25v4(c25v5)
-        for __renovice_for_1_0, __renovice_for_1_1 in c25v4, c25v5, c25v6 do
+        for __renovice_for_24_1_0, __renovice_for_24_1_1 in c25v4, c25v5, c25v6 do
           c25v9 = c25v0.mClipName
-          if __renovice_for_1_0 ~= c25v9 then
+          if __renovice_for_24_1_0 ~= c25v9 then
             c25v9 = FlashMethod
             c25v10 = c25v0.mMovie
             c25v13 = ".removeMovieClip"
-            c25v11 = __renovice_for_1_0 .. c25v13
+            c25v11 = __renovice_for_24_1_0 .. c25v13
             c25v9(c25v10, c25v11)
           else
             c25v9 = c25v0.mMovie
             c25v12 = 12
             c25v13 = 0
-            c25v9:SetNumberVariable(__renovice_for_1_0, c25v12, c25v13)
+            c25v9:SetNumberVariable(__renovice_for_24_1_0, c25v12, c25v13)
           end
           c25v9 = c25v0.mClips
           c25v10 = nil
-          c25v9[__renovice_for_1_0] = c25v10
+          c25v9[__renovice_for_24_1_0] = c25v10
         end
       end
       c25v4 = nil
@@ -1953,16 +1953,16 @@
       c55v16 = c55v12
       c55v14 = c55v13
       c55v15 = 1
-      for __renovice_for_0_0 = c55v16, c55v14, c55v15 do
+      for __renovice_for_54_0_0 = c55v16, c55v14, c55v15 do
         c55v17 = ResetLineCount
         c55v18 = 0
         c55v17(c55v18)
         c55v18 = c55v0.mElements
-        c55v17 = c55v18[__renovice_for_0_0]
+        c55v17 = c55v18[__renovice_for_54_0_0]
         __renovice_local_0 = nil
         c55v18 = false
-        if c55v7 <= __renovice_for_0_0 then
-          if not (__renovice_for_0_0 <= c55v8) then
+        if c55v7 <= __renovice_for_54_0_0 then
+          if not (__renovice_for_54_0_0 <= c55v8) then
             c55v18 = false
           else
             c55v18 = true
@@ -1987,11 +1987,11 @@
               c55v19 = pairs
               c55v20 = c55v0.mClips
               c55v19, c55v20, c55v21 = c55v19(c55v20)
-              for __renovice_for_1_0, __renovice_for_1_1 in c55v19, c55v20, c55v21 do
-                if __renovice_for_1_1 then
+              for __renovice_for_54_1_0, __renovice_for_54_1_1 in c55v19, c55v20, c55v21 do
+                if __renovice_for_54_1_1 then
                   continue
                 end
-                __renovice_local_0 = __renovice_for_1_0
+                __renovice_local_0 = __renovice_for_54_1_0
                 break
               end
               c55v19 = IsNull
@@ -2228,10 +2228,10 @@
               c55v24 = 1
               c55v22 = #c55v20
               c55v23 = 1
-              for __renovice_for_2_0 = c55v24, c55v22, c55v23 do
+              for __renovice_for_54_2_0 = c55v24, c55v22, c55v23 do
                 c55v25 = c55v0.mMovie
-                c55v28 = c55v20[__renovice_for_2_0]
-                c55v29 = c55v21[__renovice_for_2_0]
+                c55v28 = c55v20[__renovice_for_54_2_0]
+                c55v29 = c55v21[__renovice_for_54_2_0]
                 c55v25:SetNumberVariable(__renovice_local_0, c55v28, c55v29)
               end
               c55v0:OnElementTransitionEnded(c55v17)
@@ -2286,12 +2286,12 @@
         c57v5 = c57v0.mElements
         c57v2 = #c57v5
         c57v3 = 1
-        for __renovice_for_0_0 = c57v4, c57v2, c57v3 do
+        for __renovice_for_56_0_0 = c57v4, c57v2, c57v3 do
           c57v5 = ResetLineCount
           c57v6 = 0
           c57v5(c57v6)
           c57v7 = c57v0.mElements
-          c57v6 = c57v7[__renovice_for_0_0]
+          c57v6 = c57v7[__renovice_for_56_0_0]
           c57v1(c57v6)
         end
       end
@@ -2315,9 +2315,9 @@
       c58v7 = c58v3
       c58v5 = c58v4
       c58v6 = 1
-      for __renovice_for_0_0 = c58v7, c58v5, c58v6 do
+      for __renovice_for_57_0_0 = c58v7, c58v5, c58v6 do
         c58v9 = c58v0.mElements
-        c58v8 = c58v9[__renovice_for_0_0]
+        c58v8 = c58v9[__renovice_for_57_0_0]
         c58v9 = c58v8.mClipName
         if c58v9 == nil then
           continue
@@ -2716,14 +2716,14 @@
         c73v5 = 1
         c73v3 = c73v2
         c73v4 = 1
-        for __renovice_for_0_0 = c73v5, c73v3, c73v4 do
+        for __renovice_for_72_0_0 = c73v5, c73v3, c73v4 do
           c73v6 = c73v0.mClickDrag
           c73v8 = c73v0.mClickDrag
           c73v8 = c73v8.RootClip
-          c73v9 = c73v1[__renovice_for_0_0]
+          c73v9 = c73v1[__renovice_for_72_0_0]
           c73v7 = c73v8 .. c73v9
           c73v6.RootClip = c73v7
-          if __renovice_for_0_0 == c73v2 then
+          if __renovice_for_72_0_0 == c73v2 then
             continue
           end
           c73v6 = c73v0.mClickDrag

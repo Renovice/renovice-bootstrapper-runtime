@@ -489,7 +489,13 @@ static_assert(std::is_trivially_copyable_v<RunResult>);
 
 struct GuardState
 {
-	std::jmp_buf jump;
+	// Non-unwinding jump buffer (__builtin_setjmp/__builtin_longjmp). The guarded
+	// leaves and every frame between them and a native fault are destructor-free
+	// and noexcept; the CRT std::longjmp of the MSVC target unwinds those frames
+	// and a noexcept frame on the unwind path calls std::terminate (live
+	// 2026-10-08: F9 module refresh fault -> abort -> 0xC0000409 in this DLL;
+	// gate verify_guard_nonunwinding_jump).
+	void* jump[5]{};
 	volatile LONG active = 0;
 	DWORD thread_id = 0;
 	PVOID handler = nullptr;
@@ -12914,7 +12920,7 @@ LONG CALLBACK fault_handler(EXCEPTION_POINTERS* information)
 			guard.fault_address = information->ExceptionRecord->ExceptionAddress;
 		}
 		guard.active = 0;
-		std::longjmp(guard.jump, 1);
+		__builtin_longjmp(guard.jump, 1);
 	}
 	return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -13161,7 +13167,7 @@ void run_guarded_protected_leaf(luau_State* state, void* raw_context) noexcept
 		return;
 	}
 
-	if (setjmp(guard.jump) != 0)
+	if (__builtin_setjmp(guard.jump) != 0)
 	{
 		// The VEH can interrupt Loader or luaD_pcall while either owns a nested
 		// DE error-jump record. Restore the enclosing raw runner's exact record
@@ -13793,7 +13799,7 @@ void lifecycle_operation_protected_leaf(
 		context->returned = true;
 		return;
 	}
-	if (setjmp(guard.jump) != 0)
+	if (__builtin_setjmp(guard.jump) != 0)
 	{
 		(void)restore_guard_outer_error_jump_after_fault();
 		disarm_guard_exception_handler();
@@ -18850,7 +18856,7 @@ void native_module_refresh_protected_leaf(
 		return;
 	}
 	context->guard_prepared = true;
-	if (setjmp(guard.jump) != 0)
+	if (__builtin_setjmp(guard.jump) != 0)
 	{
 		context->native_fault = true;
 		context->fault_stage = guard.fault_stage;

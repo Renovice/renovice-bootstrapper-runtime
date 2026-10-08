@@ -41,6 +41,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_shared_callback_raw_protection.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_ui_vm_raw_protection.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_stock_loader_protection.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_guard_nonunwinding_jump.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_addon_lifecycle_raw_protection.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_deferred_registry_release.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_hotkey_latching.ps1")
