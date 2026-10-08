@@ -35,7 +35,7 @@
    "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(17, 51), (40, 18)]"
+   "detail": "edits [(17, 51), (40, 18)] constants []"
   },
   {
    "member": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
@@ -101,7 +101,7 @@
    "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(65, 9), (65, 76)]"
+   "detail": "edits [(65, 9), (65, 76)] constants []"
   },
   {
    "member": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
@@ -161,7 +161,7 @@
    "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(19, 3)]"
+   "detail": "edits [(19, 3)] constants []"
   },
   {
    "member": "21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B",
@@ -221,7 +221,7 @@
    "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(21, 3)]"
+   "detail": "edits [(21, 3)] constants []"
   },
   {
    "member": "d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B",
@@ -267,6 +267,30 @@
   },
   {
    "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P9 K37",
+   "pass": true,
+   "detail": "0.05 read by [139]"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P4 K0",
+   "pass": true,
+   "detail": "0.05 read by [4]"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P1 K1",
+   "pass": true,
+   "detail": "60.0 read by [2]"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
+   "gate": "expected-old-const P2 K18",
+   "pass": true,
+   "detail": "60.0 read by [45, 60]"
+  },
+  {
+   "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
    "gate": "parse-u44",
    "pass": true,
    "detail": "36 prototypes, walk errors []"
@@ -275,13 +299,13 @@
    "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
    "gate": "byte-diff",
    "pass": true,
-   "detail": "1 bytes differ at [4904]"
+   "detail": "17 bytes differ at [1909, 2542, 3205, 3206, 3207, 3208, 3209, 3210, 3211, 4904, 5977, 5978, 5979, 5980, 5981, 5982, 5983]"
   },
   {
    "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(9, 77)]"
+   "detail": "edits [(9, 77)] constants [(1, 1, 60.0, 10.0), (2, 18, 60.0, 10.0), (4, 0, 0.05, 0.01), (9, 37, 0.05, 0.01)]"
   },
   {
    "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
@@ -293,7 +317,7 @@
    "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
    "gate": "shifted-rebase",
    "pass": true,
-   "detail": "edits [{'old': 'P9 i77', 'new': 'P11 i80'}]"
+   "detail": "edits [{'old': 'P1 K1', 'new': 'P3 K1'}, {'old': 'P2 K18', 'new': 'P4 K18'}, {'old': 'P4 K0', 'new': 'P6 K0'}, {'old': 'P9 K37', 'new': 'P11 K37'}, {'old': 'P9 i77', 'new': 'P11 i80'}]"
   },
   {
    "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
@@ -311,7 +335,7 @@
    "member": "8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B",
    "gate": "cfg-identity (report)",
    "pass": null,
-   "detail": "exit 1: proto 9 CFG_DIFF kind=LABEL depth=46 stock[77]=\"LOAD N:60\" candidate[77]=\"LOAD N:10\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:1} | CFG_IDENTITY protos_stock=36 protos_candidate=36 cfg_equal=35 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+   "detail": "exit 1: proto 9 CFG_DIFF kind=LABEL depth=46 stock[77]=\"LOAD N:60\" candidate[77]=\"LOAD N:10\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL DIVK -> DIVK:2;LABEL LOAD -> LOAD:1;LABEL MULK -> MULK:1} | CFG_IDENTITY protos_stock=36 protos_candidate=36 cfg_equal=32 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
   },
   {
    "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
@@ -347,7 +371,7 @@
    "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",
    "gate": "same-shape+edit-script",
    "pass": true,
-   "detail": "edits [(24, 3), (25, 55)]"
+   "detail": "edits [(24, 3), (25, 55)] constants []"
   },
   {
    "member": "8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B",

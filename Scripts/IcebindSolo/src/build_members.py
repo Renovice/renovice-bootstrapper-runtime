@@ -1,21 +1,24 @@
 # Icebind Solo package members: build + offline gates (research tool, 2026-10-08, client 44.1.0 2026.10.06.16.12).
 #
-# Both members are exact content-key root replacements that differ from the stock module of this build ONLY in the
-# instruction words listed in EDITS (instruction-level edits: same prototypes, string pool, constants and code sizes),
-# so the update tool rebases them automatically after a future Warframe update (uc_artifacts.rebase_replacement).
+# The members are exact content-key root replacements that differ from the stock module of this build ONLY in the
+# instruction words listed in 'edits' and the number constants listed in 'consts' (same prototypes, string pool,
+# constant tables and code sizes), so the update tool rebases them automatically after a future Warframe update
+# (uc_artifacts.rebase_replacement).
 #
 # Gates (each printed PASS/FAIL, all recorded in ../build/gates.json and ../build/diff_report.md):
 #   stock-key            stock bytes hash to the manifest content key (the loader's match key, = filename key)
 #   expected-old-word    every edited instruction holds the expected canonical stock word before the edit
+#   expected-old-const   every edited constant is a number constant holding the expected stock value, read only by
+#                        the listed instructions
 #   parse-u44            the candidate parses with the toolchain U44 opcode profile, clean instruction walks
 #   same-shape           same prototype count / string pool / constants / code sizes as stock
-#   byte-diff            the candidate differs from stock only inside the edited instruction words
-#   edit-script          uc_artifacts.edit_script(stock, candidate) == exactly the intended (proto, instruction) edits
+#   byte-diff            the candidate differs from stock only inside the edited instruction words and constants
+#   edit-script          uc_artifacts.edit_script(stock, candidate) == exactly the intended instruction and constant edits
 #   self-rebase          rebase_replacement onto the unchanged stock reproduces the candidate byte for byte
 #   shifted-rebase       rebase onto a synthetic shifted build (prototypes inserted first + no-op MOVEs inserted before
 #                        each edited instruction) is AUTO and lands the same canonical words at the moved sites
 #   de-roundtrip         derecomp de-roundtrip: the container re-emits byte-exact
-#   const-identity       derecomp const-identity stock candidate --u44 (no constant / string / key-use change)
+#   const-identity       derecomp const-identity stock candidate --u44 (no hash / string / key-use change)
 #   cfg-identity         derecomp cfg-identity stock candidate --u44 (reported; a compare-opcode edit may be listed)
 # Usage: python build_members.py
 import hashlib
@@ -42,6 +45,9 @@ BUILD = '2026.10.06.16.12'
 
 # canonical (U43-numbered) opcodes
 JUMPIFNOTEQ, JUMPIFNOTLE, JUMPIFNOTLT, LOADN, LOADNIL, LOADB, MOVE = 0x27, 0x33, 0x1c, 0x12, 0x0d, 0x04, 0x14
+LOADK = 0x4e
+K_OPS = {0x38, 0x09, 0x32, 0x3c, 0x08, 0x24, 0x06, 0x3b, 0x3e, 0x31, 0x2b}  # ...K arithmetic/logic: C = constant index
+KAUX_OPS = {0x20, 0x41, 0x34, 0x3a}  # JUMPXEQK*: aux low 24 bits = constant index
 
 MEMBERS = [
     {
@@ -115,10 +121,12 @@ MEMBERS = [
         ],
     },
     {
-        # Cryothermia (Cryo Core): the core is neutralized once the holders' combined DefuseTimer reaches 60 s; each
-        # holder takes floor(own hold seconds) * 5 % of max health per tick (P9 i135-140), so one Tenno reaches 100 %
-        # at about 20 s and cannot finish alone. No squad-size input exists in this script (its MasterInit flag is
-        # never read).
+        # Cryothermia (Cryo Core): the core is neutralized once the holders' combined DefuseTimer reaches 60 s. Each time
+        # a holder's own hold time passes a whole second n, the holder takes MaxHealth x n x 0.05 (P9 i133-140), after
+        # shield/overshield/overguard-related calls (hashed names). The damage is CUMULATIVE: 5 + 10 + 15 + ... % of
+        # max health, about 105 % after 6 s, so one Tenno cannot finish alone (live 2026-10-08: downed at about 3.6 s
+        # held, with enemy fire; the first build, 10 s defuse with the stock 5 % ramp, was not enough). No squad-size
+        # input exists in this script (its MasterInit flag is never read).
         'stock': 'Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B',
         'key': '8aa38f1093ce7abc',
         'file': '8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B',
@@ -127,9 +135,26 @@ MEMBERS = [
                 'proto': 9, 'i': 77,
                 'old': (LOADN, 7, 60), 'new': (LOADN, 7, 10),
                 'why': 'Cryothermia: the core is neutralized after 10 s of total hold instead of 60 s, a full squad\'s '
-                       'per-player share (60 / 6); a solo holder peaks at 10 x 5 % = 50 % of max health. The 5 % per '
-                       'second ramp is unchanged. The HUD percentage (P1/P2 divide by the constant 60) reads about '
-                       '17 % at completion',
+                       'per-player share (60 / 6)',
+            },
+        ],
+        'consts': [
+            {   # damage: baseAmount = MaxHealth * (floor(ownSeconds) * K37)
+                'proto': 9, 'k': 37, 'old': 0.05, 'new': 0.01, 'users': [139],
+                'why': 'Cryothermia damage ramp 1 % per held second instead of 5 %: a solo 10 s hold totals 55 % of '
+                       'max health (stock ramp: about 105 % after 6 s)',
+            },
+            {   # ramp helper v39: floor(x) * K0, the same ramp
+                'proto': 4, 'k': 0, 'old': 0.05, 'new': 0.01, 'users': [4],
+                'why': 'the ramp helper uses the same 1 % per second as the damage',
+            },
+            {   # HUD tracker text: floor(DefuseTimer / K1 * 100) .. "%"
+                'proto': 1, 'k': 1, 'old': 60.0, 'new': 10.0, 'users': [2],
+                'why': 'the defuse percentage reaches 100 % at the 10 s neutralize point',
+            },
+            {   # HUD objective text (holder name and percentage): DefuseTimer / K18 * 100, both branches
+                'proto': 2, 'k': 18, 'old': 60.0, 'new': 10.0, 'users': [45, 60],
+                'why': 'the defuse percentage reaches 100 % at the 10 s neutralize point',
             },
         ],
     },
@@ -230,6 +255,27 @@ def main():
             report.append(f'| P{e["proto"]} | i{e["i"]} | {start} (0x{start:x}) | `{w.hex()}` {disasm.NAMES[op]} | '
                           f'`{bytes(nw).hex()}` {disasm.NAMES[new_op]} | `{old_raw.hex()}` | `{bytes(raw).hex()}` | '
                           f'{e["why"]} |')
+        intended_consts = []
+        for c in spec.get('consts', []):
+            p = stock.protos[c['proto']]
+            k = c['k']
+            ok = k < len(p.consts) and p.consts[k].tag == 2 and p.consts[k].value == c['old']
+            readers = sorted(
+                [li for li, _, op in p.instructions if op in K_OPS and stock.word(p, li)[3] == k]
+                + [li for li, _, op in p.instructions
+                   if op == LOADK and struct.unpack_from('<H', stock.word(p, li), 2)[0] == k]
+                + [li for li, _, op in p.instructions
+                   if op in KAUX_OPS and struct.unpack_from('<I', stock.word(p, li), 4)[0] & 0xffffff == k])
+            ok &= readers == sorted(c['users'])
+            gate(name, f'expected-old-const P{c["proto"]} K{k}', ok,
+                 f'{p.consts[k].value if k < len(p.consts) else "missing"} read by {readers}')
+            start = stock.constant_offset(p, k)
+            old_raw = bytes(data[start:start + 8])
+            data[start:start + 8] = struct.pack('<d', c['new'])
+            intended_consts.append((c['proto'], k, c['old'], c['new']))
+            report.append(f'| P{c["proto"]} | K{k} | {start} (0x{start:x}) | `{c["old"]!r}` number | '
+                          f'`{c["new"]!r}` number | `{old_raw.hex()}` | `{struct.pack("<d", c["new"]).hex()}` | '
+                          f'{c["why"]} |')
         cand_bytes = bytes(data)
         out = OUT / name
         out.write_bytes(cand_bytes)
@@ -242,11 +288,16 @@ def main():
             p = stock.protos[pi]
             _, off, op = p.instructions[li]
             allowed |= set(range(p.code_start + off, p.code_start + off + len(stock.word(p, li))))
+        for pi, k, *_ in intended_consts:
+            start = stock.constant_offset(stock.protos[pi], k)
+            allowed |= set(range(start, start + 8))
         gate(name, 'byte-diff', len(cand_bytes) == len(stock_bytes) and diff and set(diff) <= allowed,
              f'{len(diff)} bytes differ at {diff}')
-        edits, why = ART.edit_script(stock, cand)
-        gate(name, 'same-shape+edit-script', not why and sorted((p, i) for p, i, *_ in edits) == sorted(intended),
-             why or f'edits {[(p, i) for p, i, *_ in edits]}')
+        consts_found: list = []
+        edits, why = ART.edit_script(stock, cand, consts_found)
+        gate(name, 'same-shape+edit-script', not why and sorted((p, i) for p, i, *_ in edits) == sorted(intended)
+             and sorted(consts_found) == sorted(intended_consts),
+             why or f'edits {[(p, i) for p, i, *_ in edits]} constants {consts_found}')
         # self rebase: unchanged build -> identical bytes
         r = ART.rebase_replacement(stock, cand, stock, RM.ModuleMap(stock, B.Module(stock_bytes, om), spec['stock']))
         gate(name, 'self-rebase', r['action'] == 'auto' and r['bytes'] == cand_bytes and r['new_key'] == stock.key,
@@ -282,6 +333,8 @@ def main():
                 else:
                     same_op &= want == got
                 moved_ok &= same_op
+            for pi, k, _, new in intended_consts:
+                moved_ok &= rb.protos[pi + 2].consts[k].tag == 2 and rb.protos[pi + 2].consts[k].value == new
         gate(name, 'shifted-rebase', moved_ok, r.get('reason') or f'edits {r.get("edits")}')
         # toolchain gates
         code, text = run([DERECOMP, 'de-roundtrip', out])

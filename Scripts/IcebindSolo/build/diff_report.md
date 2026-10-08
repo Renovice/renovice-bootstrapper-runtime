@@ -54,10 +54,14 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 
 | Prototype | Instruction | File offset | Stock (canonical) | Edit (canonical) | Stock raw | Edit raw | Why |
 |---|---|---|---|---|---|---|---|
-| P9 | i77 | 4902 (0x1326) | `12073c00` LOADN | `12070a00` LOADN | `08073c00` | `08070a00` | Cryothermia: the core is neutralized after 10 s of total hold instead of 60 s, a full squad's per-player share (60 / 6); a solo holder peaks at 10 x 5 % = 50 % of max health. The 5 % per second ramp is unchanged. The HUD percentage (P1/P2 divide by the constant 60) reads about 17 % at completion |
+| P9 | i77 | 4902 (0x1326) | `12073c00` LOADN | `12070a00` LOADN | `08073c00` | `08070a00` | Cryothermia: the core is neutralized after 10 s of total hold instead of 60 s, a full squad's per-player share (60 / 6) |
+| P9 | K37 | 5977 (0x1759) | `0.05` number | `0.01` number | `9a9999999999a93f` | `7b14ae47e17a843f` | Cryothermia damage ramp 1 % per held second instead of 5 %: a solo 10 s hold totals 55 % of max health (stock ramp: about 105 % after 6 s) |
+| P4 | K0 | 3205 (0xc85) | `0.05` number | `0.01` number | `9a9999999999a93f` | `7b14ae47e17a843f` | the ramp helper uses the same 1 % per second as the damage |
+| P1 | K1 | 1903 (0x76f) | `60.0` number | `10.0` number | `0000000000004e40` | `0000000000002440` | the defuse percentage reaches 100 % at the 10 s neutralize point |
+| P2 | K18 | 2536 (0x9e8) | `60.0` number | `10.0` number | `0000000000004e40` | `0000000000002440` | the defuse percentage reaches 100 % at the 10 s neutralize point |
 
-- Candidate: size 15779 (stock 15779), sha256 `5dedfeb7c63bd1d2b187ce64c61e50466af6ce669d32b33b2f9190685c0c6eea`, content key of the candidate body `fbbd832073ed1ca2` (the loader matches the FILENAME key `8aa38f1093ce7abc`).
-- Bytes differing from stock: 1 (all inside the edited instruction words).
+- Candidate: size 15779 (stock 15779), sha256 `07793b03d603cdc4d4d4e312bc53b332e63bed7c81c73a6c84bf5c00b764a0a9`, content key of the candidate body `4e660f39be94b4ea` (the loader matches the FILENAME key `8aa38f1093ce7abc`).
+- Bytes differing from stock: 17 (all inside the edited instruction words).
 
 ## `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B`
 
@@ -80,7 +84,7 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 | `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | expected-old-word P17 i51 | PASS | 1c030a0004000000 |
 | `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | parse-u44 | PASS | 76 prototypes, walk errors [] |
 | `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | byte-diff | PASS | 3 bytes differ at [12475, 12478, 28392] |
-| `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | same-shape+edit-script | PASS | edits [(17, 51), (40, 18)] |
+| `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | same-shape+edit-script | PASS | edits [(17, 51), (40, 18)] constants [] |
 | `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | self-rebase | PASS | auto |
 | `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | shifted-rebase | PASS | edits [{'old': 'P17 i51', 'new': 'P19 i54'}, {'old': 'P40 i18', 'new': 'P42 i21'}] |
 | `112349dd35bbea7a (Icebind Solo squad gate).lua_B` | de-roundtrip | PASS | nps=76   consts re-encode exact: 76/76  FULL BODY identical: True |
@@ -91,7 +95,7 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 | `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | expected-old-word P65 i9 | PASS | 04010000 |
 | `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | parse-u44 | PASS | 76 prototypes, walk errors [] |
 | `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | byte-diff | PASS | 3 bytes differ at [42435, 42809, 42811] |
-| `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | same-shape+edit-script | PASS | edits [(65, 9), (65, 76)] |
+| `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | same-shape+edit-script | PASS | edits [(65, 9), (65, 76)] constants [] |
 | `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | self-rebase | PASS | auto |
 | `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | shifted-rebase | PASS | edits [{'old': 'P65 i9', 'new': 'P67 i12'}, {'old': 'P65 i76', 'new': 'P67 i82'}] |
 | `4db007fa8f0145bd (Icebind Solo squad scaling).lua_B` | de-roundtrip | PASS | nps=76   consts re-encode exact: 76/76  FULL BODY identical: True |
@@ -101,7 +105,7 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 | `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | expected-old-word P19 i3 | PASS | 04010000 |
 | `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | parse-u44 | PASS | 26 prototypes, walk errors [] |
 | `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | byte-diff | PASS | 1 bytes differ at [8515] |
-| `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | same-shape+edit-script | PASS | edits [(19, 3)] |
+| `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | same-shape+edit-script | PASS | edits [(19, 3)] constants [] |
 | `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | self-rebase | PASS | auto |
 | `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | shifted-rebase | PASS | edits [{'old': 'P19 i3', 'new': 'P21 i6'}] |
 | `21f2b1172cc837b7 (Icebind Solo void surge objective).lua_B` | de-roundtrip | PASS | nps=26   consts re-encode exact: 26/26  FULL BODY identical: True |
@@ -111,7 +115,7 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | expected-old-word P21 i3 | PASS | 04010000 |
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | parse-u44 | PASS | 28 prototypes, walk errors [] |
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | byte-diff | PASS | 1 bytes differ at [7343] |
-| `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | same-shape+edit-script | PASS | edits [(21, 3)] |
+| `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | same-shape+edit-script | PASS | edits [(21, 3)] constants [] |
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | self-rebase | PASS | auto |
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | shifted-rebase | PASS | edits [{'old': 'P21 i3', 'new': 'P23 i6'}] |
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | de-roundtrip | PASS | nps=28   consts re-encode exact: 28/28  FULL BODY identical: True |
@@ -119,20 +123,24 @@ Client 44.1.0 (`2026.10.06.16.12`), stock pack `stock-a71c700d9520b4a5`. Generat
 | `d6111f1566eb30f9 (Icebind Solo locked crate objective).lua_B` | cfg-identity (report) | report | exit 1: proto 21 CFG_DIFF kind=LABEL depth=3 stock[3]="LOAD B:false" candidate[3]="LOAD B:true" class="LABEL LOAD -> LOAD" / CFG_CLASSES {LABEL LOAD -> LOAD:1} / CFG_IDENTITY protos_stock=28 protos_candidate=28 cfg_equal=27 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL |
 | `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | stock-key | PASS | Lotus_Scripts_KuvaPath_HotPotatoEvent.lua_B key 8aa38f1093ce7abc, sha256 7ba55c87cdc45397295dd0d71c535f5741b7a50d9c8e002364fc30bc8235b141 |
 | `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | expected-old-word P9 i77 | PASS | 12073c00 |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | expected-old-const P9 K37 | PASS | 0.05 read by [139] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | expected-old-const P4 K0 | PASS | 0.05 read by [4] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | expected-old-const P1 K1 | PASS | 60.0 read by [2] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | expected-old-const P2 K18 | PASS | 60.0 read by [45, 60] |
 | `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | parse-u44 | PASS | 36 prototypes, walk errors [] |
-| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | byte-diff | PASS | 1 bytes differ at [4904] |
-| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | same-shape+edit-script | PASS | edits [(9, 77)] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | byte-diff | PASS | 17 bytes differ at [1909, 2542, 3205, 3206, 3207, 3208, 3209, 3210, 3211, 4904, 5977, 5978, 5979, 5980, 5981, 5982, 5983] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | same-shape+edit-script | PASS | edits [(9, 77)] constants [(1, 1, 60.0, 10.0), (2, 18, 60.0, 10.0), (4, 0, 0.05, 0.01), (9, 37, 0.05, 0.01)] |
 | `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | self-rebase | PASS | auto |
-| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | shifted-rebase | PASS | edits [{'old': 'P9 i77', 'new': 'P11 i80'}] |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | shifted-rebase | PASS | edits [{'old': 'P1 K1', 'new': 'P3 K1'}, {'old': 'P2 K18', 'new': 'P4 K18'}, {'old': 'P4 K0', 'new': 'P6 K0'}, {'old': 'P9 K37', 'new': 'P11 K37'}, {'old': 'P9 i77', 'new': 'P11 i80'}] |
 | `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | de-roundtrip | PASS | nps=36   consts re-encode exact: 36/36  FULL BODY identical: True |
 | `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | const-identity | PASS | CONST_IDENTITY protos_stock=36 protos_candidate=36 hash_equal=36 string_equal=36 keyuse_equal=36 verdict=PASS |
-| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | cfg-identity (report) | report | exit 1: proto 9 CFG_DIFF kind=LABEL depth=46 stock[77]="LOAD N:60" candidate[77]="LOAD N:10" class="LABEL LOAD -> LOAD" / CFG_CLASSES {LABEL LOAD -> LOAD:1} / CFG_IDENTITY protos_stock=36 protos_candidate=36 cfg_equal=35 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL |
+| `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B` | cfg-identity (report) | report | exit 1: proto 9 CFG_DIFF kind=LABEL depth=46 stock[77]="LOAD N:60" candidate[77]="LOAD N:10" class="LABEL LOAD -> LOAD" / CFG_CLASSES {LABEL DIVK -> DIVK:2;LABEL LOAD -> LOAD:1;LABEL MULK -> MULK:1} / CFG_IDENTITY protos_stock=36 protos_candidate=36 cfg_equal=32 model_errors=0 candidate_dispatch_web |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | stock-key | PASS | Lotus_Scripts_KuvaPath_SignalBridgeEvent.lua_B key 8aad3115f1204cf2, sha256 00159d21024137521a3981518821621572af37398878fa19574370819bb3bff2 |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | expected-old-word P24 i3 | PASS | 04010000 |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | expected-old-word P25 i55 | PASS | 04010000 |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | parse-u44 | PASS | 31 prototypes, walk errors [] |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | byte-diff | PASS | 2 bytes differ at [11457, 12424] |
-| `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | same-shape+edit-script | PASS | edits [(24, 3), (25, 55)] |
+| `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | same-shape+edit-script | PASS | edits [(24, 3), (25, 55)] constants [] |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | self-rebase | PASS | auto |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | shifted-rebase | PASS | edits [{'old': 'P24 i3', 'new': 'P26 i6'}, {'old': 'P25 i55', 'new': 'P27 i58'}] |
 | `8aad3115f1204cf2 (Icebind Solo signal chain objective).lua_B` | de-roundtrip | PASS | nps=31   consts re-encode exact: 31/31  FULL BODY identical: True |

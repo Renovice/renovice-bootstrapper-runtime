@@ -149,10 +149,25 @@ the update tool (`authored_addons.json`, package-replacement test 7/7 PASS). Ins
 ## 2026-10-08: Cryothermia (Cryo Core) for small squads
 
 `HotPotatoEvent` (`8aa38f1093ce7abc`) has no squad-size input (its MasterInit flag is never read). The core is
-neutralized when the holders' combined `DefuseTimer` reaches 60 s; each holder takes `floor(own hold seconds) x 5 %`
-of max health per tick (P9 i135-140, bypassing invulnerability and Overguard), so a solo Tenno reaches 100 % at
-about 20 s. Member `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B`: P9 i77 `LOADN R7 60 -> 10`, so the
-core is neutralized after 10 s of total hold: a full squad's per-player share (60 / 6); a solo holder peaks at 50 %.
-The ramp is unchanged. The HUD percentage (P1/P2 divide by the constant 60) reads about 17 % at completion. Gates
-PASS (1 byte differs). Installed; prior package backed up in `work/backups/icebindsolo-before-cryocore-2026-10-08`.
-Not yet live-tested.
+neutralized when the holders' combined `DefuseTimer` reaches 60 s. Each time a holder's own hold time passes a whole
+second n, the holder takes `MaxHealth x n x 0.05` (P9 i133-140), after shield/overshield/overguard-related calls whose
+names are hashed. The damage is cumulative: 5 + 10 + 15 + ... % of max health, about 105 % after 6 s held.
+
+First build (superseded): P9 i77 `LOADN R7 60 -> 10` only, on the wrong assumption that a solo holder reaches 100 %
+at about 20 s. FALSE live (2026-10-08): the user was downed at about 3.6 s held (HUD 6 %, `DefuseTimer / 60`); EE.log
+`bartek was downed by 91 / 90 damage using a HotPotatoEventScriptTrigger` 8 s after `ModeState = START`.
+
+Current build: `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B`, sha256 `07793b03d603cdc4…`:
+
+| Where | Stock | Edit | Effect |
+|---|---|---|---|
+| P9 i77 `LOADN R7` | 60 | 10 | neutralized after 10 s of total hold (a full squad's per-player share, 60 / 6) |
+| P9 K37 (read by i139 `MULK`) | 0.05 | 0.01 | damage ramp 1 % per held second: a solo 10 s hold totals 55 % of max health |
+| P4 K0 (read by i4 `MULK`) | 0.05 | 0.01 | the ramp helper uses the same 1 % |
+| P1 K1 (read by i2 `DIVK`) | 60 | 10 | HUD tracker percentage reaches 100 % at the neutralize point |
+| P2 K18 (read by i45, i60 `DIVK`) | 60 | 10 | HUD objective percentage reaches 100 % at the neutralize point |
+
+Each edited constant is read only by the listed instructions (gate `expected-old-const`). Number constant edits are
+rebased automatically by the update tool since ability-editor `uc_artifacts` 2026-10-08 (test_package_replacements
+14/14). Gates PASS (17 bytes differ). The shield/overshield/overguard-related calls are unchanged.
+Installed; previous build backed up in `work/backups/icebindsolo-before-cryoramp-2026-10-08`. Not yet live-tested.
