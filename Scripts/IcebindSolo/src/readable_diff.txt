@@ -1,0 +1,29 @@
+### 112349dd35bbea7a (Icebind Solo squad gate).lua_B (render rc 0)
+--- stock/Lotus_Interface_SixStackSetup
++++ icebindsolo/Lotus_Interface_SixStackSetup
+@@ -1167,5 +1167,5 @@
+             v17_41 = frame_75["cap_75_199_4"]
+             iCE_BLADE_HUB_MAX_PLAYERSValue = (v17_41).ICE_BLADE_HUB_MAX_PLAYERS
+-            if not (v17_40 < iCE_BLADE_HUB_MAX_PLAYERSValue) then
++            if not (iCE_BLADE_HUB_MAX_PLAYERSValue < v17_40) then
+                 v17_49 = frame_75["cap_75_199_5"]
+                 v17_50 = (v17_49).Name__84052027
+@@ -3569,5 +3569,5 @@
+     iCE_BLADE_HUB_MAX_PLAYERSValue = (v40_16).ICE_BLADE_HUB_MAX_PLAYERS
+     local sc_40_4
+-    if v40_15 ~= iCE_BLADE_HUB_MAX_PLAYERSValue then
++    if not (v40_15 <= iCE_BLADE_HUB_MAX_PLAYERSValue) then
+         sc_40_4 = true
+     else
+
+### 4db007fa8f0145bd (Icebind Solo squad scaling).lua_B (render rc 0)
+--- stock/Lotus_Scripts_KuvaPath_KuvaPath
++++ icebindsolo/Lotus_Scripts_KuvaPath_KuvaPath
+@@ -6469,5 +6469,5 @@
+     do (frame_65[75]):Name__b4990ca9(frame_65[78], 1) end
+     frame_65[82] = Name__9828c6d9
+-    frame_65[82].CalculatedSquadSize = 6
++    frame_65[82].CalculatedSquadSize = nil
+     if not (p65_0) then
+         frame_65[172] = Name__b364fd20
+

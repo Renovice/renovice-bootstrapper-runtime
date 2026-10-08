@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "name": "Icebind Solo",
+  "description": "The Icebind for 1 to 6 Tenno (opt-in). Ring a Cryobell starts its countdown once every squad member present has offered a Cryobell; the maximum stays 6, and the one-of-each-Warframe rule, voting, tie-break and countdown are stock. In the mission, complication scaling uses the real squad size (the game's own Clamp(players, 1, 6)) instead of a fixed 6. Two exact-key script replacements for client 44.1.0.",
+  "members": {
+    "112349dd35bbea7a (Icebind Solo squad gate).lua_B": {
+      "label": "Ring a Cryobell: start with 1-6"
+    },
+    "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B": {
+      "label": "Mission scaling: real squad size"
+    }
+  },
+  "settings": {
+    "format": "RENOVICE_SETTINGS_DECL_V1",
+    "build": "2026.10.06.16.12",
+    "groups": []
+  }
+}

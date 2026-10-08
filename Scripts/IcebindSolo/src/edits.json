@@ -1,0 +1,67 @@
+{
+ "format": "RENOVICE_INSTRUCTION_EDITS_V1",
+ "build": "2026.10.06.16.12",
+ "stock_pack": "stock-a71c700d9520b4a5",
+ "opcode_numbering": "canonical U43 (toolchain OPCODE_MAP.md); files hold the U44 permutation (src/de_opcode_profile.h)",
+ "members": [
+  {
+   "file": "112349dd35bbea7a (Icebind Solo squad gate).lua_B",
+   "stock_module": "Lotus_Interface_SixStackSetup.lua_B",
+   "content_key": "112349dd35bbea7a",
+   "edits": [
+    {
+     "prototype": 40,
+     "instruction": 18,
+     "stock": {
+      "op": "JUMPIFNOTEQ",
+      "A": 3,
+      "operand": 4
+     },
+     "edit": {
+      "op": "JUMPIFNOTLE",
+      "A": 3,
+      "operand": 4
+     },
+     "why": "countdown gate: cancel only when #members > ICE_BLADE_HUB_MAX_PLAYERS (was: whenever ~= 6); keeps AllPlayersOfferedKey and the one-of-each-Warframe check as the remaining start conditions"
+    },
+    {
+     "prototype": 17,
+     "instruction": 51,
+     "stock": {
+      "op": "JUMPIFNOTLT",
+      "A": 3,
+      "operand": 4
+     },
+     "edit": {
+      "op": "JUMPIFNOTLT",
+      "A": 4,
+      "operand": 3
+     },
+     "why": "hint: show the equip-Cryobell hint path when #members <= MAX (was: only when #members >= MAX); SetupFullSquadHint is shown only above the maximum"
+    }
+   ]
+  },
+  {
+   "file": "4db007fa8f0145bd (Icebind Solo squad scaling).lua_B",
+   "stock_module": "Lotus_Scripts_KuvaPath_KuvaPath.lua_B",
+   "content_key": "4db007fa8f0145bd",
+   "edits": [
+    {
+     "prototype": 65,
+     "instruction": 76,
+     "stock": {
+      "op": "LOADN",
+      "A": 5,
+      "operand": 6
+     },
+     "edit": {
+      "op": "LOADNIL",
+      "A": 5,
+      "operand": null
+     },
+     "why": "MasterInit stores nil instead of the fixed 6, so the KuvaPath ComplicationsMgr (created right after, master only) computes the stock value Clamp(GetNumHumanPlayers() + Server.NumVirtualTestClients, 1, 6) and prints \"Calculated squad size = N\""
+    }
+   ]
+  }
+ ]
+}
