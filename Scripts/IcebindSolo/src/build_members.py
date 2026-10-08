@@ -41,7 +41,7 @@ DERECOMP = ROOT / 'repos/toolchains/de-luau-toolchain/bin/derecomp.exe'
 BUILD = '2026.10.06.16.12'
 
 # canonical (U43-numbered) opcodes
-JUMPIFNOTEQ, JUMPIFNOTLE, JUMPIFNOTLT, LOADN, LOADNIL, LOADB = 0x27, 0x33, 0x1c, 0x12, 0x0d, 0x04
+JUMPIFNOTEQ, JUMPIFNOTLE, JUMPIFNOTLT, LOADN, LOADNIL, LOADB, MOVE = 0x27, 0x33, 0x1c, 0x12, 0x0d, 0x04, 0x14
 
 MEMBERS = [
     {
@@ -182,6 +182,8 @@ def main():
             old_op, old_a, old_x = e['old']
             if old_op == LOADN:
                 ok = op == LOADN and w[1] == old_a and struct.unpack_from('<h', w, 2)[0] == old_x
+            elif old_op == MOVE:
+                ok = op == MOVE and len(w) == 4 and w[1] == old_a and w[2] == old_x and w[3] == 0
             elif old_op == LOADB:
                 ok = op == LOADB and w[1] == old_a and w[2] == old_x and w[3] == 0
             else:
@@ -195,6 +197,9 @@ def main():
                 nw[2] = nw[3] = 0
             elif new_op == LOADB:
                 nw[2] = new_x                              # B = the boolean value; C (skip) stays 0
+            elif new_op == LOADN:
+                assert len(w) == 4, 'LOADN replaces a 4-byte instruction only'
+                struct.pack_into('<h', nw, 2, new_x)       # D = the signed 16-bit constant
             elif new_op in (JUMPIFNOTLE, JUMPIFNOTLT):
                 struct.pack_into('<I', nw, 4, new_x)       # Bx (branch target) unchanged
             raw = bytearray(nw)
