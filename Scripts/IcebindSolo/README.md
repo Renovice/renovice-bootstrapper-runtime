@@ -155,7 +155,7 @@ names are hashed. The damage is cumulative: 5 + 10 + 15 + ... % of max health, a
 
 First build (superseded): P9 i77 `LOADN R7 60 -> 10` only, on the wrong assumption that a solo holder reaches 100 %
 at about 20 s. FALSE live (2026-10-08): the user was downed at about 3.6 s held (HUD 6 %, `DefuseTimer / 60`); EE.log
-`bartek was downed by 91 / 90 damage using a HotPotatoEventScriptTrigger` 8 s after `ModeState = START`.
+`<player> was downed by 91 / 90 damage using a HotPotatoEventScriptTrigger` 8 s after `ModeState = START`.
 
 Current build: `8aa38f1093ce7abc (Icebind Solo cryo core objective).lua_B`, sha256 `07793b03d603cdc4…`:
 
