@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "Icebind Solo",
-  "description": "The Icebind for 1 to 6 Tenno (opt-in). Ring a Cryobell starts its countdown once every squad member present has offered a Cryobell; the maximum stays 6, and the one-of-each-Warframe rule, voting, tie-break and countdown are stock. In the mission, complication scaling and the Squad Side Objectives (start requirement, Void Surge, Locked Crate, Signal Chain) use the real squad size through the game's own scaling flags instead of a fixed 6, and Cryothermia (Cryo Core) needs 10 s of total hold instead of 60 s (a full squad's per-player share). Six exact-key script replacements for client 44.1.1.",
+  "description": "The Icebind for 1 to 6 Tenno (opt-in). Ring a Cryobell starts its countdown once every squad member present has offered a Cryobell; the maximum stays 6, and the one-of-each-Warframe rule, voting, tie-break and countdown are stock. In the mission, complication scaling and the Squad Side Objectives (start requirement, Void Surge, Locked Crate, Signal Chain) use the real squad size through the game's own scaling flags instead of a fixed 6, and Cryothermia (Cryo Core) needs 10 s of total hold instead of 60 s (a full squad's per-player share). Opt-in member: the Cryobell pillars ask the server for the current offers each time the peak loads (so a new rotation shows right after the last Cryobell run). Seven exact-key script replacements for client 44.1.1.",
   "members": {
     "94825e22a3427b34 (Icebind Solo squad gate).lua_B": {
       "label": "Ring a Cryobell: start with 1-6"
@@ -20,6 +20,9 @@
     },
     "8416e33425fb8b4f (Icebind Solo cryo core objective).lua_B": {
       "label": "Side objective: Cryothermia 10 s hold, 1 % damage ramp"
+    },
+    "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B": {
+      "label": "Cryobells: refresh the offers each time the peak loads (untested, off by default)"
     }
   },
   "settings": {

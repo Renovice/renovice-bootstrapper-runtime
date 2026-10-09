@@ -223,6 +223,29 @@
      "why": "HUD objective text: the defuse percentage reaches 100 % at the 10 s neutralize point"
     }
    ]
+  },
+  {
+   "file": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "stock_module": "Lotus_Scripts_KuvaPath_KuvaPathAcquire.lua_B",
+   "content_key": "59bb8fd0ab33eadc",
+   "edits": [
+    {
+     "prototype": 12,
+     "instruction": 108,
+     "stock": {
+      "op": "JUMPIFNOT",
+      "A": 3,
+      "operand": 45
+     },
+     "edit": {
+      "op": "JUMPIFNOT",
+      "A": 3,
+      "operand": 0
+     },
+     "why": "KeyAcquisitionManager: the inner `if expired` falls through, so the first pass after the peak loads also sends the game's own Cryobell refresh request (LATEST_KUVA_KEY_ITEM) and waits for its reply; later passes refresh on expiry as before"
+    }
+   ],
+   "default_state": "disabled (untested)"
   }
  ]
 }

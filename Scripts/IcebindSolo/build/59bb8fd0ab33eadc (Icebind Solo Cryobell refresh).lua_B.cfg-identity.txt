@@ -1,0 +1,3 @@
+proto 12 CFG_DIFF kind=LABEL depth=48 stock[108]="IF TRUTHY" candidate[110]="GETUPVAL u6" class="LABEL IF TRUTHY -> GETUPVAL"
+CFG_CLASSES {LABEL IF TRUTHY -> GETUPVAL:1}
+CFG_IDENTITY protos_stock=14 protos_candidate=14 cfg_equal=13 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL

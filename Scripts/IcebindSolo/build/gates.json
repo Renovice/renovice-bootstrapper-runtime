@@ -402,6 +402,66 @@
    "gate": "cfg-identity (report)",
    "pass": null,
    "detail": "exit 1: proto 28 CFG_DIFF kind=LABEL depth=24 stock[55]=\"LOAD B:false\" candidate[55]=\"LOAD B:true\" class=\"LABEL LOAD -> LOAD\" | CFG_CLASSES {LABEL LOAD -> LOAD:2} | CFG_IDENTITY protos_stock=34 protos_candidate=34 cfg_equal=32 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "stock-key",
+   "pass": true,
+   "detail": "Lotus_Scripts_KuvaPath_KuvaPathAcquire.lua_B key 59bb8fd0ab33eadc, sha256 ca85e026d835ed3cd12dfc0ecdfcaa391859a92b9f67ca90e6312fe5461ed304"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "expected-old-word P12 i108",
+   "pass": true,
+   "detail": "18032d00"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "parse-u44",
+   "pass": true,
+   "detail": "14 prototypes, walk errors []"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "byte-diff",
+   "pass": true,
+   "detail": "1 bytes differ at [8326]"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "same-shape+edit-script",
+   "pass": true,
+   "detail": "edits [(12, 108)] constants []"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "self-rebase",
+   "pass": true,
+   "detail": "auto"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "shifted-rebase",
+   "pass": true,
+   "detail": "edits [{'old': 'P12 i108', 'new': 'P14 i111'}]"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "de-roundtrip",
+   "pass": true,
+   "detail": "nps=14   consts re-encode exact: 14/14  FULL BODY identical: True"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "const-identity",
+   "pass": true,
+   "detail": "CONST_IDENTITY protos_stock=14 protos_candidate=14 hash_equal=14 string_equal=14 keyuse_equal=14 verdict=PASS"
+  },
+  {
+   "member": "59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B",
+   "gate": "cfg-identity (report)",
+   "pass": null,
+   "detail": "exit 1: proto 12 CFG_DIFF kind=LABEL depth=48 stock[108]=\"IF TRUTHY\" candidate[110]=\"GETUPVAL u6\" class=\"LABEL IF TRUTHY -> GETUPVAL\" | CFG_CLASSES {LABEL IF TRUTHY -> GETUPVAL:1} | CFG_IDENTITY protos_stock=14 protos_candidate=14 cfg_equal=13 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL"
   }
  ],
  "all_pass": true

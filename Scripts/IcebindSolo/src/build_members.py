@@ -46,6 +46,7 @@ BUILD = '2026.10.08.13.05'
 # canonical (U43-numbered) opcodes
 JUMPIFNOTEQ, JUMPIFNOTLE, JUMPIFNOTLT, LOADN, LOADNIL, LOADB, MOVE = 0x27, 0x33, 0x1c, 0x12, 0x0d, 0x04, 0x14
 JUMPIFEQ, JUMPIFLE = 0x37, 0x23
+JUMPIF, JUMPIFNOT = 0x4b, 0x18  # 4-byte A, D (signed 16-bit offset)
 LOADK = 0x4e
 K_OPS = {0x38, 0x09, 0x32, 0x3c, 0x08, 0x24, 0x06, 0x3b, 0x3e, 0x31, 0x2b}  # ...K arithmetic/logic: C = constant index
 KAUX_OPS = {0x20, 0x41, 0x34, 0x3a}  # JUMPXEQK*: aux low 24 bits = constant index
@@ -182,6 +183,25 @@ MEMBERS = [
             },
         ],
     },
+    {
+        # Cryobell pillars (added 2026-10-09, opt-in, ships disabled): the pillar loop KeyAcquisitionManager (P12) keeps
+        # the Cryobell offers cached in gGameData and asks the server again (Lotus_Game request with
+        # KuvaKeysLib.LATEST_KUVA_KEY_ITEM, then waits for its callback and rereads gGameData) only when the cached
+        # expiry has passed. The server's child clock rolls the Cryobells to a new rotation after all three are finished,
+        # long before that expiry, so the pillars kept the old rotation until the peak was entered from outside.
+        'stock': 'Lotus_Scripts_KuvaPath_KuvaPathAcquire.lua_B',
+        'key': '59bb8fd0ab33eadc',
+        'file': '59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B',
+        'edits': [
+            {   # `if not cached or expired then if expired then <request, wait for reply> end; cached = <reread>; <redraw> end`
+                'proto': 12, 'i': 108,
+                'old': (JUMPIFNOT, 3, 45), 'new': (JUMPIFNOT, 3, 0),
+                'why': 'the inner `if expired` falls through: the first pass after the peak loads (nothing cached yet) also '
+                       'sends the game\'s own refresh request and waits for its reply, so the pillars show the current '
+                       'rotation; later passes refresh on expiry as before. One request per peak load',
+            },
+        ],
+    },
 ]
 
 
@@ -234,6 +254,8 @@ def main():
                 ok = op == MOVE and len(w) == 4 and w[1] == old_a and w[2] == old_x and w[3] == 0
             elif old_op == LOADB:
                 ok = op == LOADB and w[1] == old_a and w[2] == old_x and w[3] == 0
+            elif old_op in (JUMPIF, JUMPIFNOT):
+                ok = op == old_op and len(w) == 4 and w[1] == old_a and struct.unpack_from('<h', w, 2)[0] == old_x
             else:
                 ok = op == old_op and w[1] == old_a and struct.unpack_from('<I', w, 4)[0] == old_x
             gate(name, f'expected-old-word P{e["proto"]} i{e["i"]}', ok, w.hex())
@@ -250,6 +272,9 @@ def main():
                 struct.pack_into('<h', nw, 2, new_x)       # D = the signed 16-bit constant
             elif new_op in (JUMPIFNOTLE, JUMPIFNOTLT):
                 struct.pack_into('<I', nw, 4, new_x)       # Bx (branch target) unchanged
+            elif new_op in (JUMPIF, JUMPIFNOT):
+                assert len(w) == 4, 'JUMPIF/JUMPIFNOT is a 4-byte instruction'
+                struct.pack_into('<h', nw, 2, new_x)       # D = the branch offset (0 = falls through either way)
             raw = bytearray(nw)
             raw[0] = raw_of[new_op]
             start = p.code_start + off
@@ -307,7 +332,12 @@ def main():
         gate(name, 'self-rebase', r['action'] == 'auto' and r['bytes'] == cand_bytes and r['new_key'] == stock.key,
              r.get('reason', r['action']))
         # shifted synthetic build: 2 new functions first, and 3 no-op MOVEs before every edited instruction
-        shifted = B.Module(S.insert_protos(stock, 0, [len(stock.protos) - 2, len(stock.protos) - 3], om), om)
+        # The copies come from the last two prototypes below the root that no edit touches: an inserted identical copy
+        # of an EDITED prototype makes the remap pick the copy (P12 -> P0 for the Cryobell refresh member, 2026-10-09;
+        # known remap limitation, see README), which is not the moved-function case this gate proves.
+        edited = {pi for pi, _ in intended} | {pi for pi, *_ in intended_consts}
+        copies = [i for i in range(len(stock.protos) - 2, -1, -1) if i not in edited][:2]
+        shifted = B.Module(S.insert_protos(stock, 0, copies, om), om)
         for pi, li in sorted(intended, reverse=True):
             shifted = B.Module(S.insert_moves(shifted, pi + 2, li, 3, om), om)
         r = ART.rebase_replacement(stock, cand, shifted, RM.ModuleMap(stock, shifted, spec['stock']))

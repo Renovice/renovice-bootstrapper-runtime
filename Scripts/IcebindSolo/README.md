@@ -204,3 +204,36 @@ byte-identical to the update tool's output. The old void-surge site P19 i3 still
 new module (another event's MasterInit), so an "expected old word" match alone does not prove an edit site: the
 indices here come from the update tool's module map. In game, a solo player now offers a Cryobell and presses the
 host Start button (stock 44.1.1 flow). Not yet live-tested.
+
+## 2026-10-09: Cryobell refresh member (opt-in, ships disabled, not live-tested)
+
+The server rolls the Cryobells to the next rotation once all three of the current ones are finished (child clock,
+server `33fa1a04`). The client keeps the offers cached in `gGameData`; the pillar loop `KeyAcquisitionManager`
+(`KuvaPathAcquire` P12) asks the server again only when the cached expiry has passed, so after a rollover the pillars
+kept the old rotation until the peak was entered from outside. The server cannot push the offers: only the kuvaPath
+reply parsers (44.1.1 `0x16c3f0` refresh, `0xe80850` take) read `KuvaKeysRewards`; the inventory parser does not.
+
+Stock loop, decompiled (44.1.1, key `59bb8fd0ab33eadc`):
+
+```lua
+if not cached or expired then
+    if expired then  -- P12 i108 JUMPIFNOT R3 +45
+        request = Lotus_Game.<refresh>(KuvaKeysLib.LATEST_KUVA_KEY_ITEM, onReply); request:Execute()
+        <wait until onReply set success, return on failure>
+    end
+    cached = gGameData:<offers>(); <redraw pillars>
+end
+```
+
+| Member (key) | Edit |
+|---|---|
+| `59bb8fd0ab33eadc` Cryobell refresh | P12 i108 `JUMPIFNOT R3 +45` -> `JUMPIFNOT R3 +0` (falls through: the first pass after the peak loads sends the game's own refresh request and waits for the reply) |
+
+One kuvaPath refresh request per peak load; a failed request ends the pillar loop for that visit, exactly as a failed
+expiry refresh does in stock. `build_members.py` learned 4-byte `JUMPIF`/`JUMPIFNOT` offset edits. ALL GATES PASS (70);
+the six other members rebuild byte-identical. The shifted-rebase gate now copies the last two prototypes that no edit
+touches: copying the edited P12 itself made the remap map the edit to the inserted identical copy (P12 -> P0), a
+known `uc_remap` limitation for an identical copy of an edited function, not the moved-function case the gate proves.
+The member ships disabled in the staged `ScriptStates.json` (`member:icebindsolo/...: false`); enable it in the
+Scripts menu to test. Live check: finish the last Cryobell run, return to the peak, the pillars show three new
+Cryobells without leaving the peak.

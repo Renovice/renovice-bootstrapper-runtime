@@ -75,6 +75,17 @@ Client 44.1.0 (`2026.10.08.13.05`), stock pack `stock-a71c700d9520b4a5`. Generat
 - Candidate: size 18945 (stock 18945), sha256 `803cc71942a99002eb6fd578613b949f7b05cfca678cc506d014898bee67597b`, content key of the candidate body `45eb28a8dfa82966` (the loader matches the FILENAME key `93b4bb73bf20069c`).
 - Bytes differing from stock: 2 (all inside the edited instruction words).
 
+## `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B`
+
+- Target: `Lotus_Scripts_KuvaPath_KuvaPathAcquire.lua_B` , content key `59bb8fd0ab33eadc`, stock size 11135, stock sha256 `ca85e026d835ed3cd12dfc0ecdfcaa391859a92b9f67ca90e6312fe5461ed304`.
+
+| Prototype | Instruction | File offset | Stock (canonical) | Edit (canonical) | Stock raw | Edit raw | Why |
+|---|---|---|---|---|---|---|---|
+| P12 | i108 | 8324 (0x2084) | `18032d00` JUMPIFNOT | `18030000` JUMPIFNOT | `42032d00` | `42030000` | the inner `if expired` falls through: the first pass after the peak loads (nothing cached yet) also sends the game's own refresh request and waits for its reply, so the pillars show the current rotation; later passes refresh on expiry as before. One request per peak load |
+
+- Candidate: size 11135 (stock 11135), sha256 `77e5a38d7f3469f3c3228497350708e9d7a8405be22935fcae9d91c244945ccc`, content key of the candidate body `bfbb810cda8a620b` (the loader matches the FILENAME key `59bb8fd0ab33eadc`).
+- Bytes differing from stock: 1 (all inside the edited instruction words).
+
 ## Gates
 
 | Member | Gate | Result | Detail |
@@ -146,3 +157,13 @@ Client 44.1.0 (`2026.10.08.13.05`), stock pack `stock-a71c700d9520b4a5`. Generat
 | `93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B` | de-roundtrip | PASS | nps=34   consts re-encode exact: 34/34  FULL BODY identical: True |
 | `93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B` | const-identity | PASS | CONST_IDENTITY protos_stock=34 protos_candidate=34 hash_equal=34 string_equal=34 keyuse_equal=34 verdict=PASS |
 | `93b4bb73bf20069c (Icebind Solo signal chain objective).lua_B` | cfg-identity (report) | report | exit 1: proto 28 CFG_DIFF kind=LABEL depth=24 stock[55]="LOAD B:false" candidate[55]="LOAD B:true" class="LABEL LOAD -> LOAD" / CFG_CLASSES {LABEL LOAD -> LOAD:2} / CFG_IDENTITY protos_stock=34 protos_candidate=34 cfg_equal=32 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | stock-key | PASS | Lotus_Scripts_KuvaPath_KuvaPathAcquire.lua_B key 59bb8fd0ab33eadc, sha256 ca85e026d835ed3cd12dfc0ecdfcaa391859a92b9f67ca90e6312fe5461ed304 |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | expected-old-word P12 i108 | PASS | 18032d00 |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | parse-u44 | PASS | 14 prototypes, walk errors [] |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | byte-diff | PASS | 1 bytes differ at [8326] |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | same-shape+edit-script | PASS | edits [(12, 108)] constants [] |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | self-rebase | PASS | auto |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | shifted-rebase | PASS | edits [{'old': 'P12 i108', 'new': 'P14 i111'}] |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | de-roundtrip | PASS | nps=14   consts re-encode exact: 14/14  FULL BODY identical: True |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | const-identity | PASS | CONST_IDENTITY protos_stock=14 protos_candidate=14 hash_equal=14 string_equal=14 keyuse_equal=14 verdict=PASS |
+| `59bb8fd0ab33eadc (Icebind Solo Cryobell refresh).lua_B` | cfg-identity (report) | report | exit 1: proto 12 CFG_DIFF kind=LABEL depth=48 stock[108]="IF TRUTHY" candidate[110]="GETUPVAL u6" class="LABEL IF TRUTHY -> GETUPVAL" / CFG_CLASSES {LABEL IF TRUTHY -> GETUPVAL:1} / CFG_IDENTITY protos_stock=14 protos_candidate=14 cfg_equal=13 model_errors=0 candidate_dispatch_webs=0 verdict=FAIL |
