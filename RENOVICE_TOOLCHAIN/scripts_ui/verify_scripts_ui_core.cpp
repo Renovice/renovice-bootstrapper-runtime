@@ -127,15 +127,29 @@ int main(int argc, char** argv)
 	check(!injection::pause_top_menu_signature(
 		reinterpret_cast<const unsigned char*>(missing_marker.data()), missing_marker.size()),
 		"incomplete semantic fingerprint rejected");
-	check(injection::pause_top_menu_closure_contract(23, 59),
-		"current Initialize and builder upvalue counts accepted");
-	check(!injection::pause_top_menu_closure_contract(22, 59),
+	const auto* const layout_u441 = injection::pause_top_menu_layout(0xee5220bab21a9a8aull);
+	const auto* const layout_u4411 = injection::pause_top_menu_layout(0x9b533c41f2294d14ull);
+	check(layout_u441 != nullptr && layout_u4411 != nullptr,
+		"44.1.0 and 44.1.1 TopMenu layouts are registered");
+	check(injection::pause_top_menu_layout(0x0123456789abcdefull) == nullptr
+		&& !injection::pause_top_menu_closure_contract(nullptr, 23, 59),
+		"unregistered TopMenu key fails closed");
+	check(injection::pause_top_menu_closure_contract(layout_u441, 23, 59),
+		"44.1.0 Initialize and builder upvalue counts accepted");
+	check(injection::pause_top_menu_closure_contract(layout_u4411, 24, 59),
+		"44.1.1 Initialize and builder upvalue counts accepted");
+	check(!injection::pause_top_menu_closure_contract(layout_u441, 24, 59)
+		&& !injection::pause_top_menu_closure_contract(layout_u4411, 23, 59),
+		"one build's Initialize shape is rejected under the other build's key");
+	check(!injection::pause_top_menu_closure_contract(layout_u441, 22, 59),
 		"changed Initialize closure fails closed");
-	check(!injection::pause_top_menu_closure_contract(23, 58),
+	check(!injection::pause_top_menu_closure_contract(layout_u441, 23, 58),
 		"changed builder closure fails closed");
-	check(injection::pause_initialize_builder_upvalue == 14
-		&& injection::pause_builder_dispatch_upvalue == 58,
-		"pinned zero-based ownership slots are explicit");
+	check(layout_u441->initialize_builder_upvalue == 14
+		&& layout_u441->builder_dispatch_upvalue == 58
+		&& layout_u4411->initialize_builder_upvalue == 15
+		&& layout_u4411->builder_dispatch_upvalue == 58,
+		"pinned zero-based ownership slots are explicit per build");
 	check(injection::pause_menu_architecture_marker
 		== "TOPMENU_EXACT_ROOT_EVENT_DRIVEN_V27_TARGET_ENV_HOOKS",
 		"runtime architecture marker identifies exact target-environment hooks");
@@ -240,16 +254,22 @@ int main(int argc, char** argv)
 	check(!injection::pause_runtime_root_requires_revalidation(false, true),
 		"unrelated roots stay rejected after a prior attachment");
 	check(injection::pause_global_initialize_owned(
-		&top_menu_environment, &top_menu_environment, true, 23),
+		layout_u441, &top_menu_environment, &top_menu_environment, true, 23),
 		"published Initialize accepts exact TopMenu ownership");
+	check(injection::pause_global_initialize_owned(
+		layout_u4411, &top_menu_environment, &top_menu_environment, true, 24),
+		"published Initialize accepts the 44.1.1 TopMenu shape");
 	check(!injection::pause_global_initialize_owned(
-		&top_menu_environment, &unrelated_environment, true, 23),
+		nullptr, &top_menu_environment, &top_menu_environment, true, 23),
+		"published Initialize rejects an unregistered TopMenu key");
+	check(!injection::pause_global_initialize_owned(
+		layout_u441, &top_menu_environment, &unrelated_environment, true, 23),
 		"published Initialize rejects another module environment");
 	check(!injection::pause_global_initialize_owned(
-		&top_menu_environment, &top_menu_environment, false, 23),
+		layout_u441, &top_menu_environment, &top_menu_environment, false, 23),
 		"published Initialize rejects non-Lua values");
 	check(!injection::pause_global_initialize_owned(
-		&top_menu_environment, &top_menu_environment, true, 22),
+		layout_u441, &top_menu_environment, &top_menu_environment, true, 22),
 		"published Initialize rejects changed closure shape");
 	check(injection::pause_exact_root_published(
 		&top_menu_vm, &top_menu_proto, &top_menu_vm, &top_menu_proto),
@@ -262,10 +282,13 @@ int main(int argc, char** argv)
 			&top_menu_vm, &top_menu_proto, &top_menu_vm, &unrelated_proto),
 		"unpublished and unrelated VM roots reject without fallback probing");
 	check(injection::pause_environment_publication_ready(
-		true, &top_menu_environment, &top_menu_environment, true, 23),
+		layout_u441, true, &top_menu_environment, &top_menu_environment, true, 23),
 		"published mMenuOptions plus owned Initialize enables attachment");
+	check(injection::pause_environment_publication_ready(
+		layout_u4411, true, &top_menu_environment, &top_menu_environment, true, 24),
+		"44.1.1 published mMenuOptions plus owned Initialize enables attachment");
 	check(!injection::pause_environment_publication_ready(
-		false, &top_menu_environment, &top_menu_environment, true, 23),
+		layout_u441, false, &top_menu_environment, &top_menu_environment, true, 23),
 		"Initialize without published mMenuOptions cannot attach early");
 	check(injection::pause_root_decoration_ready(true, true, 0),
 		"successful exact root execution enables decoration");

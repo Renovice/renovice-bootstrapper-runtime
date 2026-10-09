@@ -14984,20 +14984,30 @@ bool decorate_pause_initialize_assignment(
 		config::log(failure.str());
 		return false;
 	}
-	if (initialize->nupvalues != pause_initialize_upvalue_count)
+	const PauseTopMenuLayout* const layout = pause_top_menu_layout(body_key);
+	if (layout == nullptr)
+	{
+		std::ostringstream failure;
+		failure << "RENOVICE Scripts UI attach FAIL reason=TopMenu-layout-unregistered"
+			<< " source=" << (source != nullptr ? source : "unknown")
+			<< " top_menu_key=" << std::hex << body_key << std::dec;
+		config::log(failure.str());
+		return false;
+	}
+	if (initialize->nupvalues != layout->initialize_upvalues)
 	{
 		std::ostringstream failure;
 		failure << "RENOVICE Scripts UI attach FAIL reason=Initialize-upvalue-count"
 			<< " source=" << (source != nullptr ? source : "unknown")
 			<< " observed=" << static_cast<unsigned int>(initialize->nupvalues)
-			<< " expected=" << pause_initialize_upvalue_count
+			<< " expected=" << layout->initialize_upvalues
 			<< " stacksize=" << static_cast<unsigned int>(initialize->stacksize)
 			<< " env=" << initialize->env;
 		config::log(failure.str());
 		return false;
 	}
 	auto* const builder_slot = writable_upvalue_slot(
-		initialize, pause_initialize_builder_upvalue);
+		initialize, layout->initialize_builder_upvalue);
 	if (builder_slot == nullptr)
 	{
 		config::log("RENOVICE Scripts UI attach FAIL reason=Initialize-builder-slot-unreadable");
@@ -15016,7 +15026,7 @@ bool decorate_pause_initialize_assignment(
 	}
 	if (original_builder->isC
 		|| !pause_top_menu_closure_contract(
-			initialize->nupvalues, original_builder->nupvalues)
+			layout, initialize->nupvalues, original_builder->nupvalues)
 		|| original_builder->l.p == nullptr)
 	{
 		std::ostringstream failure;
@@ -15031,7 +15041,7 @@ bool decorate_pause_initialize_assignment(
 		return false;
 	}
 	auto* const dispatch_slot = writable_upvalue_slot(
-		original_builder, pause_builder_dispatch_upvalue);
+		original_builder, layout->builder_dispatch_upvalue);
 	if (dispatch_slot == nullptr)
 	{
 		config::log("RENOVICE Scripts UI attach FAIL reason=builder-dispatch-slot-unreadable");
@@ -15072,8 +15082,8 @@ bool decorate_pause_initialize_assignment(
 	std::ostringstream result;
 	result << "RENOVICE Scripts UI attach " << (pass ? "PASS" : "FAIL")
 		<< " source=" << (source != nullptr ? source : "unknown")
-		<< " owner=Initialize.U" << pause_initialize_builder_upvalue
-		<< ".Builder.U" << pause_builder_dispatch_upvalue
+		<< " owner=Initialize.U" << layout->initialize_builder_upvalue
+		<< ".Builder.U" << layout->builder_dispatch_upvalue
 		<< " initialize=" << reinterpret_cast<void*>(initialize_value.value.as_uintptr)
 		<< " builder=" << reinterpret_cast<void*>(builder_value.value.as_uintptr)
 		<< " dispatch=" << reinterpret_cast<void*>(original_dispatch.value.as_uintptr)
@@ -15221,6 +15231,7 @@ bool decorate_pause_menu_environment(
 		return false;
 	}
 	if (!pause_environment_publication_ready(
+		pause_top_menu_layout(body_key),
 		context.menu_options_is_table, environment,
 		context.initialize_environment, true, context.initialize_upvalues))
 	{

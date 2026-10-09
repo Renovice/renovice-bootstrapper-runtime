@@ -383,17 +383,43 @@ inline bool pause_top_menu_signature(
 		&& bytecode_contains(body, size, "MenuOptions");
 }
 
-// Pinned captured-client ownership contract for Lotus/Interface/TopMenu:
-// the root creates Initialize with 23 captures. Initialize U14 owns the
-// 62-record ESC builder. That builder has 59 captures and invokes U58 with the
-// completed mMenuOptions array after all stock rows are assembled and before
-// the final state-dependent filter consumes the array.
+// Pinned captured-client ownership contract for Lotus/Interface/TopMenu, per
+// exact TopMenu content key: the root creates Initialize with N captures.
+// Initialize U<builder> owns the 62-record ESC builder. That builder has 59
+// captures and invokes U58 with the completed mMenuOptions array after all
+// stock rows are assembled and before the final state-dependent filter
+// consumes the array.
 // Wrapping that final dispatch boundary consumes the table as a normal Lua
 // argument instead of guessing an internal table-owning upvalue.
-inline constexpr std::size_t pause_initialize_builder_upvalue = 14;
-inline constexpr std::size_t pause_builder_dispatch_upvalue = 58;
-inline constexpr std::size_t pause_initialize_upvalue_count = 23;
-inline constexpr std::size_t pause_builder_upvalue_count = 59;
+// Rows (root NEWCLOSURE of Initialize, proto 133, and of the builder, root
+// local 144, proto 106; read from the stock bytes of each build):
+//   44.1.0 2026.10.06.16.12 ee5220bab21a9a8a: Initialize 23 captures, builder U14.
+//   44.1.1 2026.10.08.13.05 9b533c41f2294d14: DE inserted capture 3 (root
+//          value 78), Initialize 24 captures, builder U15 (still root local
+//          144); the builder is unchanged (59 captures, dispatch U58 = root
+//          value 120).
+// An unregistered TopMenu key fails closed (no SCRIPTS row).
+struct PauseTopMenuLayout {
+	std::uint64_t top_menu_key;
+	std::size_t initialize_upvalues;
+	std::size_t initialize_builder_upvalue;
+	std::size_t builder_upvalues;
+	std::size_t builder_dispatch_upvalue;
+};
+
+inline constexpr PauseTopMenuLayout pause_top_menu_layouts[] = {
+	{0xee5220bab21a9a8aull, 23, 14, 59, 58},
+	{0x9b533c41f2294d14ull, 24, 15, 59, 58},
+};
+
+inline const PauseTopMenuLayout* pause_top_menu_layout(std::uint64_t top_menu_key) noexcept
+{
+	for (const auto& layout : pause_top_menu_layouts)
+	{
+		if (layout.top_menu_key == top_menu_key) return &layout;
+	}
+	return nullptr;
+}
 inline constexpr std::string_view pause_menu_architecture_marker =
 	"TOPMENU_EXACT_ROOT_EVENT_DRIVEN_V27_TARGET_ENV_HOOKS";
 
@@ -671,15 +697,18 @@ inline bool pause_runtime_root_requires_revalidation(
 }
 
 inline bool pause_top_menu_closure_contract(
+	const PauseTopMenuLayout* layout,
 	std::size_t initialize_upvalues,
 	std::size_t builder_upvalues
 ) noexcept
 {
-	return initialize_upvalues == pause_initialize_upvalue_count
-		&& builder_upvalues == pause_builder_upvalue_count;
+	return layout != nullptr
+		&& initialize_upvalues == layout->initialize_upvalues
+		&& builder_upvalues == layout->builder_upvalues;
 }
 
 inline bool pause_global_initialize_owned(
+	const PauseTopMenuLayout* layout,
 	const void* recorded_environment,
 	const void* initialize_environment,
 	bool value_is_lua_closure,
@@ -691,10 +720,11 @@ inline bool pause_global_initialize_owned(
 	// is insufficient ownership evidence, so require the candidate closure to
 	// point back to the exact environment captured from the semantic TopMenu
 	// loader identity and to satisfy the pinned Initialize shape.
-	return recorded_environment != nullptr
+	return layout != nullptr
+		&& recorded_environment != nullptr
 		&& recorded_environment == initialize_environment
 		&& value_is_lua_closure
-		&& initialize_upvalues == pause_initialize_upvalue_count;
+		&& initialize_upvalues == layout->initialize_upvalues;
 }
 
 inline bool pause_exact_root_published(
@@ -711,6 +741,7 @@ inline bool pause_exact_root_published(
 }
 
 inline bool pause_environment_publication_ready(
+	const PauseTopMenuLayout* layout,
 	bool menu_options_is_table,
 	const void* recorded_environment,
 	const void* initialize_environment,
@@ -720,6 +751,7 @@ inline bool pause_environment_publication_ready(
 {
 	return menu_options_is_table
 		&& pause_global_initialize_owned(
+			layout,
 			recorded_environment,
 			initialize_environment,
 			initialize_is_lua_closure,
