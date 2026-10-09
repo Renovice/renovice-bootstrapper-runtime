@@ -39,9 +39,31 @@ chdir("tools");
 passthru("pluto archive.pluto $base_tag");
 chdir("..");
 
+// Archive timestamp (RENOVICE 2026-10-09). The loader compares it to decide "No changes" on /apply_hotfix, so it must
+// change whenever the content can. A clean committed tree uses the last commit time: the same commit rebuilds a
+// byte-identical Hotfix.owf and DLL. Uncommitted source changes keep the build time. SOURCE_DATE_EPOCH overrides both.
+// The build's own evidence logs (RENOVICE_MIGRATION/evidence) are not source.
+function archive_timestamp(): int
+{
+	$epoch = getenv("SOURCE_DATE_EPOCH");
+	if ($epoch !== false && ctype_digit($epoch))
+	{
+		return (int)$epoch;
+	}
+	$dirty = trim((string)shell_exec("git status --porcelain --untracked-files=no -- . \":(exclude)RENOVICE_MIGRATION/evidence\""));
+	$commit_time = trim((string)shell_exec("git log -1 --format=%ct"));
+	if ($dirty === "" && ctype_digit($commit_time))
+	{
+		return (int)$commit_time;
+	}
+	return time();
+}
+$archive_timestamp = archive_timestamp();
+
 function wrap_archive($uncompressed)
 {
-	$bin_str = pack_u64_dyn_bp(time());
+	global $archive_timestamp;
+	$bin_str = pack_u64_dyn_bp($archive_timestamp);
 	$bin_str .= pack_u64_dyn_bp(strlen($uncompressed));
 	$bin_str .= gzdeflate($uncompressed, 9);
 	$bin_str .= pack("V", modpow(joaat($uncompressed), /*d=*/219502113, /*n=*/560318839)); // 30-bit RSA signature of JOAAT hash

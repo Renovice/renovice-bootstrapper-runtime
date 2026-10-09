@@ -7,6 +7,19 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $repo = Split-Path -Parent $PSScriptRoot
+# Self-contained tool environment (2026-10-09). archive.php runs `pluto` from tools\ through cmd.exe and gate scripts
+# call vswhere.exe by name; a shell without those on PATH failed the build, and only nu_build.ps1 prepared them.
+Remove-Item -LiteralPath 'Env:NoDefaultCurrentDirectoryInExePath' -ErrorAction SilentlyContinue
+$env:PATH = "$(Join-Path $repo 'tools');$(Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer');$env:PATH"
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    $gitCmd = Join-Path $env:ProgramFiles 'Git\cmd'
+    if (Test-Path -LiteralPath (Join-Path $gitCmd 'git.exe')) { $env:PATH = "$gitCmd;$env:PATH" }
+}
+foreach ($tool in @('git', 'pluto', 'vswhere')) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        throw "PRIVATE BUILD FAIL: required tool not found on PATH or in its known folder: $tool"
+    }
+}
 & (Join-Path $PSScriptRoot "bootstrap_tools.ps1")
 & (Join-Path $repo "RENOVICE_MIGRATION\verify_dependencies.ps1")
 & (Join-Path $repo "RENOVICE_MIGRATION\verify_manifest.ps1")
