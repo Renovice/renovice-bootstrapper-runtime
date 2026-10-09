@@ -7,8 +7,8 @@ Linking...
 >>> Now compiling wtsapi32
 swf
 script_control
-replacement_settings
 riven
+replacement_settings
 replacements
 packages
 live_literals
@@ -16,8 +16,8 @@ injection
 engine_params
 engine_damage
 de_vm_authority
-config
 owf_web
+config
 owf_tunables
 owf_scripting
 owf_repo
@@ -25,6 +25,6 @@ owf_overlay
 owf_label_replacements
 owf_hotkeys
 owf_config
-owf_archive_data
 main
+owf_archive_data
 Linking...
