@@ -51,6 +51,8 @@ std::vector<std::string> log_lines;
 std::map<std::string, bool> policy;
 }
 
+#include "../common/layout_v1_gate_stubs.hpp"
+
 namespace renovice::config
 {
 const std::filesystem::path& custom_scripts_directory() noexcept { return gate::root; }

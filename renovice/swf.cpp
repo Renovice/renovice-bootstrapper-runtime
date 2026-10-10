@@ -151,7 +151,7 @@ bool scan_snapshot(std::shared_ptr<const Snapshot>& output)
 {
 	auto candidate = std::make_shared<Snapshot>();
 	std::error_code ec;
-	const auto& directory = config::custom_scripts_directory();
+	const auto& directory = config::replacements_directory();
 	for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec))
 	{
 		if (!it->is_regular_file(ec))

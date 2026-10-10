@@ -54,6 +54,8 @@ std::map<std::string, bool> external_policy;
 bool external_policy_loaded = false;
 }
 
+#include "../common/layout_v1_gate_stubs.hpp"
+
 namespace renovice::config
 {
 const std::filesystem::path& custom_scripts_directory() noexcept { return gate::root; }

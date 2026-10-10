@@ -603,9 +603,13 @@ inline std::string parse_manifest(std::string_view text, Manifest& manifest)
 	return {};
 }
 
-// When the manifest declares `members`, the on-disk member set must match it
-// exactly (case-insensitive, like the Windows filesystem). A partially copied
-// package therefore fails as a whole instead of loading half of its members.
+// When the manifest declares `members`, every declared member must exist on disk
+// (case-insensitive, like the Windows filesystem): a partially copied package
+// still fails as a whole instead of loading half of its members.
+// AUTO-JOIN (LAYOUT_V2, 2026-10-10): a .lua_B file on disk that the manifest does
+// not list is NOT an error any more; it joins the package as a member (label from
+// its filename; the package row is the only enable switch, R13). The previous
+// rule rejected the whole package with `member-not-declared-in-manifest`.
 inline std::string reconcile_manifest_members(
 	const Manifest& manifest,
 	const std::vector<std::string>& disk_members
@@ -618,13 +622,24 @@ inline std::string reconcile_manifest_members(
 			[&](const std::string& disk) { return ascii_iequal(disk, declared.filename); });
 		if (!found) return "manifest-member-missing-on-disk=" + declared.filename;
 	}
+	return {};
+}
+
+// Disk members the manifest does not list (auto-joined); empty without a members list.
+inline std::vector<std::string> auto_joined_members(
+	const Manifest& manifest,
+	const std::vector<std::string>& disk_members
+)
+{
+	std::vector<std::string> joined;
+	if (!manifest.members_declared) return joined;
 	for (const auto& disk : disk_members)
 	{
 		const bool found = std::any_of(manifest.members.begin(), manifest.members.end(),
 			[&](const ManifestMember& declared) { return ascii_iequal(disk, declared.filename); });
-		if (!found) return "member-not-declared-in-manifest=" + disk;
+		if (!found) joined.push_back(disk);
 	}
-	return {};
+	return joined;
 }
 
 inline std::string manifest_label(const Manifest& manifest, std::string_view filename)

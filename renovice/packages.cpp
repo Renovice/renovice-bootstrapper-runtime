@@ -85,7 +85,7 @@ std::vector<SourceClaims> gather_loose_claims()
 {
 	std::vector<SourceClaims> claims;
 	std::error_code ec;
-	for (std::filesystem::directory_iterator it(config::custom_scripts_directory(), ec), end;
+	for (std::filesystem::directory_iterator it(config::replacements_directory(), ec), end;
 		!ec && it != end; it.increment(ec))
 	{
 		if (!it->is_regular_file(ec)) { if (ec) break; continue; }
@@ -227,6 +227,7 @@ void scan_package(const std::filesystem::path& folder_path, Package& package, bo
 			package.reason = mismatch;
 			return;
 		}
+		package.auto_joined = auto_joined_members(manifest, disk_members);
 		if (!manifest.name.empty()) package.display = manifest.name;
 		package.description = manifest.description;
 	}
@@ -361,8 +362,15 @@ void log_package(const Package& package, const char* trigger)
 		<< " replacements=" << replacements
 		<< " target_addons=" << target_addons
 		<< " target_keys=" << declared
-		<< (package.accepted ? " lanes=replacement+inject" : " inventory-only=1");
+		<< (package.accepted ? " lanes=replacement+inject" : " inventory-only=1")
+		<< " auto_joined=" << package.auto_joined.size();
 	report(line.str());
+	for (const auto& name : package.auto_joined)
+	{
+		report("RENOVICE PACKAGE MEMBER AUTO-JOIN trigger=" + std::string(trigger)
+			+ " package=" + package.folder + " member=" + name
+			+ " reason=not-listed-in-package.json label=from-filename");
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -371,8 +379,7 @@ void log_package(const Package& package, const char* trigger)
 // ---------------------------------------------------------------------------
 std::filesystem::path settings_file_path(std::string_view folder)
 {
-	return config::custom_scripts_directory()
-		/ std::filesystem::path(std::string(settings::directory_name))
+	return config::settings_directory()
 		/ std::filesystem::path(settings::values_file_name(folder));
 }
 
@@ -382,6 +389,21 @@ bool read_values_file(
 	const Package& package, settings::UserState& state, std::string& error)
 {
 	error.clear();
+	if (config::layout_v2())
+	{
+		// LAYOUT_V2: the values entry `package.id` of Config/ScriptStates.json, same parser.
+		std::string text;
+		bool present = false;
+		if (!script_control::read_package_values(package.id, text, present, error)) return false;
+		if (!error.empty()) return true;
+		if (text.size() > settings::maximum_values_file_bytes)
+		{
+			error = "values-file-unreadable-empty-or-too-large";
+			return true;
+		}
+		error = settings::parse_values_file(text, package.id, state);
+		return true;
+	}
 	const auto path = settings_file_path(package.folder);
 	std::error_code ec;
 	if (!std::filesystem::exists(path, ec))
@@ -476,7 +498,9 @@ void apply_member_policy_and_settings(Package& package, bool committing, const c
 	if (evaluation.file == settings::FileStatus::Malformed)
 	{
 		report("RENOVICE SETTINGS FILE REJECT trigger=" + std::string(trigger)
-			+ " package=" + package.folder + " file=Settings/" + settings::values_file_name(package.folder)
+			+ " package=" + package.folder + " file=" + (config::layout_v2()
+				? "Config/ScriptStates.json#" + package.id
+				: "Settings/" + settings::values_file_name(package.folder))
 			+ " reason=" + evaluation.file_reason + " scope=package-local values=stock");
 	}
 	std::size_t logged = 0;
@@ -666,8 +690,7 @@ bool read_settings_values(const Package& package, settings::UserState& state, st
 
 std::filesystem::path directory()
 {
-	return config::custom_scripts_directory() / std::filesystem::path(
-		std::string(directory_name));
+	return config::packages_directory();
 }
 
 bool initialise()

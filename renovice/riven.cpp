@@ -320,7 +320,7 @@ namespace
 {
 std::filesystem::path gate_file_path()
 {
-	return config::custom_scripts_directory() / L"riven_lock.cfg";
+	return config::riven_lock_config_path();
 }
 }
 

@@ -51,6 +51,8 @@ struct Package
 	std::string id;
 	std::string display;
 	std::string description;
+	// Members on disk that package.json does not list (AUTO-JOIN, LAYOUT_V2).
+	std::vector<std::string> auto_joined;
 	bool enabled = false;
 	// Folder, manifest and every member passed static validation, so the
 	// package's keys are known and inventoried even while it is disabled.

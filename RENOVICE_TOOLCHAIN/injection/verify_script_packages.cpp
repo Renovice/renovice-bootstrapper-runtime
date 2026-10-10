@@ -31,6 +31,8 @@ std::vector<std::string> log_lines;
 std::map<std::string, bool> policy;
 }
 
+#include "../common/layout_v1_gate_stubs.hpp"
+
 namespace renovice::config
 {
 const std::filesystem::path& custom_scripts_directory() noexcept { return gate::root; }
@@ -260,9 +262,11 @@ void pure_rules()
 		"declared members match the disk case-insensitively");
 	check(packages::reconcile_manifest_members(declared, {"a.lua_B"}) == "manifest-member-missing-on-disk=b.lua_B",
 		"a partially copied package fails as a whole");
-	check(packages::reconcile_manifest_members(declared, {"a.lua_B", "b.lua_B", "c.lua_B"})
-			== "member-not-declared-in-manifest=c.lua_B",
-		"an undeclared extra member fails the package");
+	// AUTO-JOIN (LAYOUT_V2, 2026-10-10): an unlisted member joins instead of failing the package.
+	check(packages::reconcile_manifest_members(declared, {"a.lua_B", "b.lua_B", "c.lua_B"}).empty()
+			&& packages::auto_joined_members(declared, {"a.lua_B", "b.lua_B", "c.lua_B"})
+				== std::vector<std::string>{"c.lua_B"},
+		"an undeclared extra member auto-joins the package");
 	packages::Manifest undeclared;
 	check(packages::reconcile_manifest_members(undeclared, {"x.lua_B"}).empty(),
 		"without a members list every lua_B file in the folder is a member");
@@ -433,8 +437,13 @@ void end_to_end(const std::filesystem::path& fixture_path, const std::filesystem
 		"invalid manifest fails its package");
 	check(reason_contains(find_package(*startup, "Partial"), "manifest-member-missing-on-disk=Missing.targets.addon.lua_B"),
 		"partially copied package fails as a whole");
-	check(reason_contains(find_package(*startup, "Extra"), "member-not-declared-in-manifest=7777777777777778 (b).lua_B"),
-		"undeclared member fails its package");
+	{
+		const auto* extra = find_package(*startup, "Extra");
+		check(extra != nullptr && extra->structurally_valid && extra->accepted && extra->members.size() == 2
+				&& extra->auto_joined == std::vector<std::string>{"7777777777777778 (b).lua_B"}
+				&& logged("RENOVICE PACKAGE MEMBER AUTO-JOIN trigger=startup package=Extra member=7777777777777778 (b).lua_B"),
+			"undeclared member auto-joins its package (logged)");
+	}
 	check(reason_contains(find_package(*startup, "Empty"), "package-has-no-lua_B-members"),
 		"folder without members is rejected");
 	check(reason_contains(find_package(*startup, "Bad!Name"), "package-folder-name-invalid-character"),
@@ -464,7 +473,8 @@ void end_to_end(const std::filesystem::path& fixture_path, const std::filesystem
 		"operational log: exact package-local REJECT line");
 	check(logged("RENOVICE PACKAGE DISABLED trigger=startup package=Disabled"),
 		"operational log: disabled package is inventory-only");
-	check(logged("RENOVICE PACKAGES scan PASS trigger=startup packages=18 accepted=3"),
+	// AUTO-JOIN (2026-10-10): the Extra fixture package is accepted now (3 -> 4).
+	check(logged("RENOVICE PACKAGES scan PASS trigger=startup packages=18 accepted=4"),
 		"operational log: scan summary");
 
 	// F9: prepare with a new policy, discard, prepare again, commit.

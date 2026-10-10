@@ -1,5 +1,49 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-10 Script folder layout V2 (`OpenWF/LuaScripts`) — built and gated, not deployed
+
+User-approved layout (spec copied to the workspace `work/agents/LAYOUT_V2_SPEC.md`; user guide
+`OpenWF/LuaScripts/README.md`). Branch `layout-v2` from `main` `e63c462`.
+
+- **Root selection.** `config::initialise()` uses `OpenWF/LuaScripts` when that folder exists (Layout V2), otherwise
+  the original `OpenWF/CustomScripts` with every original path and file name (Layout V1, byte-identical behavior,
+  including the LocalAppData fallback). Never mixed. The startup line gains `Layout=V1|V2`.
+- **V2 paths** (new accessors in `config.hpp`, every caller moved): `Addons/` (was `Inject/`; the two
+  `_RENOVICE_INTERNAL_` bridges stay there), `Replacements/` (root replacement `.lua_B`, `.swf`, `.swf.toc`),
+  `Packages/`, `Config/Logs.cfg` (was `renovice.cfg`), `Config/ScriptStates.json`, `Config/riven_lock.cfg`,
+  `Logs/`, `Logs/Dumps/` (was `Diagnostics/`).
+- **One state file.** V2 `ScriptStates.json` schema 2 = `{schema: 2, scripts: {...}, values: {<package id>: <the
+  former Settings/<Package>.json object>}}`. The package reader (`packages.cpp read_values_file`) and the SCRIPT
+  SETTINGS writer (`injection.cpp write_settings_values_atomic`) use `script_control::read_package_values` /
+  `write_package_values`; values are kept as exact JSON text (no number re-formatting) and composed with canonical,
+  idempotent indentation (`script_control_core.hpp compose_state_file_v2`). Switch writes and value writes both
+  rewrite the whole file atomically under one mutex and preserve each other's section; an unreadable/invalid file is
+  never overwritten.
+- **Package auto-join** (both layouts). A `.lua_B` in a package folder that `package.json` does not list joins the
+  package (`RENOVICE PACKAGE MEMBER AUTO-JOIN` log line, label from the filename); a listed member missing on disk
+  still fails that package. Previously `member-not-declared-in-manifest` rejected the whole package.
+- **Member switches (finding, unchanged behavior).** Contract R13 (2026-10-01) retired member switches: the loader
+  ignores every stored `member:` entry (`MEMBER POLICY IGNORED` each start). The IcebindSolo Cryobell-refresh member,
+  stored `false`, has therefore been ACTIVE since it was installed (live log 2026-10-09). The migration drops the dead
+  `member:` entries with a report; the package row is the only switch.
+- **Migration.** `RENOVICE_TOOLCHAIN/layout/migrate_layout_v2.py <OpenWF> [--apply]`: dry run by default; copies into
+  `LuaScripts.migrating`, verifies every file byte-identical and the merged state file (switches + every package's
+  values), then renames to `LuaScripts` (the loader never sees a half-filled folder). Never deletes; `CustomScripts`
+  is left unchanged (ignored once `LuaScripts` exists). Tested on a copy of the user's folder: 61 files, 11 switches,
+  3 packages' values, PASS; the written file is byte-identical to the loader's own composition (gate below).
+- **Gates.** New `RENOVICE_TOOLCHAIN/layout/verify_layout_v2.ps1` (19 checks with an external file: spans, exact
+  numbers, escapes, idempotence, one-package replacement, auto-join) in `build_private.ps1`. The package/settings
+  gates (`verify_addon_settings`, `verify_script_packages`, `verify_replacement_settings`, `verify_live_literals`,
+  `verify_engine_params`) link the new accessors through `RENOVICE_TOOLCHAIN/common/layout_v1_gate_stubs.hpp`
+  (original-layout meaning, results unchanged); `verify_script_packages` asserts auto-join instead of the old rejection
+  (scan summary `accepted=3 -> 4`, the `Extra` fixture package).
+- **Build.** `build_private.ps1`: every gate PASS, PRIVATE BUILD PASS warnings=0 errors=0, DLL
+  `cb8e8ceda960ef7abea0eb310fee513418fdb23c903c5244b251e413815cca2d` (6,110,720 B). Not deployed.
+- **Pending live test** (after migration + DLL install, with the user): Scripts menu lists Addons/Replacements/Packages
+  rows and a toggle writes `Config/ScriptStates.json` `scripts`; SCRIPT SETTINGS edit + Confirm writes the package's
+  `values` entry and keeps the others; F9 reload; one replacement, one target addon, one package incl. an auto-joined
+  file; `renovice_source.log` shows `Layout=V2`.
+
 ## 2026-10-08 Native fault guard: non-unwinding jump (fix for F9 hot-swap abort) — installed
 
 Branch `fix/guard-nonunwinding-jump-2026-10-08` from `main` `f5df0ef` (44.1 runtime `a1a518d`, no other runtime change).

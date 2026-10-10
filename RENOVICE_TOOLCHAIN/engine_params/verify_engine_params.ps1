@@ -79,7 +79,7 @@ try {
     }
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
-    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\engine_params\verify_engine_params.cpp')
+    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\engine_params\verify_engine_params.cpp', 'RENOVICE_TOOLCHAIN\common')
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\engine_params\verify_engine_params.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
     $literals = Join-Path $mirror 'renovice\live_literals.cpp'

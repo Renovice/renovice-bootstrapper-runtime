@@ -77,7 +77,7 @@ try {
     }
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
-    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\replacements\verify_live_literals.cpp')
+    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\replacements\verify_live_literals.cpp', 'RENOVICE_TOOLCHAIN\common')
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\replacements\verify_live_literals.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
     $runtime = Join-Path $mirror 'renovice\live_literals.cpp'

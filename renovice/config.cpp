@@ -25,6 +25,17 @@ constexpr unsigned int retained_source_logs = 3;
 
 std::filesystem::path scripts_directory;
 std::filesystem::path inject_directory;
+// Script folder layout (2026-10-10, LAYOUT_V2). V2 = OpenWF/LuaScripts with Addons/, Replacements/,
+// Packages/, Config/{Logs.cfg,ScriptStates.json}, Logs/Dumps/; V1 = the original OpenWF/CustomScripts
+// layout (Inject/, root replacement files, renovice.cfg, ScriptStates.json, Settings/, Diagnostics/).
+// Chosen once at initialise(): V2 when OpenWF/LuaScripts exists, otherwise V1. Never mixed.
+bool layout_v2_active = false;
+std::filesystem::path replacements_directory_path;
+std::filesystem::path packages_directory_path;
+std::filesystem::path config_file_path_value;
+std::filesystem::path script_states_path_value;
+std::filesystem::path settings_directory_path;
+std::filesystem::path dumps_directory_path;
 std::filesystem::path log_path;
 std::filesystem::path memory_log_path;
 bool memory_log_failure_reported = false;
@@ -281,9 +292,14 @@ bool read_config_file(const std::filesystem::path& path, Flags& parsed)
 bool initialise()
 {
 	const auto executable = executable_directory();
+	std::error_code layout_error;
+	const auto v2_root = executable.empty()
+		? std::filesystem::path{}
+		: executable / L"OpenWF" / L"LuaScripts";
+	layout_v2_active = !v2_root.empty() && std::filesystem::is_directory(v2_root, layout_error);
 	const auto primary = executable.empty()
 		? std::filesystem::path{}
-		: executable / L"OpenWF" / L"CustomScripts";
+		: (layout_v2_active ? v2_root : executable / L"OpenWF" / L"CustomScripts");
 	if (!primary.empty() && ensure_writable_directory(primary))
 	{
 		scripts_directory = primary;
@@ -297,25 +313,52 @@ bool initialise()
 			return false;
 		}
 		scripts_directory = fallback;
+		layout_v2_active = false;   // the LocalAppData fallback keeps the original layout
 		conout << "RENOVICE configuration warning: using LocalAppData fallback directory" << std::endl;
 	}
 
-	inject_directory = scripts_directory / L"Inject";
+	const auto logs_directory = scripts_directory / L"Logs";
+	if (layout_v2_active)
+	{
+		inject_directory = scripts_directory / L"Addons";
+		replacements_directory_path = scripts_directory / L"Replacements";
+		const auto config_directory = scripts_directory / L"Config";
+		config_file_path_value = config_directory / L"Logs.cfg";
+		script_states_path_value = config_directory / L"ScriptStates.json";
+		settings_directory_path.clear();   // V2 keeps SCRIPT SETTINGS values inside ScriptStates.json
+		dumps_directory_path = logs_directory / L"Dumps";
+		if (!ensure_writable_directory(replacements_directory_path)
+			|| !ensure_writable_directory(config_directory))
+		{
+			conout << "RENOVICE configuration failed closed: LuaScripts Replacements/Config directory is not writable" << std::endl;
+			return false;
+		}
+	}
+	else
+	{
+		inject_directory = scripts_directory / L"Inject";
+		replacements_directory_path = scripts_directory;
+		config_file_path_value = scripts_directory / L"renovice.cfg";
+		script_states_path_value = scripts_directory / L"ScriptStates.json";
+		settings_directory_path = scripts_directory / L"Settings";
+		dumps_directory_path = scripts_directory / L"Diagnostics";
+	}
+	packages_directory_path = scripts_directory / L"Packages";
 	if (!ensure_writable_directory(inject_directory))
 	{
-		conout << "RENOVICE configuration failed closed: Inject directory is not writable" << std::endl;
+		conout << "RENOVICE configuration failed closed: "
+			<< (layout_v2_active ? "Addons" : "Inject") << " directory is not writable" << std::endl;
 		return false;
 	}
-	const auto logs_directory = scripts_directory / L"Logs";
 	if (!ensure_writable_directory(logs_directory))
 	{
 		conout << "RENOVICE configuration failed closed: Logs directory is not writable" << std::endl;
 		return false;
 	}
-	const auto diagnostics_directory = scripts_directory / L"Diagnostics";
-	if (!ensure_writable_directory(diagnostics_directory))
+	if (!ensure_writable_directory(dumps_directory_path))
 	{
-		conout << "RENOVICE configuration failed closed: Diagnostics directory is not writable" << std::endl;
+		conout << "RENOVICE configuration failed closed: "
+			<< (layout_v2_active ? "Logs/Dumps" : "Diagnostics") << " directory is not writable" << std::endl;
 		return false;
 	}
 	log_path = logs_directory / L"renovice_source.log";
@@ -329,11 +372,13 @@ bool initialise()
 
 	if (!reload())
 	{
-		conout << "RENOVICE configuration failed closed: renovice.cfg is unreadable or oversized" << std::endl;
+		conout << "RENOVICE configuration failed closed: "
+			<< (layout_v2_active ? "Config/Logs.cfg" : "renovice.cfg") << " is unreadable or oversized" << std::endl;
 		return false;
 	}
 	conout << "RENOVICE configuration enabled: CustomScripts="
 		<< scripts_directory.string()
+		<< " Layout=" << (layout_v2_active ? "V2" : "V1")
 		<< " Logging=" << active_flags.logging
 		<< " Verbose=" << active_flags.verbose
 		<< " AutoSpawn=" << active_flags.auto_spawn << " (compatibility-only)"
@@ -379,7 +424,7 @@ bool prepare_reload()
 {
 	Flags parsed;
 	if (scripts_directory.empty()
-		|| !read_config_file(scripts_directory / L"renovice.cfg", parsed))
+		|| !read_config_file(config_file_path_value, parsed))
 	{
 		return false;
 	}
@@ -421,6 +466,47 @@ const std::filesystem::path& custom_scripts_directory() noexcept
 const std::filesystem::path& injection_directory() noexcept
 {
 	return inject_directory;
+}
+
+bool layout_v2() noexcept
+{
+	return layout_v2_active;
+}
+
+const std::filesystem::path& replacements_directory() noexcept
+{
+	return replacements_directory_path;
+}
+
+const std::filesystem::path& packages_directory() noexcept
+{
+	return packages_directory_path;
+}
+
+const std::filesystem::path& config_file_path() noexcept
+{
+	return config_file_path_value;
+}
+
+const std::filesystem::path& script_states_path() noexcept
+{
+	return script_states_path_value;
+}
+
+const std::filesystem::path& settings_directory() noexcept
+{
+	return settings_directory_path;
+}
+
+const std::filesystem::path& dumps_directory() noexcept
+{
+	return dumps_directory_path;
+}
+
+std::filesystem::path riven_lock_config_path()
+{
+	return layout_v2_active ? scripts_directory / L"Config" / L"riven_lock.cfg"
+		: scripts_directory / L"riven_lock.cfg";
 }
 
 Flags flags()

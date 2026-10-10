@@ -37,6 +37,15 @@ bool candidate_enabled(std::string_view id);
 bool displayed_enabled(std::string_view id);
 
 std::vector<ScriptInfo> snapshot();
+
+// LAYOUT_V2: SCRIPT SETTINGS values live in Config/ScriptStates.json `values`, one entry per package
+// id, each the former Settings/<Package>.json object as exact JSON text. read_package_values returns
+// false when the entry (or the file) is absent; on a read or JSON failure it returns true with a
+// non-empty error. write_package_values replaces/adds entries and keeps every switch and every other
+// package's values. Both are no-ops returning false in the original layout.
+bool read_package_values(std::string_view package_id, std::string& text, bool& present, std::string& error);
+bool write_package_values(
+	const std::vector<std::pair<std::string, std::string>>& entries, std::string& error);
 bool request_enabled(std::string_view id, bool enabled, std::string& error);
 bool request_enabled_batch(
 	const std::vector<std::pair<std::string, bool>>& requests,

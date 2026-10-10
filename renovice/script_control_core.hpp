@@ -4,6 +4,8 @@
 #include <cctype>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace renovice::script_control
 {
@@ -239,5 +241,190 @@ inline void overlay_requested(State& effective, const State& requested)
 	{
 		effective[id] = enabled;
 	}
+}
+// ---------------------------------------------------------------------------
+// LAYOUT_V2 (2026-10-10): Config/ScriptStates.json schema 2 =
+//   { "schema": 2, "scripts": { <id>: <bool>, ... }, "values": { <package id>: <settings object>, ... } }
+// Each `values` entry is the former Settings/<Package>.json object, kept as its exact JSON text so the
+// existing settings parser reads it unchanged and no number is ever re-formatted. These helpers locate
+// raw value spans and compose the file; JSON validity of the whole file is checked by the caller.
+// ---------------------------------------------------------------------------
+inline constexpr int state_schema_v2 = 2;
+
+inline void json_skip_ws(std::string_view t, std::size_t& i) noexcept
+{
+	while (i < t.size() && (t[i] == ' ' || t[i] == '\t' || t[i] == '\r' || t[i] == '\n')) ++i;
+}
+
+// Skips one JSON string starting at t[i] == '"'; on success i is past the closing quote and `out`
+// holds the unescaped text (\" \ \/ \b \f \n \r \t; \u escapes are kept verbatim, ids never use them).
+inline bool json_read_string(std::string_view t, std::size_t& i, std::string& out)
+{
+	if (i >= t.size() || t[i] != '"') return false;
+	out.clear();
+	for (++i; i < t.size(); ++i)
+	{
+		const char c = t[i];
+		if (c == '"') { ++i; return true; }
+		if (c != '\\') { out += c; continue; }
+		if (++i >= t.size()) return false;
+		switch (t[i])
+		{
+		case '"': out += '"'; break;
+		case '\\': out += '\\'; break;
+		case '/': out += '/'; break;
+		case 'b': out += '\b'; break;
+		case 'f': out += '\f'; break;
+		case 'n': out += '\n'; break;
+		case 'r': out += '\r'; break;
+		case 't': out += '\t'; break;
+		case 'u': out += "\\u"; break;
+		default: return false;
+		}
+	}
+	return false;
+}
+
+// Skips one JSON value of any kind (structure only; numbers and literals by their character class).
+inline bool json_skip_value(std::string_view t, std::size_t& i)
+{
+	json_skip_ws(t, i);
+	if (i >= t.size()) return false;
+	std::string scratch;
+	if (t[i] == '"') return json_read_string(t, i, scratch);
+	if (t[i] == '{' || t[i] == '[')
+	{
+		const char close = t[i] == '{' ? '}' : ']';
+		const bool object = t[i] == '{';
+		++i;
+		json_skip_ws(t, i);
+		if (i < t.size() && t[i] == close) { ++i; return true; }
+		while (true)
+		{
+			if (object)
+			{
+				json_skip_ws(t, i);
+				if (!json_read_string(t, i, scratch)) return false;
+				json_skip_ws(t, i);
+				if (i >= t.size() || t[i] != ':') return false;
+				++i;
+			}
+			if (!json_skip_value(t, i)) return false;
+			json_skip_ws(t, i);
+			if (i < t.size() && t[i] == ',') { ++i; continue; }
+			if (i < t.size() && t[i] == close) { ++i; return true; }
+			return false;
+		}
+	}
+	const std::size_t start = i;
+	while (i < t.size() && (std::isalnum(static_cast<unsigned char>(t[i])) || t[i] == '-' || t[i] == '+' || t[i] == '.'))
+		++i;
+	return i > start;
+}
+
+// Members of the JSON object starting at t[i] (after whitespace): (key, exact raw value text).
+inline bool json_object_members(std::string_view t, std::size_t i,
+	std::vector<std::pair<std::string, std::string_view>>& out)
+{
+	out.clear();
+	json_skip_ws(t, i);
+	if (i >= t.size() || t[i] != '{') return false;
+	++i;
+	json_skip_ws(t, i);
+	if (i < t.size() && t[i] == '}') return true;
+	while (true)
+	{
+		json_skip_ws(t, i);
+		std::string key;
+		if (!json_read_string(t, i, key)) return false;
+		json_skip_ws(t, i);
+		if (i >= t.size() || t[i] != ':') return false;
+		++i;
+		json_skip_ws(t, i);
+		const std::size_t begin = i;
+		if (!json_skip_value(t, i)) return false;
+		out.emplace_back(std::move(key), t.substr(begin, i - begin));
+		json_skip_ws(t, i);
+		if (i < t.size() && t[i] == ',') { ++i; continue; }
+		if (i < t.size() && t[i] == '}') return true;
+		return false;
+	}
+}
+
+// The raw `values` entries of a schema-2 state file text (empty when there is no `values` member).
+inline bool state_values_spans(std::string_view text,
+	std::vector<std::pair<std::string, std::string_view>>& values)
+{
+	values.clear();
+	std::vector<std::pair<std::string, std::string_view>> top;
+	if (!json_object_members(text, 0, top)) return false;
+	for (const auto& [key, raw] : top)
+	{
+		if (key != "values") continue;
+		return json_object_members(raw, 0, values);
+	}
+	return true;
+}
+
+inline std::string json_quote(std::string_view text)
+{
+	std::string out = "\"";
+	for (const char c : text)
+	{
+		switch (c)
+		{
+		case '"': out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\n': out += "\\n"; break;
+		case '\r': out += "\\r"; break;
+		case '\t': out += "\\t"; break;
+		default: out += c;
+		}
+	}
+	return out + "\"";
+}
+
+// Composes the schema-2 file: switches sorted by id, values sorted by package id, each value text
+// re-indented (continuation lines prefixed) but otherwise byte-identical.
+inline std::string compose_state_file_v2(
+	std::vector<std::pair<std::string, bool>> switches,
+	std::vector<std::pair<std::string, std::string>> values)
+{
+	std::sort(switches.begin(), switches.end());
+	std::sort(values.begin(), values.end(),
+		[](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
+	std::string out = "{\r\n  \"schema\": 2,\r\n  \"scripts\": {";
+	for (std::size_t n = 0; n < switches.size(); ++n)
+		out += std::string(n ? ",\r\n    " : "\r\n    ") + json_quote(switches[n].first) + ": "
+			+ (switches[n].second ? "true" : "false");
+	out += switches.empty() ? "},\r\n" : "\r\n  },\r\n";
+	out += "  \"values\": {";
+	for (std::size_t n = 0; n < values.size(); ++n)
+	{
+		std::string body = values[n].second;
+		while (!body.empty() && (body.back() == '\n' || body.back() == '\r' || body.back() == ' ')) body.pop_back();
+		// Canonical indentation (idempotent): split into lines (JSON strings never contain raw line
+		// breaks), remove the continuation lines' common leading spaces, indent them by four, CRLF ends.
+		std::vector<std::string> lines(1);
+		for (const char c : body)
+		{
+			if (c == '\r') continue;
+			if (c == '\n') lines.emplace_back();
+			else lines.back() += c;
+		}
+		std::size_t common = std::string::npos;
+		for (std::size_t k = 1; k < lines.size(); ++k)
+		{
+			const auto first = lines[k].find_first_not_of(' ');
+			if (first != std::string::npos) common = std::min(common, first);
+		}
+		if (common == std::string::npos) common = 0;
+		std::string indented = lines[0];
+		for (std::size_t k = 1; k < lines.size(); ++k)
+			indented += "\r\n    " + (lines[k].size() >= common ? lines[k].substr(common) : std::string{});
+		out += std::string(n ? ",\r\n    " : "\r\n    ") + json_quote(values[n].first) + ": " + indented;
+	}
+	out += values.empty() ? "}\r\n}\r\n" : "\r\n  }\r\n}\r\n";
+	return out;
 }
 }

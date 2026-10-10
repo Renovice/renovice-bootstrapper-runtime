@@ -33,41 +33,66 @@ State requested_state;
 
 std::filesystem::path state_path()
 {
-	return config::custom_scripts_directory() / L"ScriptStates.json";
+	return config::script_states_path();
 }
 
-bool read_state(State& output)
+// LAYOUT_V2: one mutex for every read-modify-write of the state file (switch requests and SCRIPT
+// SETTINGS value writes both rewrite the whole file and must preserve each other's section).
+std::mutex file_mutex;
+// Larger in V2: the file also carries every package's SCRIPT SETTINGS values.
+constexpr std::uintmax_t maximum_state_size_v2 = 4ull * 1024ull * 1024ull;
+
+// Reads the state file bytes. Returns false on an I/O or size error; `present` is false when the
+// file does not exist (an empty policy).
+bool read_state_text(std::string& bytes, bool& present)
 {
-	output.clear();
+	bytes.clear();
+	present = false;
 	const auto path = state_path();
 	std::error_code ec;
 	if (!std::filesystem::exists(path, ec)) return !ec;
 	const auto size = std::filesystem::file_size(path, ec);
-	if (ec || size > maximum_state_size
+	const auto limit = config::layout_v2() ? maximum_state_size_v2 : maximum_state_size;
+	if (ec || size > limit
 		|| size > static_cast<std::uintmax_t>((std::numeric_limits<std::streamsize>::max)()))
 	{
 		return false;
 	}
-	std::string bytes(static_cast<std::size_t>(size), '\0');
+	bytes.assign(static_cast<std::size_t>(size), '\0');
 	std::ifstream input(path, std::ios::binary);
 	if (!input || (size != 0 && !input.read(bytes.data(), static_cast<std::streamsize>(size))))
 	{
 		return false;
 	}
-	if (bytes.empty()) return false;
+	present = true;
+	return !bytes.empty();
+}
+
+bool read_state(State& output)
+{
+	output.clear();
+	std::string bytes;
+	bool present = false;
+	if (!read_state_text(bytes, present)) return false;
+	if (!present) return true;
 	auto root = soup::json::decode(bytes.data(), bytes.size());
 	if (!root || !root->isObj()) return false;
 	auto& object = root->reinterpretAsObj();
-	if (object.children.size() != 2) return false;
+	// V1: exactly {schema: 1, scripts}. V2: {schema: 1 or 2, scripts[, values]} (values only with 2).
+	const bool v2 = config::layout_v2();
 	bool saw_schema = false;
 	bool saw_scripts = false;
+	bool saw_values = false;
+	long long schema = 0;
 	for (const auto& [key, value] : object.children)
 	{
 		if (!key->isStr()) return false;
 		const auto& name = key->reinterpretAsStr().value;
 		if (name == "schema")
 		{
-			if (saw_schema || !value->isInt() || value->asInt().value != 1) return false;
+			if (saw_schema || !value->isInt()) return false;
+			schema = value->asInt().value;
+			if (schema != 1 && !(v2 && schema == state_schema_v2)) return false;
 			saw_schema = true;
 		}
 		else if (name == "scripts")
@@ -75,12 +100,17 @@ bool read_state(State& output)
 			if (saw_scripts || !value->isObj()) return false;
 			saw_scripts = true;
 		}
+		else if (v2 && name == "values")
+		{
+			if (saw_values || !value->isObj()) return false;
+			saw_values = true;
+		}
 		else
 		{
 			return false;
 		}
 	}
-	if (!saw_schema || !saw_scripts) return false;
+	if (!saw_schema || !saw_scripts || (saw_values && schema != state_schema_v2)) return false;
 	auto* scripts = object.find("scripts");
 	if (scripts == nullptr || !scripts->isObj()) return false;
 	for (const auto& [key, value] : scripts->reinterpretAsObj().children)
@@ -95,19 +125,57 @@ bool read_state(State& output)
 	return true;
 }
 
+bool write_state_bytes(const std::string& bytes, std::string& error);
+
+// V2: the current file's `values` entries (exact text), to carry them over when switches change.
+// Fails when the existing file cannot be read or is not valid JSON: never overwrite values it
+// could not read.
+bool current_values(std::vector<std::pair<std::string, std::string>>& values, std::string& error)
+{
+	values.clear();
+	std::string bytes;
+	bool present = false;
+	if (!read_state_text(bytes, present))
+	{
+		error = "ScriptStates.json is unreadable or too large";
+		return false;
+	}
+	if (!present) return true;
+	auto root = soup::json::decode(bytes.data(), bytes.size());
+	std::vector<std::pair<std::string, std::string_view>> spans;
+	if (!root || !root->isObj() || !state_values_spans(bytes, spans))
+	{
+		error = "ScriptStates.json is not valid JSON; values not rewritten";
+		return false;
+	}
+	for (const auto& [key, raw] : spans) values.emplace_back(key, std::string(raw));
+	return true;
+}
+
 bool write_state(const State& state, std::string& error)
 {
+	std::lock_guard file_lock(file_mutex);
+	std::vector<std::pair<std::string, bool>> ordered(state.begin(), state.end());
+	std::sort(ordered.begin(), ordered.end());
+	if (config::layout_v2())
+	{
+		std::vector<std::pair<std::string, std::string>> values;
+		if (!current_values(values, error)) return false;
+		return write_state_bytes(compose_state_file_v2(std::move(ordered), std::move(values)), error);
+	}
 	soup::JsonObject root;
 	root.add("schema", 1);
 	auto scripts = soup::make_unique<soup::JsonObject>();
-	std::vector<std::pair<std::string, bool>> ordered(state.begin(), state.end());
-	std::sort(ordered.begin(), ordered.end());
 	for (const auto& [id, enabled] : ordered) scripts->add(id, enabled);
 	root.add("scripts", std::move(scripts));
 	std::string bytes;
 	root.encodePrettyAndAppendTo(bytes);
 	bytes += "\r\n";
+	return write_state_bytes(bytes, error);
+}
 
+bool write_state_bytes(const std::string& bytes, std::string& error)
+{
 	const auto path = state_path();
 	const auto temporary = path.parent_path() /
 		(L".ScriptStates." + std::to_wstring(GetCurrentProcessId()) + L".tmp");
@@ -376,7 +444,7 @@ std::vector<ScriptInfo> snapshot()
 	}
 	std::vector<ScriptInfo> output;
 	discover_directory(config::injection_directory(), false, policy, requested, output);
-	discover_directory(config::custom_scripts_directory(), true, policy, requested, output);
+	discover_directory(config::replacements_directory(), true, policy, requested, output);
 	discover_packages(policy, requested, output);
 	std::sort(output.begin(), output.end(), [](const ScriptInfo& lhs, const ScriptInfo& rhs)
 	{
@@ -384,6 +452,65 @@ std::vector<ScriptInfo> snapshot()
 		return lhs.filename < rhs.filename;
 	});
 	return output;
+}
+
+bool read_package_values(std::string_view package_id, std::string& text, bool& present, std::string& error)
+{
+	text.clear();
+	present = false;
+	error.clear();
+	if (!config::layout_v2()) return false;
+	std::lock_guard file_lock(file_mutex);
+	std::string bytes;
+	bool file_present = false;
+	if (!read_state_text(bytes, file_present))
+	{
+		error = "values-file-unreadable-empty-or-too-large";
+		return true;
+	}
+	if (!file_present) return false;
+	std::vector<std::pair<std::string, std::string_view>> spans;
+	if (!state_values_spans(bytes, spans))
+	{
+		error = "values-file-invalid-json";
+		return true;
+	}
+	for (const auto& [key, raw] : spans)
+	{
+		if (key != package_id) continue;
+		text.assign(raw);
+		present = true;
+		return true;
+	}
+	return false;
+}
+
+bool write_package_values(
+	const std::vector<std::pair<std::string, std::string>>& entries, std::string& error)
+{
+	if (!config::layout_v2())
+	{
+		error = "package values live in Settings/ in the original layout";
+		return false;
+	}
+	std::lock_guard file_lock(file_mutex);
+	std::vector<std::pair<std::string, std::string>> values;
+	if (!current_values(values, error)) return false;
+	for (const auto& [id, text] : entries)
+	{
+		auto found = std::find_if(values.begin(), values.end(),
+			[&](const auto& entry) { return entry.first == id; });
+		if (found != values.end()) found->second = text;
+		else values.emplace_back(id, text);
+	}
+	State switches;
+	if (!read_state(switches))
+	{
+		error = "ScriptStates.json is invalid; values not written";
+		return false;
+	}
+	std::vector<std::pair<std::string, bool>> ordered(switches.begin(), switches.end());
+	return write_state_bytes(compose_state_file_v2(std::move(ordered), std::move(values)), error);
 }
 
 bool request_enabled(std::string_view id, bool enabled, std::string& error)

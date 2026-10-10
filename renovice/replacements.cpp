@@ -418,7 +418,7 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 {
 	std::unordered_map<std::uint64_t, std::vector<unsigned char>> snapshot;
 	auto available_keys = std::make_shared<KeySet>();
-	if (!load_snapshot(config::custom_scripts_directory(), snapshot, available_keys.get()))
+	if (!load_snapshot(config::replacements_directory(), snapshot, available_keys.get()))
 	{
 		return InitialiseResult::Failed;
 	}
@@ -495,7 +495,7 @@ bool prepare_reload()
 	auto candidate = std::make_shared<Snapshot>();
 	auto available_keys = std::make_shared<KeySet>();
 	if (!load_snapshot(
-		config::custom_scripts_directory(), *candidate, available_keys.get())) return false;
+		config::replacements_directory(), *candidate, available_keys.get())) return false;
 	auto literal_plans = build_literal_plans(*candidate, available_keys.get(), "F9");
 	const auto previous = active_replacements.load(std::memory_order_acquire);
 	prepared_changed_keys = changed_keys(*previous, *candidate);

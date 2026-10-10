@@ -213,7 +213,7 @@ try {
     }
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
-    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\replacements\verify_replacement_settings.cpp')
+    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\replacements\verify_replacement_settings.cpp', 'RENOVICE_TOOLCHAIN\common')
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\replacements\verify_replacement_settings.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
     $literals = Join-Path $mirror 'renovice\live_literals.cpp' # LIVE_LITERALS_V1: packages.cpp attaches recipes

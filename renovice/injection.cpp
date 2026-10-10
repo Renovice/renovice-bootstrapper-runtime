@@ -6200,6 +6200,12 @@ std::vector<settings_ui::PackageView> build_script_settings_views(
 bool write_settings_values_atomic(
 	std::string_view folder, const std::string& text, std::string& error)
 {
+	if (config::layout_v2())
+	{
+		// LAYOUT_V2: the package's entry in Config/ScriptStates.json `values` (atomic whole-file
+		// rewrite that keeps every switch and every other package's values).
+		return script_control::write_package_values({{packages::state_id(folder), text}}, error);
+	}
 	const auto path = packages::settings_values_path(folder);
 	std::error_code ec;
 	std::filesystem::create_directories(path.parent_path(), ec);
@@ -14121,7 +14127,7 @@ void dump_pause_menu_body_once(
 			config::log("RENOVICE Scripts UI bytecode dump FAIL reason=invalid-body");
 			return;
 		}
-		const auto directory = config::custom_scripts_directory() / L"Diagnostics";
+		const auto directory = config::dumps_directory();
 		std::error_code ec;
 		std::filesystem::create_directories(directory, ec);
 		if (ec)

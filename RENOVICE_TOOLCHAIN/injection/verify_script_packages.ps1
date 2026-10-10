@@ -56,7 +56,7 @@ try {
     Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstanceId $vsId -SkipAutomaticLocation -Arch amd64 -HostArch amd64 | Out-Null
     # cl.exe compiles short copies (the repository may be deeper than MAX_PATH).
-    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\injection\verify_script_packages.cpp')
+    $mirror = Copy-GateSources $repo $scratch @('renovice', 'RENOVICE_TOOLCHAIN\injection\verify_script_packages.cpp', 'RENOVICE_TOOLCHAIN\common')
     $source = Join-Path $mirror 'RENOVICE_TOOLCHAIN\injection\verify_script_packages.cpp'
     $scanner = Join-Path $mirror 'renovice\packages.cpp'
     $literals = Join-Path $mirror 'renovice\live_literals.cpp' # LIVE_LITERALS_V1: packages.cpp attaches recipes
