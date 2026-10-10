@@ -38,7 +38,12 @@ User-approved layout (spec copied to the workspace `work/agents/LAYOUT_V2_SPEC.m
   (original-layout meaning, results unchanged); `verify_script_packages` asserts auto-join instead of the old rejection
   (scan summary `accepted=3 -> 4`, the `Extra` fixture package).
 - **Build.** `build_private.ps1`: every gate PASS, PRIVATE BUILD PASS warnings=0 errors=0, DLL
-  `cb8e8ceda960ef7abea0eb310fee513418fdb23c903c5244b251e413815cca2d` (6,110,720 B). Not deployed.
+  `cb8e8ceda960ef7abea0eb310fee513418fdb23c903c5244b251e413815cca2d` (6,110,720 B).
+- **Installed 2026-10-10** into the active game folder (Documents copy, game closed, user OK): migration
+  `--apply` PASS (61 files byte-identical, `Config/ScriptStates.json` 11 switches + 3 packages' values, layout gate
+  19/19 on the installed file), then only `WTSAPI32.dll` changed (`cde4191e…` -> `cb8e8ced…`; game-root inventory
+  before/after in `work/backups/layout-v2-dll-2026-10-10/`). Rollback: copy that folder's `WTSAPI32.dll` back; the
+  old DLL reads `CustomScripts` (unchanged) and ignores `LuaScripts`.
 - **Pending live test** (after migration + DLL install, with the user): Scripts menu lists Addons/Replacements/Packages
   rows and a toggle writes `Config/ScriptStates.json` `scripts`; SCRIPT SETTINGS edit + Confirm writes the package's
   `values` entry and keeps the others; F9 reload; one replacement, one target addon, one package incl. an auto-joined
