@@ -42,8 +42,9 @@ User-approved layout (spec copied to the workspace `work/agents/LAYOUT_V2_SPEC.m
 - **Installed 2026-10-10** into the active game folder (Documents copy, game closed, user OK): migration
   `--apply` PASS (61 files byte-identical, `Config/ScriptStates.json` 11 switches + 3 packages' values, layout gate
   19/19 on the installed file), then only `WTSAPI32.dll` changed (`cde4191e…` -> `cb8e8ced…`; game-root inventory
-  before/after in `work/backups/layout-v2-dll-2026-10-10/`). Rollback: copy that folder's `WTSAPI32.dll` back; the
-  old DLL reads `CustomScripts` (unchanged) and ignores `LuaScripts`.
+  before/after in `work/backups/layout-v2-dll-2026-10-10/`). Then, with the user's OK, `OpenWF/CustomScripts` was moved
+  into that backup folder (65 files; 58 byte-identical in `LuaScripts`, the rest merged/replaced/grown log). Rollback:
+  copy that folder's `WTSAPI32.dll` and `CustomScripts/` back into the game; the old DLL ignores `LuaScripts`.
 - **Pending live test** (after migration + DLL install, with the user): Scripts menu lists Addons/Replacements/Packages
   rows and a toggle writes `Config/ScriptStates.json` `scripts`; SCRIPT SETTINGS edit + Confirm writes the package's
   `values` entry and keeps the others; F9 reload; one replacement, one target addon, one package incl. an auto-joined
