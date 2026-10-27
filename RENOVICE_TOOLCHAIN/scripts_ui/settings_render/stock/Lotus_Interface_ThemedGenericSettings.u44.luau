@@ -3353,12 +3353,7 @@
                             c47v3 = 1
                             for __renovice_for_46_1_0 = c47v4, c47v2, c47v3 do
                               c47v5 = c47v0.mIconGrid
-                              c47v7 = {}
-                              c47v10 = c47v0.mIcons
-                              c47v9 = c47v10[__renovice_for_46_1_0]
-                              c47v7.Icon = c47v9
-                              c47v8 = true
-                              c47v7[1] = c47v8
+                              c47v7 = {Icon = c47v0.mIcons[__renovice_for_46_1_0], true}
                               c47v5:AddElement(c47v7)
                             end
                             c47v2 = c47v0.mIconGrid

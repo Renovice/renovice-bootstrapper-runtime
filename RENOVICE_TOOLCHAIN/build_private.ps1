@@ -111,7 +111,13 @@ try {
 		Write-Output "PRIVATE BUILD CACHE CLEAN PASS path=$resolvedIntermediate"
 	}
 
-    $archiveOutput = @(& $phpExe archive.php 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    # PowerShell 5.1 turns a native command's stderr into a terminating error under 'Stop' (git prints
+    # benign notices, e.g. CRLF normalization, there); run with 'Continue' and judge by exit code only,
+    # same as nu_build.ps1's Invoke-Native.
+    $savedEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $archiveOutput = @(& $phpExe archive.php 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") }) }
+    finally { $ErrorActionPreference = $savedEap }
     $archiveExitCode = $LASTEXITCODE
     [System.IO.File]::WriteAllText(
         $archiveLog,
@@ -124,7 +130,10 @@ try {
 
     $sunProject = if ($SettingsProbeP0) { "_renovice_private_msvc_probe" } else { "_renovice_private_msvc" }
     Write-Output "PRIVATE BUILD PROJECT $sunProject"
-    $buildOutput = @(& $sunExe $sunProject 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") })
+    $savedEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $buildOutput = @(& $sunExe $sunProject 2>&1 | ForEach-Object { $_.ToString().TrimEnd("`r") }) }
+    finally { $ErrorActionPreference = $savedEap }
     $buildExitCode = $LASTEXITCODE
     [System.IO.File]::WriteAllText(
         $buildLog,

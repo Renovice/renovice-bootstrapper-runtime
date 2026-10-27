@@ -56,7 +56,7 @@ struct BuildRegistration {
     Layout layout;
 };
 
-inline constexpr std::array<BuildRegistration, 7> registered_builds{{
+inline constexpr std::array<BuildRegistration, 8> registered_builds{{
     {
         "43 2026.08.19.11.06",
         {"cca46d604a498cd95f0d28e3e8f3eee8833f5d362666a8e5c820c535f7c2af93", ""},
@@ -202,6 +202,29 @@ inline constexpr std::array<BuildRegistration, 7> registered_builds{{
         {"5be8e18f2d1cc9a3c78365db2d6bde9ba073ef2020fbd562e9254433fb69e8c5", ""},
         {0x911b50, 0x5ff740, 0x2cab70},
         0x1543890,
+        {19, 0xac7e8740},
+        {17, 0x8637d1b6},
+        {
+            0x28,
+            0x350,
+            0x2c8,
+            0x338,
+            0x00,
+            0x60,
+            0x0c,
+            0x14,
+            0x20,
+            0x24,
+            0x30,
+            0x10,
+            0x20,
+        },
+    },
+    {
+        "44.x 2026.10.22.13.12",
+        {"eec0dbd7078cd6e1f2402fc953ec2741e87a6fb2658ec288be195aac75a1e76d", ""},
+        {0xd40ee0, 0x524b60, 0x12cb3e0},
+        0x123df60,
         {19, 0xac7e8740},
         {17, 0x8637d1b6},
         {

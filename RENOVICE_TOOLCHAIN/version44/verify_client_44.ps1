@@ -53,6 +53,12 @@ $certifiedClients = @(@{
     Sha256 = "5be8e18f2d1cc9a3c78365db2d6bde9ba073ef2020fbd562e9254433fb69e8c5"
     UndumpRaw = "1919e30"
     UndumpRva = "191aa30"
+}, @{
+    # 2026.10.22.13.12 (native update tool 2026-10-27)
+    Version = "2026.10.22.13.12"
+    Sha256 = "eec0dbd7078cd6e1f2402fc953ec2741e87a6fb2658ec288be195aac75a1e76d"
+    UndumpRaw = "1919e30"
+    UndumpRva = "191aa30"
 })
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ProxyDllPath = if ([string]::IsNullOrWhiteSpace($ProxyDllPath)) {

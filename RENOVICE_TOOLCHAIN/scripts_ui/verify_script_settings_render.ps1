@@ -123,8 +123,19 @@ foreach ($module in $modules) {
 # to patch two toolchain rendering defects (List CreateList SETLIST into the
 # constructor table; List Redraw by-value CAPTURE); derecomp 9c008ae renders
 # both correctly. Pin that the fixed forms are present.
+#
+# 2026-10-27: derecomp (de-luau-toolchain campaign/cfg-u441-2026-10-09 5cf8847) now collapses the whole
+# CreateList object into one inline `c87v3 = {field = value, ..., call(...), ...}` constructor instead of
+# a `c87v3 = {}` followed by per-field statements and a trailing `c87v3[1] = c87v4` append. Same runtime
+# table, same position 1 entry - the invariant to guard is still "the appended value lands in the same
+# constructor as every other field, not a separate single-element table that would silently drop them"
+# (the R3 defect was exactly that: `c87v3 = {c87v4}` replaced the whole object). Check the single-line
+# constructor directly instead of the old two-statement form.
 $listRender = [IO.File]::ReadAllText((Join-Path $renderDir "stock\EE_Interface_Components_List.u44.luau")).Replace("`r`n", "`n")
-Require ($listRender.Contains("`n    c87v3[1] = c87v4`n") -and -not $listRender.Contains("`n    c87v3 = {c87v4}`n")) "List CreateList SETLIST renders as an append (no harness render patch)"
+$listCtorLine = ($listRender -split "`n") | Where-Object { $_ -match '^\s*c87v3 = \{mMovie = c87v0,' } | Select-Object -First 1
+Require ($null -ne $listCtorLine) "List CreateList builds c87v3 as one inline constructor starting with mMovie"
+Require ($listCtorLine -and $listCtorLine.Contains('c87v0:Name__863e56e7(c87v1, 67, false)') -and $listCtorLine.Contains('mInterpolationProps = {12, 1}')) "List CreateList SETLIST append (position 1) renders inside the same constructor as every other field (no harness render patch)"
+Require (-not $listRender.Contains("`n    c87v3 = {c87v4}`n")) "List CreateList never collapses to the single-element replacement form (the R3 defect)"
 Require ($listRender.Contains('local __renovice_capture_54_1 = c55v17') -and $listRender.Contains('local __renovice_capture_54_2 = c55v19')) "List Redraw by-value captures render as per-closure snapshots (no harness render patch)"
 
 function Get-HarnessRender($Module) {

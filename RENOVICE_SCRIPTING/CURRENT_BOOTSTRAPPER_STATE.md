@@ -1,5 +1,88 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-27 44.1.3 deployed: Sideloadify allowlist row + build_private.ps1 native-stderr fix — installed
+
+Follow-up to the entry below; that candidate (`fbe860ef…`) was installed, rejected at startup, and superseded.
+
+- **Launcher message.** Steam's 44.1.3 update replaced `Warframe.x64.exe` with the stock image
+  (`eec0dbd7…`, `DependentLoadFlags = 0x800`), so Windows never loaded the proxy DLL and the game showed
+  "Please run Warframe from the Launcher" (the documented `build.dll_search` case). Applied
+  `uc_sideload.sideload()` (clears exactly the two `DependentLoadFlags` bytes, Sideloadify's change):
+  patched exe `c1ae12fb5257e29df41ab0cc11d3a7f8dc027051d21e0b6e96ede3139d020584`, same size. Stock exe kept at
+  `<Steam>/_predeploy_backup_44.1.3-2026-10-27/Warframe.x64.exe.bak`.
+- **"Game version too new".** The DLL then loaded but failed closed: `supported_client_sha256_44` had only the
+  stock hash for this build. Every earlier certified 44.x build carries a Steam + Sideloadify pair; the
+  native-update pass added only the stock half. Added the `c1ae12fb…` row to `OpenWF/tunables.json`.
+- **build_private.ps1 fix.** The rebuild aborted at `archive.php`: under `$ErrorActionPreference = "Stop"`,
+  PowerShell 5.1 turns any native stderr line into a terminating error, and git printed a benign CRLF notice from
+  `archive.php`'s `git status` (dirty working tree). The `php archive.php` and `Sun.exe` calls now run with
+  `Continue` and are judged by exit code only, the same pattern as `nu_build.ps1`'s `Invoke-Native`. Real
+  failures still throw (`Archive generation failed` / the Sun exit-code check are unchanged).
+- **Build.** Every gate PASS, PRIVATE BUILD PASS warnings=0 errors=0, DLL
+  `42c70a05684f05b4879998ec4c68f9cd29fc60543951ef1618d2dc36214ea4a2` (6,111,232 B), Hotfix.owf
+  `fd590c688cea00bf443294b875d0dc54a5703d78498d0e297f03c45134ebd02d`. Staged in
+  `work/native-update/stage/44.1.3-2026-10-27-rebuild2/`.
+- **Deployed** to the Steam folder (game stopped): `WTSAPI32.dll` and `OpenWF/Hotfix.owf`, hashes verified after
+  copy. Rollback: the superseded candidate (`fbe860ef…` / `9bb84dad…`) in
+  `<Steam>/_predeploy_backup_44.1.3-2026-10-27-rebuild2/`; the pre-session `Hotfix.owf` (`de89343e…`) in
+  `<Steam>/_predeploy_backup_44.1.3-2026-10-27/`. Nothing else in the game folder changed.
+  The `Documents\Warframe` copy was not updated (still the older `cb8e8ced…` DLL).
+
+**Live evidence.** The game starts past both dialogs and the user logged in and played (Prologue to Tau
+inbox delivery observed). Not yet reported: `DE_VM_AUTHORITY PASS`/`RELOAD PASS` in the log, Scripts menu, F9,
+F10/Pluto, one replacement toggle. `ENGINE_PARAM_OVERRIDE` (R16) is still staged-only.
+
+## 2026-10-27 Native update to client 2026.10.22.13.12 (44.1.3) + render-gate re-pin — built, not deployed
+
+Branch `main` (no feature branch; this is a routine native-update + toolchain-sync pass, not a capability change).
+No runtime source changed; this entry covers client-build compatibility data and a toolchain-drift gate fix only.
+
+- **Why.** The Steam client had moved to `2026.10.22.13.12` (Hotfix 44.1.3; last certified build was
+  `2026.10.08.13.05`, 44.1.1) with no bootstrapper work logged since 2026-10-10. `renovice_native_update.py`
+  (staged 2026-10-02, never previously run against a real new build) was run for the first time for real.
+- **Native update (steps 2/4, native side).** `renovice_native_update.py --game <Steam> --out
+  work/native-update/scans/44.1.3-2026-10-27 --apply`: 112 items resolved automatically (signatures relocated,
+  identity facts re-derived, ENGINE_DAMAGE table re-derived, byte-ranges re-anchored), 0 process-scope review
+  items, 1 feature-scope review item (`table.engine_params` / `ENGINE_PARAM_OVERRIDE`, R16): the reference image
+  predates that feature (it is staged, never deployed), so there is nothing to relocate from. Allowlist decision
+  `add`, reason `every process-scope dependency resolved` - the build is not blocked, only `ENGINE_PARAM_OVERRIDE`
+  stays unavailable on this build until it gets its own native identification pass. Changed: `OpenWF/tunables.json`
+  (new `supported_builds_44` / `supported_client_sha256_44` row), `RENOVICE_TOOLCHAIN/version44/verify_client_44.ps1`
+  (new certified-client row, same `UndumpRaw`/`UndumpRva` as 44.1.1), `renovice/engine_damage_builds.hpp` (new
+  build registration, re-derived codec/slots).
+- **Unrelated pre-existing break found and fixed: SCRIPT SETTINGS RENDER GATE.** The first full `build_private.ps1`
+  run since 2026-10-10 failed at `verify_script_settings_render.ps1`, unrelated to the native update (confirmed:
+  the same gate fails identically on a clean `git stash` of the native-update changes). Root cause: `derecomp.exe`
+  (`repos/toolchains/de-luau-toolchain`, independently developed) advanced from `44e358b` (701a2adf…, pinned
+  2026-10-08) to `campaign/cfg-u441-2026-10-09` `5cf8847` (14c22656…), which now collapses a table built at one
+  site - sequential `t.field = value` / `t[n] = value` statements - into one inline `t = {field = value, ...}`
+  constructor. Confirmed by direct diff against a fresh `derecomp decompile-mod-u44` of the pinned stock
+  bytecode: the stock `.lua_B` hashes are byte-identical to the pinned reference (only the decompiler's text form
+  changed, not the game bytecode), and the only behavioral difference is the SETLIST-into-existing-table pattern
+  (`EE.Interface.Components.List` CreateList) now renders its position-1 append inline inside the same
+  constructor as every other field instead of as a separate trailing `c87v3[1] = c87v4` statement - same runtime
+  table, same value, same position, just fewer statements. The `__renovice_capture_54_1`/`_2` by-value-capture
+  check (the other R3/R4 toolchain-defect guard) was unaffected.
+  - Re-pinned `settings_render/stock/{Lotus_Interface_ThemedGenericSettings,EE_Interface_Components_List}.u44.luau`
+    and their `render:` hashes in `STOCK_INPUTS.txt` (the `stock:` bytecode hashes are unchanged, confirming scope).
+  - Updated `verify_script_settings_render.ps1`'s List CreateList check to assert the new invariant directly:
+    the single-line `c87v3 = {mMovie = c87v0, ...}` constructor contains both the Name__863e56e7 append call and
+    a representative pre-existing field (proving they land in one object, not a dropped single-element
+    replacement - the original R3 defect this check guards against), plus an explicit negative check that the
+    old single-element replacement form (`c87v3 = {c87v4}`) never reappears.
+  - Verified independently before re-pinning: confirmed via `git stash` that the gate fails identically on the
+    unmodified HEAD (not caused by the native-update changes).
+- **Build.** `build_private.ps1`: every gate PASS (including the fixed render gate's full harness replay -
+  negative controls R2/R3/R4, R5 nested flows, R7 reset/resetall, replacement-member rows), PRIVATE BUILD PASS
+  warnings=0 errors=0, DLL `fbe860ef108ac05e3a84b7eedb8ee6a41054fc9c334c5acbf0dc666fbeeef4d3` (6,111,232 B),
+  Hotfix.owf `9bb84dad5610d17b5ad42b8aee5e64289725093fc7080fd49b5113d2b79cd67d` (54,383 B). Staged in
+  `work/native-update/stage/44.1.3-2026-10-27/` with `SHA256SUMS.txt`.
+
+**Not deployed.** The installed Steam DLL is unchanged; nothing in this entry has touched the live game folder.
+`ENGINE_PARAM_OVERRIDE` (R16) remains staged-only, now also pending its own native-update pass before it can be
+considered for the 44.1.3 allowlist. Live acceptance (startup `DE_VM_AUTHORITY PASS`/`RELOAD PASS`, Scripts menu,
+F9, F10/Pluto, one replacement toggle) is pending if and when this candidate is installed.
+
 ## 2026-10-10 Script folder layout V2 (`OpenWF/LuaScripts`) — built and gated, not deployed
 
 User-approved layout (spec copied to the workspace `work/agents/LAYOUT_V2_SPEC.md`; user guide
