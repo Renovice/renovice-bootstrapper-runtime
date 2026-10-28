@@ -29,8 +29,9 @@ Follow-up to the entry below; that candidate (`fbe860ef…`) was installed, reje
   The `Documents\Warframe` copy was not updated (still the older `cb8e8ced…` DLL).
 
 **Live evidence.** The game starts past both dialogs and the user logged in and played (Prologue to Tau
-inbox delivery observed). Not yet reported: `DE_VM_AUTHORITY PASS`/`RELOAD PASS` in the log, Scripts menu, F9,
-F10/Pluto, one replacement toggle. `ENGINE_PARAM_OVERRIDE` (R16) is still staged-only.
+inbox delivery observed). 2026-10-28: user confirmed custom scripts work in game on this DLL. Not individually
+reported: the `DE_VM_AUTHORITY PASS`/`RELOAD PASS` log lines, F9, F10/Pluto, one replacement toggle.
+`ENGINE_PARAM_OVERRIDE` (R16) is still staged-only.
 
 ## 2026-10-27 Native update to client 2026.10.22.13.12 (44.1.3) + render-gate re-pin — built, not deployed
 
