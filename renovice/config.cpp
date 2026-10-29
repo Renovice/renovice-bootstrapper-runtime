@@ -376,7 +376,7 @@ bool initialise()
 			<< (layout_v2_active ? "Config/Logs.cfg" : "renovice.cfg") << " is unreadable or oversized" << std::endl;
 		return false;
 	}
-	conout << "RENOVICE configuration enabled: CustomScripts="
+	if (config::logging_enabled()) conout << "RENOVICE configuration enabled: CustomScripts="
 		<< scripts_directory.string()
 		<< " Layout=" << (layout_v2_active ? "V2" : "V1")
 		<< " Logging=" << active_flags.logging
@@ -567,6 +567,38 @@ void verbose_log(std::string_view message) noexcept
 		std::lock_guard lock(state_mutex);
 		if (!active_flags.verbose) return;
 	}
+	log(message);
+}
+
+bool logging_enabled() noexcept
+{
+	std::lock_guard lock(state_mutex);
+	return active_flags.logging;
+}
+
+bool verbose_enabled() noexcept
+{
+	std::lock_guard lock(state_mutex);
+	return active_flags.logging && active_flags.verbose;
+}
+
+void info(std::string_view message) noexcept
+{
+	if (!logging_enabled()) return;
+	conout << std::string(message) << std::endl;
+	log(message);
+}
+
+void verbose(std::string_view message) noexcept
+{
+	if (!verbose_enabled()) return;
+	conout << std::string(message) << std::endl;
+	log(message);
+}
+
+void error(std::string_view message) noexcept
+{
+	conout << std::string(message) << std::endl;
 	log(message);
 }
 

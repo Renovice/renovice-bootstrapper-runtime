@@ -37,7 +37,7 @@
 // Page ids: root, flat, pkg:<Folder>, node:<Folder>/<node id>, quick:<Folder>,
 // val:<Folder>/<value id>, qval:<Folder>/<value id>.
 // Layout: nested by default (root -> package -> path pages -> value page);
-// SettingsMenuNested=false selects one flat list.
+// (The flat list, formerly SettingsMenuNested=false, remains only as the offline render dump.)
 
 #include <algorithm>
 #include <cctype>
@@ -723,7 +723,7 @@ inline bool quick_on(const PackageView& view, const settings::ValueDecl& declara
 	return entry_applies(view, declaration);
 }
 
-// Nested layout, the default (SettingsMenuNested=false selects the flat list).
+// Nested layout, the only SCRIPT SETTINGS layout (SettingsMenuNested removed 2026-10-29).
 // The top page lists only the packages that declare settings.
 inline Page build_root_page(const std::vector<PackageView>& views)
 {
@@ -900,8 +900,8 @@ inline Page build_value_page(const PackageView& view, std::string_view value_id,
 	return page;
 }
 
-// Flat layout (SettingsMenuNested=false): one list, a TITLE per package and per
-// page of values, every value one row.
+// Flat dump: one list, a TITLE per package and per page of values, every value one row. Not a menu layout any
+// more (SettingsMenuNested removed 2026-10-29); kept for the offline render harness.
 inline Page build_flat_page(const std::vector<PackageView>& views)
 {
 	Page page;
@@ -955,7 +955,6 @@ inline const PackageView* view_for_folder(const std::vector<PackageView>& views,
 inline Page select_page(const std::vector<PackageView>& views, std::string_view page_id, bool& found)
 {
 	found = true;
-	if (page_id == "flat") return build_flat_page(views);
 	if (page_id == "root") return build_root_page(views);
 	const auto split = [&](std::string_view prefix, std::string_view& folder, std::string_view& rest)
 	{

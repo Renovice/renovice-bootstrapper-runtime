@@ -257,15 +257,13 @@ soup::Pointer resolve_unique(
 		std::ostringstream failure;
 		failure << "RENOVICE DE_VM_AUTHORITY resolve FAIL primitive=" << label
 			<< " matches=" << count;
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 	}
 	catch (...)
 	{
 		const std::string failure = std::string(
 			"RENOVICE DE_VM_AUTHORITY resolve EXCEPTION primitive=") + label;
-		conout << failure << std::endl;
-		config::log(failure);
+		config::info(failure);
 	}
 	return {};
 }
@@ -311,15 +309,13 @@ soup::Pointer resolve_lock_thunk(
 			<< " matches=" << matches << " thunks=" << count
 			<< " import=" << lock_import_module << '!' << import_name
 			<< " import_slot=" << (slot_rva != 0 ? "unique" : "missing");
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 	}
 	catch (...)
 	{
 		const std::string failure = std::string(
 			"RENOVICE DE_VM_AUTHORITY resolve EXCEPTION primitive=") + label;
-		conout << failure << std::endl;
-		config::log(failure);
+		config::info(failure);
 	}
 	return {};
 }
@@ -610,7 +606,7 @@ bool initialise(bool exact_supported_build) noexcept
 				<< " leave_rva=0x" << (leave.as<std::uintptr_t>() - module_base)
 				<< " dispatcher_rva=0x" << (dispatcher.as<std::uintptr_t>() - module_base)
 				<< std::dec << " import=" << lock_import_module;
-			config::log(identity.str());
+			config::verbose_log(identity.str());
 		}
 
 		lock_enter = enter.as<ScriptMgrLock>();
@@ -631,8 +627,7 @@ bool initialise(bool exact_supported_build) noexcept
 
 		static constexpr char success[] =
 			"RENOVICE DE_VM_AUTHORITY PASS lock=ScriptMgr pcall=protected raw=frame-restored throw=exact-status publication=raw-protected flash_lifecycle=shutdown-owned";
-		conout << success << std::endl;
-		config::log(success);
+		config::verbose(success);
 		// Commit readiness only after every fallible resolution, hook and report
 		// step has completed. Catch paths always restore the all-null state.
 		authority_ready.store(true, std::memory_order_release);
@@ -643,14 +638,12 @@ bool initialise(bool exact_supported_build) noexcept
 		rollback_shutdown_hook(shutdown_enabled, shutdown_created);
 		const std::string failure = std::string(
 			"RENOVICE DE_VM_AUTHORITY FAIL reason=") + error.what();
-		conout << failure << std::endl;
-		config::log(failure);
+		config::error(failure);
 	}
 	catch (...)
 	{
 		rollback_shutdown_hook(shutdown_enabled, shutdown_created);
-		conout << "RENOVICE DE_VM_AUTHORITY FAIL reason=unknown-exception" << std::endl;
-		config::log("RENOVICE DE_VM_AUTHORITY FAIL reason=unknown-exception");
+		config::error("RENOVICE DE_VM_AUTHORITY FAIL reason=unknown-exception");
 	}
 	return false;
 }

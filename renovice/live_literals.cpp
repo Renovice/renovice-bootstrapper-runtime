@@ -31,9 +31,12 @@ constexpr std::size_t maximum_synthesis_lines = 256;
 void report(const std::string& message)
 {
 #ifndef RENOVICE_PACKAGES_OFFLINE_GATE
-	conout << message << std::endl;
-#endif
+	// LOG_LEVELS_V1: routine plan/accept/PASS lines are Verbose; changes, rejections and failures are Logging.
+	if (config::routine_line(message)) config::verbose(message);
+	else config::info(message);
+#else
 	config::log(message);
+#endif
 }
 
 bool read_recipe(const std::filesystem::path& path, std::string& text)

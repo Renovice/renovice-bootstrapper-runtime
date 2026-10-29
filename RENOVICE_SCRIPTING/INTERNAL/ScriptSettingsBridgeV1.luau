@@ -536,11 +536,8 @@ local function openScriptSettings(parentMovie, resource, layout, getPage, stage,
     host.stage = stage
     host.done = done
     host.act = act
-    local rootPage = "flat"
-    if layout == "nested" then
-        rootPage = "root"
-    end
-    return openPage(parentMovie, rootPage, 1)
+    -- the nested layout is the only layout (SettingsMenuNested removed 2026-10-29); `layout` keeps the host call shape
+    return openPage(parentMovie, "root", 1)
 end
 
 return {

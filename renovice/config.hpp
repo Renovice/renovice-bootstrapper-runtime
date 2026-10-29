@@ -33,6 +33,26 @@ void memory_log(std::string_view message) noexcept;
 
 void log(std::string_view message) noexcept;
 void verbose_log(std::string_view message) noexcept;
+// LOG_LEVELS_V1 (2026-10-29): one switch per line for the source log and its OpenWF console copy.
+//   info    -> Logging=true    (changes, summaries, warnings worth keeping)
+//   verbose -> Verbose=true    (routine PASS/OBSERVE/row lines, per bind/load/menu)
+//   error   -> console always (bounded failure reports); the file copy follows Logging
+// Lua addons see the same switches as context.logging / context.verbose at activate.
+// A routine success line (per load/bind/menu) rather than a change, failure or rejection.
+inline bool routine_line(std::string_view message) noexcept
+{
+	for (const std::string_view bad : {"FAIL", "REJECT", "FATAL", "FAULT", "error", "rejected", "failed"})
+		if (message.find(bad) != std::string_view::npos) return false;
+	for (const std::string_view routine : {" PASS", " PLAN ", "PLAN trigger", "SETTINGS PACKAGE", "ACCEPT", "RECIPE",
+			"scan PASS", "OBSERVE"})
+		if (message.find(routine) != std::string_view::npos) return true;
+	return false;
+}
+bool logging_enabled() noexcept;
+bool verbose_enabled() noexcept;
+void info(std::string_view message) noexcept;
+void verbose(std::string_view message) noexcept;
+void error(std::string_view message) noexcept;
 void diagnostic_log(std::string_view message, DiagnosticsMode minimum_mode) noexcept;
 // Buffered diagnostic lines reach the source log on a bounded cadence; these
 // force them out (normal shutdown flushes automatically).

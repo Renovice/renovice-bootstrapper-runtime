@@ -61,9 +61,7 @@ struct Flags
 	// single flat GenericSettings list with TITLE sections. true: nested
 	// package -> section pages pushed from BUTTON rows; enable only after the
 	// Phase 0 probe proves gate N-1 (nested GenericSettings) live.
-	// R5: nested pages by default (packages -> package -> sections -> value);
-	// SettingsMenuNested=false selects the flat list.
-	bool settings_menu_nested = true;
+	// SettingsMenuNested removed 2026-10-29 (user): the nested SCRIPT SETTINGS layout is the only layout.
 };
 
 inline std::string trim_ascii(std::string_view value)
@@ -259,7 +257,6 @@ inline Flags parse(std::string_view text)
 				{
 					set_diagnostics_damage_type_filter(result, value);
 				}
-				else if (key == "settingsmenunested") result.settings_menu_nested = enabled_value(value);
 			}
 		}
 		if (line_end == std::string_view::npos) break;

@@ -361,7 +361,7 @@ InitialiseResult initialise()
 	active_snapshot.store(snapshot, std::memory_order_release);
 	if (snapshot->replacements.empty())
 	{
-		conout << "RENOVICE SWF replacement disabled: no .swf files found" << std::endl;
+		if (config::logging_enabled()) conout << "RENOVICE SWF replacement disabled: no .swf files found" << std::endl;
 		return InitialiseResult::Disabled;
 	}
 
@@ -392,7 +392,7 @@ InitialiseResult initialise()
 		}
 	}
 	enabled.store(true, std::memory_order_release);
-	conout << "RENOVICE SWF replacement enabled: replacements=" << snapshot->replacements.size()
+	if (config::logging_enabled()) conout << "RENOVICE SWF replacement enabled: replacements=" << snapshot->replacements.size()
 		<< " toc_rules=" << snapshot->toc_rules.size() << std::endl;
 	return InitialiseResult::Enabled;
 }

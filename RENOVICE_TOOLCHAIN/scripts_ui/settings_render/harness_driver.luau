@@ -129,7 +129,7 @@ PAGE.empty = PAGE.empty or "NO PACKAGE SETTINGS FOUND"
 local staged = {}
 local doneCalls = {}
 local function getPage(pageId)
-    if pageId == "flat" then return PAGE end
+    if pageId == "root" or pageId == "flat" then return PAGE end -- the bridge opens "root" (the only layout since 2026-10-29)
     local page = PAGE.valpages["open:" .. pageId]
     if page ~= nil then
         return { title = page.title, empty = "NO SETTINGS", search = false, rows = page.rows }
@@ -259,7 +259,7 @@ local function openFlat(context)
     local before = #HARNESS.instances
     local opened = false
     step(context .. " open", function()
-        opened = bridge.hooks.openScriptSettings(parent, "resource", "flat", getPage, stage, done, act)
+        opened = bridge.hooks.openScriptSettings(parent, "resource", "nested", getPage, stage, done, act)
     end)
     harnessCheck(opened == true and #HARNESS.instances == before + 1, context .. ": bridge opened the flat page", "open")
     local instance = newestInstance()

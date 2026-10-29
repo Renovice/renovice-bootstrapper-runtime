@@ -1,5 +1,38 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-29 Fault-guard frame fix, LOG_LEVELS_V1, SettingsMenuNested removed — installed
+
+- **Crash (live 2026-10-29 16:49).** Windows Application log: `0xc0000005` in `WTSAPI32.dll` (`42c70a05…`) at
+  `+0xa5d2`, inside `native_module_refresh_protected_leaf` during an F9 live-literal refresh of
+  MechSurvivalMission after a settings save. Disassembly: `__builtin_setjmp` on this Win64 target stores
+  `llvm.frameaddress` (`rbp-0x80`) while the landing code and epilogue address the frame through `rbp`, so any
+  fault the guard caught resumed with a wrong `rbp` and crashed (the first landing store,
+  `context->native_fault = true`). The same layout was at all three guard sites (refresh leaf, guarded Lua run
+  leaf, addon lifecycle leaf). The 10-08 non-unwinding-jump fix was therefore incomplete. The original fault code
+  of that crash is lost (no dump); a "true OOM leak" remains UNCONFIRMED (no evidence either way).
+- **Fix.** `RENOVICE_GUARD_STORE_FRAME_REGISTER(guard.jump)` after each `__builtin_setjmp` stores the real `rbp`
+  in the buffer. Verified on the built DLL: at all 3 sites the compiler's `lea rax,[rbp-0x80]` store is followed by
+  `mov rax,rbp` into the same jump slot. `fault_handler` now intercepts hardware faults only (access violation,
+  in-page error, illegal/privileged instruction, misalignment, array bounds, integer divide by zero); C++ throws
+  (`0xE06D7363`), `STATUS_NO_MEMORY` and other software exceptions go to the game's own handlers.
+- **LOG_LEVELS_V1.** `config::info` (Logging), `config::verbose` (Verbose), `config::error` (console always, file
+  under Logging); the console copy now follows the same switch as the file. About 130 call sites converted:
+  routine PASS / OBSERVE / row / plan / post-load / identity lines are Verbose; failures stay always-on.
+  `config::routine_line` classifies the package / live-literal / engine-param / Script Settings reports.
+  Addon `activate(context)` receives `context.logging` / `context.verbose` (read before the guard is armed); the
+  generated Missions addon prints only when `context.logging` is true. Live: 59 lines in a full session with
+  F9 and settings saves (was several hundred).
+- **SettingsMenuNested removed** (user). Nested is the only SCRIPT SETTINGS layout; the key is ignored. The flat
+  page builder stays only as the offline render harness dump.
+- **Build / deploy.** PRIVATE BUILD PASS warnings=0 errors=0, all gates PASS. DLL
+  `90fda4fdcfd4c6d71128affe0c49d595000f5b1386629d46d475618b2b70a8fe` (6,074,368 B), deployed to the Documents and
+  Steam folders (game stopped, hashes verified, only `WTSAPI32.dll` changed). Rollback: `f601bf26…` (log levels +
+  guard fix, without the menu change) in `_predeploy_backup_nonested-2026-10-29`; the pre-session `42c70a05…` in
+  `_predeploy_backup_loglevels-guardfix-2026-10-29` (both game folders). Live: user confirmed normal function.
+- **Open.** The fault that the guard caught on 10-29 is still unknown; with the fix a recurrence logs
+  `native module refresh FAULT … code=` instead of crashing. Memory-leak check (DiagnosticsMemory session with
+  repeated menu/F9 cycles) not run.
+
 ## 2026-10-27 44.1.3 deployed: Sideloadify allowlist row + build_private.ps1 native-stderr fix — installed
 
 Follow-up to the entry below; that candidate (`fbe860ef…`) was installed, rejected at startup, and superseded.

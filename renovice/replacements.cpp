@@ -362,7 +362,7 @@ long long undump_detour(
 		));
 		if (const auto replacement = snapshot->find(key); replacement != snapshot->end())
 		{
-			conout << "RENOVICE Lua replacement matched key=" << key
+			if (config::verbose_enabled()) conout << "RENOVICE Lua replacement matched key=" << key
 				<< " original_bytes=" << body_size
 				<< " replacement_bytes=" << replacement->second.size() << std::endl;
 			const auto result = original(
@@ -425,7 +425,7 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 	auto literal_plans = build_literal_plans(snapshot, available_keys.get(), "startup");
 	if (snapshot.empty() && literal_plans->recipe_keys.empty() && !observe_undumps)
 	{
-		conout << "RENOVICE Lua replacements disabled: no .lua_B files found" << std::endl;
+		if (config::logging_enabled()) conout << "RENOVICE Lua replacements disabled: no .lua_B files found" << std::endl;
 		return InitialiseResult::Disabled;
 	}
 
@@ -477,7 +477,7 @@ InitialiseResult initialise(std::string_view exact_build, bool observe_undumps)
 
 	subsystem_enabled.store(true, std::memory_order_release);
 	const auto committed = active_replacements.load(std::memory_order_acquire);
-	conout << "RENOVICE Lua replacement hook enabled: replacements="
+	if (config::logging_enabled()) conout << "RENOVICE Lua replacement hook enabled: replacements="
 		<< committed->size() << " undump_observer=" << observe_undumps
 		<< " target=" << target << std::endl;
 	return InitialiseResult::Enabled;
@@ -728,8 +728,7 @@ void complete_module_load(void* manager, void* descriptor)
 			<< " captured=" << captured_new
 			<< " queued_unresolved=" << queued_unresolved
 			<< " generation=" << unresolved_generation;
-		conout << message.str() << std::endl;
-		config::log(message.str());
+		config::verbose(message.str());
 	}
 	if (satisfied != 0)
 	{
@@ -737,8 +736,7 @@ void complete_module_load(void* manager, void* descriptor)
 		message << "RENOVICE F9 natural replacement delivery key="
 			<< active.identity.key << " contexts=" << satisfied
 			<< " pending=" << pending_refresh_count.load(std::memory_order_acquire);
-		conout << message.str() << std::endl;
-		config::log(message.str());
+		config::info(message.str());
 	}
 }
 
@@ -869,8 +867,7 @@ bool reexecute_changed_loaded(luau_State* state)
 		<< " unavailable=" << unavailable
 		<< " unresolved=" << unresolved
 		<< " pending_other_vm=" << pending;
-	conout << refresh_summary.str() << std::endl;
-	config::log(refresh_summary.str());
+	config::info(refresh_summary.str());
 	return hot_reload_complete(
 		immediate_pass && unavailable == 0 && unresolved == 0, pending);
 }
@@ -922,7 +919,7 @@ bool drain_pending_for_vm(luau_State* state)
 			name.str(), *job.bytes, state,
 			const_cast<void*>(job.identity.manager),
 			const_cast<void*>(job.identity.descriptor));
-		conout << "RENOVICE F9 VM-local module refresh " << (current ? "PASS" : "FAIL")
+		if (!current || config::verbose_enabled()) conout << "RENOVICE F9 VM-local module refresh " << (current ? "PASS" : "FAIL")
 			<< " generation=" << job.generation
 			<< " key=" << job.identity.key
 			<< " mode=" << (job.restoring_stock ? "stock" : "replacement")
@@ -955,8 +952,7 @@ bool drain_pending_for_vm(luau_State* state)
 	std::ostringstream summary;
 	summary << "RENOVICE F9 VM-local delivery executed=" << jobs.size()
 		<< " failures=" << failures << " pending=" << pending;
-	conout << summary.str() << std::endl;
-	config::log(summary.str());
+	config::info(summary.str());
 	return failures == 0;
 }
 

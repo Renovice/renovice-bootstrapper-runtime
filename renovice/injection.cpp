@@ -514,6 +514,18 @@ struct GuardState
 	void* fault_address = nullptr;
 };
 
+// __builtin_setjmp on this Win64 target stores llvm.frameaddress, which sits below the frame register by the
+// function's frame offset (0x80 in native_module_refresh_protected_leaf), while the landing code and the epilogue
+// address the frame through rbp itself. A caught fault therefore resumed with a wrong rbp and crashed (live
+// 2026-10-29: 0xc0000005 at WTSAPI32+0xa5d2, the landing store context->native_fault = true; gate
+// verify_guard_frame_register). Store the real frame register in the buffer right after arming.
+#define RENOVICE_GUARD_STORE_FRAME_REGISTER(jump_buffer) \
+	do { \
+		void* frame_register_value = nullptr; \
+		__asm__ volatile("movq %%rbp, %0" : "=r"(frame_register_value)); \
+		(jump_buffer)[0] = frame_register_value; \
+	} while (false)
+
 soup::DetourHook loader_hook;
 soup::DetourHook vm_execute_hook;
 soup::DetourHook de_luau_interrupt_hook;
@@ -1986,8 +1998,7 @@ bool read_file(const std::filesystem::path& path, std::vector<unsigned char>& by
 // "before addon staging" with no logged reason).
 void report_scan_rejection(const std::string& message)
 {
-	conout << message << std::endl;
-	config::log(message);
+	config::info(message);
 }
 
 // BEGIN PACKAGE_INJECT_MEMBERS
@@ -2127,8 +2138,7 @@ bool scan_snapshot(
 				const std::string rejected = "RENOVICE MULTI-TARGET ADDON REJECT file="
 					+ name + " reason=" + reason
 					+ " scope=file-local generation=continues";
-				conout << rejected << std::endl;
-				config::log(rejected);
+				config::error(rejected);
 				continue;
 			}
 			target_keys.insert(target_keys.end(), declared.begin(), declared.end());
@@ -2209,7 +2219,7 @@ Function resolve_unique(const soup::Range& range, const char* pattern, const cha
 		conout << "RENOVICE Inject symbol rejected: " << label << " matches=" << count << std::endl;
 		return nullptr;
 	}
-	conout << "RENOVICE Inject symbol: " << label << " target=" << hits[0].as<void*>() << std::endl;
+	if (config::verbose_enabled()) conout << "RENOVICE Inject symbol: " << label << " target=" << hits[0].as<void*>() << std::endl;
 	return hits[0].as<Function>();
 }
 
@@ -4918,8 +4928,7 @@ bool call_value(
 		else failure << " pcall=" << outcome.leaf.callback_status
 			<< shared_callback_error_details(outcome);
 		trace_addon(state, 0, "pcall.error", failure.str());
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 		return false;
 	}
 	if (traced_results != nullptr)
@@ -4972,8 +4981,7 @@ bool call_boolean_value(
 				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=non-boolean";
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 		return false;
 	}
 	return true;
@@ -5010,8 +5018,7 @@ bool call_number_value(
 				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=non-finite-or-non-number";
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 		return false;
 	}
 	return true;
@@ -5050,8 +5057,7 @@ bool call_identity_value(
 				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=missing-identity tag=" << result_tag;
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 		return false;
 	}
 	return true;
@@ -5089,8 +5095,7 @@ bool call_table_value(
 				<< shared_callback_error_details(outcome);
 		}
 		else failure << " result=non-table tag=" << result_tag;
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 		return false;
 	}
 	return true;
@@ -5839,7 +5844,7 @@ int open_scripts_settings_callback(luau_State* state)
 			config::log("RENOVICE Scripts settings open FAIL reason=captured-parent-mMovie");
 			return 0;
 		}
-		config::log("RENOVICE Scripts settings parent movie PASS source=captured-upvalue");
+		config::verbose_log("RENOVICE Scripts settings parent movie PASS source=captured-upvalue");
 		clear_scripts_settings_pending();
 		luau_TValue bridge{};
 		OpenScriptsSettingsLeafContext context;
@@ -5857,7 +5862,7 @@ int open_scripts_settings_callback(luau_State* state)
 				+ " callback=" + std::to_string(context.callback_status));
 			return 0;
 		}
-		config::log("RENOVICE Scripts settings open PASS renderer=ThemedGenericSettings.CHECKBOX bridge=lua-namecall-v10 lotusutilities-enum=v13");
+		config::verbose_log("RENOVICE Scripts settings open PASS renderer=ThemedGenericSettings.CHECKBOX bridge=lua-namecall-v10 lotusutilities-enum=v13");
 	}
 	catch (...)
 	{
@@ -6407,7 +6412,8 @@ bool clear_script_settings_page_root(luau_State* state) noexcept
 
 void log_script_settings(const std::string& message)
 {
-	config::log(message);
+	if (config::routine_line(message)) config::verbose_log(message);
+	else config::log(message);
 }
 
 settings_ui::Page select_script_settings_page(
@@ -6737,7 +6743,6 @@ int open_script_settings_callback(luau_State* state)
 		}
 		const auto snapshot = packages::candidate();
 		auto views = build_script_settings_views(snapshot);
-		const bool nested = config::flags().settings_menu_nested;
 		std::size_t packages_listed = views.size();
 		{
 			std::lock_guard lock(script_settings_session_mutex);
@@ -6745,11 +6750,11 @@ int open_script_settings_callback(luau_State* state)
 			script_settings_session.open = true;
 			script_settings_session.token = next_script_settings_token++;
 			script_settings_session.global_state = state->global_state;
-			script_settings_session.nested = nested;
+			script_settings_session.nested = true;
 			script_settings_session.snapshot = snapshot;
 			script_settings_session.views = std::move(views);
 		}
-		context.strings[0] = nested ? "nested" : "flat";
+		context.strings[0] = "nested";   // the only layout (SettingsMenuNested removed 2026-10-29)
 		context.string_count = 1;
 		context.natives[0] = &script_settings_page_callback;
 		context.native_names[0] = "RENOVICE script settings page";
@@ -6776,7 +6781,7 @@ int open_script_settings_callback(luau_State* state)
 			return 0;
 		}
 		log_script_settings(std::string("RENOVICE Script Settings open PASS renderer=ThemedGenericSettings layout=")
-			+ (nested ? "nested" : "flat") + " packages=" + std::to_string(packages_listed)
+			+ "nested packages=" + std::to_string(packages_listed)
 			+ " bridge=ScriptSettingsBridgeV1");
 	}
 	catch (...)
@@ -7230,7 +7235,7 @@ int pause_menu_builder_wrapper(luau_State* state)
 	bool appended = false;
 	if (!scripts_ui_enabled.load(std::memory_order_acquire))
 	{
-		config::log("RENOVICE Scripts UI row append SKIP reason=bridge-not-configured");
+		config::verbose_log("RENOVICE Scripts UI row append SKIP reason=bridge-not-configured");
 	}
 	else if (arguments.empty() || !is_table(arguments.front().type))
 	{
@@ -7298,7 +7303,7 @@ int pause_menu_builder_wrapper(luau_State* state)
 				const bool settings_appended = settings_append.admitted
 					&& settings_append.restored && settings_append.status == 0
 					&& settings_context.completed && settings_context.appended;
-				config::log(std::string("RENOVICE Script Settings row append ")
+				(settings_appended ? config::verbose_log : config::log)(std::string("RENOVICE Script Settings row append ")
 					+ (settings_appended ? "PASS" : "FAIL")
 					+ " row=\"" + selection.label + "\" after=SCRIPTS scope=capability-local");
 			}
@@ -7791,8 +7796,7 @@ std::uint64_t target_key_for_matcher(
 				failure << "RENOVICE ability matcher FAIL ambiguous targets first=0x"
 					<< std::hex << selected_target_key << " second=0x"
 					<< provider.key << std::dec;
-				conout << failure.str() << std::endl;
-				config::log(failure.str());
+				config::error(failure.str());
 				return 0;
 			}
 		}
@@ -7832,8 +7836,7 @@ void log_native_hook_once(
 	success << "RENOVICE native hook PASS key=" << std::hex << target_key
 		<< std::dec << " event=" << event
 		<< " vm=" << (state == nullptr ? nullptr : state->global_state);
-	conout << success.str() << std::endl;
-	config::log(success.str());
+	config::verbose(success.str());
 }
 
 void dispatch_target_hook(
@@ -8114,8 +8117,7 @@ bool dispatch_ability_card_hooks(
 		std::ostringstream failure;
 		failure << "RENOVICE ability card publish FAIL key=" << std::hex
 			<< target_key << std::dec;
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 		return false;
 	}
 	log_native_hook_once(state, target_key, "afterAbilityCard.publish");
@@ -12119,8 +12121,7 @@ int run_script_observer_adapter(luau_State* state)
 					<< " query_table=" << (query_is_table ? 1 : 0)
 					<< " ability=" << (plan.query.has_ability ? 1 : 0)
 					<< " decision=" << static_cast<unsigned int>(decision);
-				conout << entry.str() << std::endl;
-				config::log(entry.str());
+				config::info(entry.str());
 			}
 
 			if (binding_candidate
@@ -12174,8 +12175,7 @@ int run_script_observer_adapter(luau_State* state)
 					<< " modded=" << (plan.query.modded ? 1 : 0)
 					<< " level="
 					<< (plan.query.level_is_number ? plan.query.level : -1.0f);
-				conout << before.str() << std::endl;
-				config::log(before.str());
+				config::verbose(before.str());
 			}
 		}
 	}
@@ -12250,8 +12250,7 @@ int run_script_observer_adapter(luau_State* state)
 			<< " card_published=" << (card_published ? 1 : 0)
 			<< " published=" << reinterpret_cast<void*>(published_identity)
 			<< " status=" << result_label;
-		conout << after.str() << std::endl;
-		config::log(after.str());
+		config::verbose(after.str());
 	}
 	return result_count;
 }
@@ -12287,8 +12286,7 @@ bool ensure_run_script_observer()
 			std::ostringstream failure;
 			failure << "RENOVICE RunScript observer FAIL bindings="
 				<< candidates.size() << " originals=" << originals.size();
-			conout << failure.str() << std::endl;
-			config::log(failure.str());
+			config::error(failure.str());
 		}
 		return false;
 	}
@@ -12314,8 +12312,7 @@ bool ensure_run_script_observer()
 		<< reinterpret_cast<void*>(original_run_script)
 		<< " trampoline=" << run_script_native_hook.original
 		<< " mode=native-detour hash=0x" << std::hex << run_script_hash;
-	conout << success.str() << std::endl;
-	config::log(success.str());
+	config::verbose(success.str());
 	return true;
 }
 
@@ -12761,8 +12758,7 @@ bool ensure_native_hook_adapters(
 	success << " nativeCalls=" << requested_native_calls.size()
 		<< " nativeBindings=" << native_call_hooks.size()
 		<< " mode=long-damage-transport+compact-exact-native-calls";
-	conout << success.str() << std::endl;
-	config::log(success.str());
+	config::verbose(success.str());
 	for (std::size_t index = native_call_hook_base;
 		index != native_call_hooks.size(); ++index)
 	{
@@ -12773,7 +12769,7 @@ bool ensure_native_hook_adapters(
 			<< " target=" << record->hook.installed_target
 			<< " cave=" << record->hook.code_cave
 			<< " restore=captured-target";
-		config::log(binding.str());
+		config::verbose_log(binding.str());
 	}
 	return true;
 }
@@ -12851,8 +12847,7 @@ void disable_native_hook_adapters(const char* reason)
 	std::ostringstream message;
 	message << "RENOVICE native hook adapter DISABLED reason="
 		<< (reason == nullptr ? "unspecified" : reason);
-	conout << message.str() << std::endl;
-	config::log(message.str());
+	config::verbose(message.str());
 }
 
 bool reconcile_native_hook_contract(const char* stage)
@@ -12915,9 +12910,19 @@ bool reconcile_native_hook_contract(const char* stage)
 
 LONG CALLBACK fault_handler(EXCEPTION_POINTERS* information)
 {
+	// Hardware faults only (2026-10-29): C++ throws (0xE06D7363), STATUS_NO_MEMORY and other software exceptions
+	// belong to the game's own handlers and are not intercepted.
+	const DWORD exception_code = information->ExceptionRecord->ExceptionCode;
+	const bool hardware_fault = exception_code == EXCEPTION_ACCESS_VIOLATION
+		|| exception_code == EXCEPTION_IN_PAGE_ERROR
+		|| exception_code == EXCEPTION_ILLEGAL_INSTRUCTION
+		|| exception_code == EXCEPTION_PRIV_INSTRUCTION
+		|| exception_code == EXCEPTION_DATATYPE_MISALIGNMENT
+		|| exception_code == EXCEPTION_ARRAY_BOUNDS_EXCEEDED
+		|| exception_code == EXCEPTION_INT_DIVIDE_BY_ZERO;
 	if (guard.active
 		&& guard.thread_id == GetCurrentThreadId()
-		&& (information->ExceptionRecord->ExceptionCode & 0xc0000000u) == 0xc0000000u)
+		&& hardware_fault)
 	{
 		if (guard.fault_code == 0)
 		{
@@ -13192,6 +13197,7 @@ void run_guarded_protected_leaf(luau_State* state, void* raw_context) noexcept
 		context->returned = true;
 		return;
 	}
+	RENOVICE_GUARD_STORE_FRAME_REGISTER(guard.jump);
 
 	guard.active = 1;
 	guard.stage = 1;
@@ -13751,6 +13757,9 @@ struct LifecycleLeafContext
 	// When set (activate of an addon member with declarations), the leaf calls
 	// activate(context) with a fresh context.settings table built in this VM.
 	bool deliver_settings = false;
+	// LOG_LEVELS_V1: the switches delivered as context.logging / context.verbose, read before the guard is armed.
+	bool logging_flag = false;
+	bool verbose_flag = false;
 	const SettingsValueView* settings_values = nullptr;
 	std::size_t settings_count = 0;
 	bool guard_prepared = false;
@@ -13815,6 +13824,7 @@ void lifecycle_operation_protected_leaf(
 		context->returned = true;
 		return;
 	}
+	RENOVICE_GUARD_STORE_FRAME_REGISTER(guard.jump);
 
 	guard.active = 1;
 	guard.stage = 20;
@@ -13859,7 +13869,7 @@ void lifecycle_operation_protected_leaf(
 				return;
 			}
 			guard.stage = 21;
-			luau_createtable(state, 0, 1);
+			luau_createtable(state, 0, 3);
 			luau_createtable(state, 0, static_cast<int>(context->settings_count));
 			for (std::size_t index = 0; index != context->settings_count; ++index)
 			{
@@ -13878,6 +13888,17 @@ void lifecycle_operation_protected_leaf(
 				setfield(state, -2, entry.id);
 			}
 			setfield(state, -2, "settings");
+			// LOG_LEVELS_V1: the addon's own log lines follow the RENOVICE switches (read before arming; F9
+			// re-activates with the current values).
+			if (!raw_table_set_bool(state, -1, "logging", context->logging_flag)
+				|| !raw_table_set_bool(state, -1, "verbose", context->verbose_flag))
+			{
+				restore_lua_top();
+				finish_guard();
+				context->failure = LifecycleLeafFailure::settings_table;
+				context->returned = true;
+				return;
+			}
 			state->outtop = guard_base() + 3;
 			lifecycle_arguments = 1;
 		}
@@ -13938,8 +13959,7 @@ bool lifecycle_operation(
 			failure << " error_tag=" << context.error_tag
 				<< " error=\"" << context.error_text << '"';
 		}
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 	};
 	if (state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State))
 		|| state->outtop == nullptr || check_stack == nullptr)
@@ -13963,6 +13983,8 @@ bool lifecycle_operation(
 		for (const auto& value : delivery->values)
 			settings_views.push_back(SettingsValueView{value.id.c_str(), value.value, value.stock});
 		context.deliver_settings = true;
+		context.logging_flag = config::logging_enabled();
+		context.verbose_flag = config::verbose_enabled();
 		context.settings_values = settings_views.data();
 		context.settings_count = settings_views.size();
 	}
@@ -14166,7 +14188,7 @@ void dump_pause_menu_body_once(
 		success << "RENOVICE Scripts UI bytecode dump PASS key=" << std::hex
 			<< boundary.key << std::dec << " bytes=" << size
 			<< " path=" << destination.string();
-		config::log(success.str());
+		config::verbose_log(success.str());
 	}
 	catch (...)
 	{
@@ -14253,8 +14275,7 @@ void remember_target_script_binding_from_boundary(
 		<< " script=" << reinterpret_cast<void*>(binding.script_resource_identity)
 		<< " ability=" << reinterpret_cast<void*>(binding.ability_identity)
 		<< " thread=" << owner_thread;
-	conout << success.str() << std::endl;
-	config::log(success.str());
+	config::verbose(success.str());
 }
 
 void remember_target_script_binding(
@@ -14424,8 +14445,7 @@ void remember_target_module_identity(
 		success << "RENOVICE target module identity PASS key=" << std::hex
 			<< target_key << std::dec << " env=" << identity.environment
 			<< " proto=" << identity.root_proto;
-		conout << success.str() << std::endl;
-		config::log(success.str());
+		config::verbose(success.str());
 	}
 	publish_target_execution_snapshot_locked();
 }
@@ -14794,8 +14814,7 @@ void remember_pause_menu_identity(
 	success << "RENOVICE Scripts UI identity PASS key=" << std::hex
 		<< body_key << std::dec << " vm=" << identity.global_state
 		<< " env=" << identity.environment << " proto=" << identity.root_proto;
-	conout << success.str() << std::endl;
-	config::log(success.str());
+	config::verbose(success.str());
 }
 
 bool decorate_target_card_export(
@@ -15066,7 +15085,7 @@ bool decorate_pause_initialize_assignment(
 	}
 	if (dispatch->isC && dispatch->c.func == &pause_menu_builder_wrapper)
 	{
-		config::log("RENOVICE Scripts UI attach PASS reason=already-installed");
+		config::verbose_log("RENOVICE Scripts UI attach PASS reason=already-installed");
 		return true;
 	}
 
@@ -15094,8 +15113,7 @@ bool decorate_pause_initialize_assignment(
 		<< " builder=" << reinterpret_cast<void*>(builder_value.value.as_uintptr)
 		<< " dispatch=" << reinterpret_cast<void*>(original_dispatch.value.as_uintptr)
 		<< " top_menu_key=" << std::hex << body_key << std::dec;
-	conout << result.str() << std::endl;
-	config::log(result.str());
+	config::verbose(result.str());
 	return pass;
 }
 // END PAUSE_INITIALIZE_INSTALL_OUTER
@@ -16043,8 +16061,7 @@ void apply_target_root_returns(luau_State* state)
 			<< " child_closures=" << entry.child_closures
 			<< " reason=unbound retry=once-per-generation"
 			<< " action=rebind-queued";
-		conout << observed.str() << std::endl;
-		config::log(observed.str());
+		config::info(observed.str());
 	}
 }
 
@@ -16087,7 +16104,7 @@ void vm_execute_detour(luau_State* state)
 			<< " vm=" << pause_root.global_state
 			<< " proto=" << pause_root.root_proto
 			<< " runtime_env=" << pause_root.environment;
-		config::log(observed.str());
+		config::verbose_log(observed.str());
 	}
 	if (target_execution_key != 0)
 	{
@@ -16119,8 +16136,7 @@ void vm_execute_detour(luau_State* state)
 			<< " vm=" << pause_root.global_state
 			<< " proto=" << pause_root.root_proto
 			<< " runtime_env=" << pause_root.environment;
-		conout << result.str() << std::endl;
-		config::log(result.str());
+		config::verbose(result.str());
 		if (attached)
 		{
 			std::lock_guard lock(generation_mutex);
@@ -16330,8 +16346,7 @@ void maybe_run_safe_runtime_tick(luau_State* state) noexcept
 			<< " vm=" << state->global_state
 			<< " ci=" << state->ci
 			<< " base_ci=" << state->base_ci;
-		conout << first_tick.str() << std::endl;
-		config::log(first_tick.str());
+		config::verbose(first_tick.str());
 	}
 	try
 	{
@@ -16412,8 +16427,7 @@ bool ensure_automatic_damage_runtime(
 		<< " build=V87 storage=embedded-dll bytes="
 		<< runtime.bytes.size()
 		<< " coverage=scripted-DamageDD-and-native-HUD-buffs";
-	conout << result.str() << std::endl;
-	config::log(result.str());
+	config::info(result.str());
 	return passed;
 }
 
@@ -16923,8 +16937,7 @@ void publish_replacement_settings_accessor(
 		{
 			line << " scope=module-local values=compiled";
 		}
-		conout << line.str() << std::endl;
-		config::log(line.str());
+		config::info(line.str());
 	}
 	catch (...)
 	{
@@ -16971,8 +16984,7 @@ LoaderDetourOutcome loader_detour_owned(
 		entered << "RENOVICE Scripts UI load ENTER key=" << std::hex
 			<< target_boundary.key << std::dec
 			<< " thread=" << GetCurrentThreadId();
-		conout << entered.str() << std::endl;
-		config::log(entered.str());
+		config::verbose(entered.str());
 	}
 	replacements::begin_module_load(
 		manager, descriptor, target_boundary.valid ? target_boundary.key : 0);
@@ -17006,7 +17018,7 @@ LoaderDetourOutcome loader_detour_owned(
 					captured_environment = environment;
 					captured_manager = manager;
 					context_ready.store(true, std::memory_order_release);
-					conout << "RENOVICE Inject captured live manager=" << manager
+					if (config::verbose_enabled()) conout << "RENOVICE Inject captured live manager=" << manager
 						<< " environment=" << environment << std::endl;
 				}
 			}
@@ -17051,8 +17063,7 @@ LoaderDetourOutcome loader_detour_owned(
 			captured << "RENOVICE safe runtime tick VM captured after loader return"
 				<< " thread=" << GetCurrentThreadId()
 				<< " vm=" << manager_state->global_state;
-			conout << captured.str() << std::endl;
-			config::log(captured.str());
+			config::info(captured.str());
 		}
 	}
 	if (vm_loader_may_drain_pending(lua_execution_depth)
@@ -17133,8 +17144,7 @@ LoaderDetourOutcome loader_detour_owned(
 			<< " result=" << (result ? "PASS" : "FAIL")
 			<< " Initialize_assignments="
 			<< active_pause_load_boundary.initialize_assignments;
-		conout << exited.str() << std::endl;
-		config::log(exited.str());
+		config::info(exited.str());
 	}
 	return {LoaderDetourDisposition::Return, nullptr, 0, result};
 }
@@ -17196,14 +17206,14 @@ bool run_chunk(
 	}
 	if (manager == nullptr || diagnostics::bad_read_ptr(manager, 0x28))
 	{
-		conout << "RENOVICE Inject skipped " << chunk.name << ": manager unavailable" << std::endl;
+		if (config::logging_enabled()) conout << "RENOVICE Inject skipped " << chunk.name << ": manager unavailable" << std::endl;
 		return false;
 	}
 	auto* manager_state = *reinterpret_cast<luau_State**>(
 		reinterpret_cast<unsigned char*>(manager) + 0x20);
 	if (manager_state == nullptr || diagnostics::bad_read_ptr(manager_state, sizeof(luau_State)))
 	{
-		conout << "RENOVICE Inject skipped " << chunk.name << ": manager state unavailable" << std::endl;
+		if (config::logging_enabled()) conout << "RENOVICE Inject skipped " << chunk.name << ": manager state unavailable" << std::endl;
 		return false;
 	}
 	const bool boundary_readable = boundary_state != nullptr
@@ -17268,8 +17278,7 @@ bool run_chunk(
 			<< " result_tag=" << result.result_tag
 			<< " exact_env=" << result.exact_environment_used
 			<< " env=" << result.borrowed_environment;
-		conout << success.str() << std::endl;
-		config::log(success.str());
+		config::verbose(success.str());
 		return true;
 	}
 	else if (result.fault_code != 0)
@@ -17415,8 +17424,7 @@ bool activate_target_addons_locked(
 			std::ostringstream failure;
 			failure << "RENOVICE TARGET ADDON ROLLBACK registry dispatcher unavailable: key="
 				<< std::hex << target_key << std::dec;
-			conout << failure.str() << std::endl;
-			config::log(failure.str());
+			config::info(failure.str());
 			return false;
 		}
 
@@ -17487,8 +17495,7 @@ bool activate_target_addons_locked(
 					<< " key=" << std::hex << target_key << std::dec
 					<< " reason=existing-root-reactivation-"
 					<< cause;
-				conout << failure.str() << std::endl;
-				config::log(failure.str());
+				config::info(failure.str());
 				if (fatal) subsystem_enabled.store(false, std::memory_order_release);
 				return false;
 			}
@@ -17512,8 +17519,7 @@ bool activate_target_addons_locked(
 				<< target_key << std::dec << " addons=" << current.size()
 				<< " mode=existing-registry-roots shared_table="
 				<< reinterpret_cast<void*>(current_shared_table_identity);
-			conout << success.str() << std::endl;
-			config::log(success.str());
+			config::verbose(success.str());
 			return true;
 		}
 	}
@@ -17577,8 +17583,7 @@ bool activate_target_addons_locked(
 				<< chunk->name << " key=" << multi_target_key_text
 				<< " multi_target=" << (chunk->multi_target ? 1 : 0)
 				<< " previous target generation retained";
-			conout << failure.str() << std::endl;
-			config::log(failure.str());
+			config::error(failure.str());
 			return false;
 		}
 		luau_TValue matches_damage_source{};
@@ -17606,8 +17611,7 @@ bool activate_target_addons_locked(
 			failure << "RENOVICE TARGET ADDON ROLLBACK nativeCalls invalid addon="
 				<< candidate.addon.name << " reason=" << native_call_error
 				<< " roots_released=" << released;
-			conout << failure.str() << std::endl;
-			config::log(failure.str());
+			config::error(failure.str());
 			if (!released) subsystem_enabled.store(false, std::memory_order_release);
 			return false;
 		}
@@ -17627,8 +17631,7 @@ bool activate_target_addons_locked(
 			failure << "RENOVICE TARGET ADDON ROLLBACK luaCalls invalid addon="
 				<< candidate.addon.name << " reason=" << lua_call_error
 				<< " roots_released=" << released;
-			conout << failure.str() << std::endl;
-			config::log(failure.str());
+			config::error(failure.str());
 			if (!released) subsystem_enabled.store(false, std::memory_order_release);
 			return false;
 		}
@@ -17661,8 +17664,7 @@ bool activate_target_addons_locked(
 					failure << "RENOVICE TARGET ADDON ROLLBACK luaCalls prototype rejected addon="
 						<< candidate.addon.name << " prototype=" << request.prototype
 						<< " matches=" << matches << " roots_released=" << released;
-					conout << failure.str() << std::endl;
-					config::log(failure.str());
+					config::error(failure.str());
 					if (!released) subsystem_enabled.store(false, std::memory_order_release);
 					return false;
 				}
@@ -17725,8 +17727,7 @@ bool activate_target_addons_locked(
 			<< (transaction == TransactionResult::RollbackFailed
 				|| transaction == TransactionResult::ReleaseRejected ? "FATAL" : "ROLLBACK")
 			<< " key=" << std::hex << target_key << " reason=" << label;
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::info(failure.str());
 		if (transaction == TransactionResult::RollbackFailed
 			|| transaction == TransactionResult::ReleaseRejected)
 		{
@@ -17739,8 +17740,7 @@ bool activate_target_addons_locked(
 	success << "RENOVICE TARGET ADDON PASS key=" << std::hex << target_key
 		<< std::dec << " addons=" << current.size()
 		<< " vm=" << global_state << " thread=" << owner_thread;
-	conout << success.str() << std::endl;
-	config::log(success.str());
+	config::verbose(success.str());
 	const bool native_damage_adapters_requested =
 		native_damage_adapters_requested_locked();
 	const bool native_callsite_adapters_requested =
@@ -18142,8 +18142,7 @@ bool maintain_current_vm_generation(luau_State* state)
 				success << "RENOVICE Scripts UI bridge REBOUND shared_table="
 					<< reinterpret_cast<void*>(shared_table_identity)
 					<< " vm=" << state->global_state;
-				conout << success.str() << std::endl;
-				config::log(success.str());
+				config::info(success.str());
 			}
 			else
 			{
@@ -18168,8 +18167,7 @@ bool maintain_current_vm_generation(luau_State* state)
 			<< queued << " shared_table="
 			<< reinterpret_cast<void*>(shared_table_identity)
 			<< " result=" << (target_ready ? "PASS" : "RETRY");
-		conout << repaired.str() << std::endl;
-		config::log(repaired.str());
+		config::info(repaired.str());
 	}
 	return bridge_ready && target_ready;
 }
@@ -18265,8 +18263,7 @@ void reconcile_optional_bridges_locked(
 		{
 			const std::string message = "RENOVICE internal bridge FAIL file=" + chunk.name
 				+ " reason=" + failure + " scope=capability-local generation=continues";
-			conout << message << std::endl;
-			config::log(message);
+			config::error(message);
 			continue;
 		}
 		config::log("RENOVICE internal bridge PASS file=" + chunk.name
@@ -18332,7 +18329,7 @@ bool apply_generation(
 	auto* state = boundary_state;
 	if (state == nullptr || diagnostics::bad_read_ptr(state, sizeof(luau_State)))
 	{
-		conout << "RENOVICE ADDON ROLLBACK: current DE execution boundary unavailable" << std::endl;
+		if (config::logging_enabled()) conout << "RENOVICE ADDON ROLLBACK: current DE execution boundary unavailable" << std::endl;
 		return false;
 	}
 	const auto lua_blocker = inspect_lua_mutation_boundary(state);
@@ -18368,7 +18365,7 @@ bool apply_generation(
 				}
 				if (!released)
 				{
-					conout << "RENOVICE ADDON FATAL: staged lifecycle roots could not be released" << std::endl;
+					if (config::logging_enabled()) conout << "RENOVICE ADDON FATAL: staged lifecycle roots could not be released" << std::endl;
 					subsystem_enabled.store(false, std::memory_order_release);
 				}
 				conout << "RENOVICE ADDON ROLLBACK stage failed: " << chunk.name
@@ -18449,7 +18446,7 @@ bool apply_generation(
 		// addon can still clean a previously activated VM-local generation.
 		observe_target_addons.store(true, std::memory_order_release);
 	}
-	conout << "RENOVICE RELOAD PASS trigger=" << trigger
+	if (config::logging_enabled()) conout << "RENOVICE RELOAD PASS trigger=" << trigger
 		<< " generation=" << generation
 		<< " addons=" << active_addons.size()
 		<< " managed_generation="
@@ -18473,7 +18470,7 @@ bool apply_generation(
 		<< " one_shots=" << ordinary_count
 		<< " one_shot_failures=" << ordinary_failures
 		<< " target_pending=" << pending_target_addon_refreshes.size();
-	config::log(success.str());
+	config::verbose_log(success.str());
 	if (ordinary_failures != 0)
 	{
 		conout << "RENOVICE warning: managed addon commit succeeded, but one-shot failures cannot be transactionally undone" << std::endl;
@@ -18709,8 +18706,7 @@ void maybe_wrap_global(luau_State* state, std::uint32_t name_hash) noexcept
 						<< " proto="
 						<< (closure->isC ? nullptr : closure->l.p);
 				}
-				conout << observed.str() << std::endl;
-				config::log(observed.str());
+				config::verbose(observed.str());
 			}
 			const bool attached = decorate_pause_initialize_assignment(
 				active_pause_load_boundary.body_key,
@@ -18723,8 +18719,7 @@ void maybe_wrap_global(luau_State* state, std::uint32_t name_hash) noexcept
 				<< " key=" << std::hex
 				<< active_pause_load_boundary.body_key << std::dec
 				<< " assignment=" << assignment;
-			conout << result.str() << std::endl;
-			config::log(result.str());
+			config::verbose(result.str());
 		}
 	}
 	catch (...)
@@ -18891,6 +18886,7 @@ void native_module_refresh_protected_leaf(
 		context->completed = true;
 		return;
 	}
+	RENOVICE_GUARD_STORE_FRAME_REGISTER(guard.jump);
 
 	guard.active = 1;
 	guard.stage = 29;
@@ -19006,8 +19002,7 @@ bool execute_native_module_refresh(
 			<< " address=" << context.fault_address
 			<< " outer_error_jump_restored="
 			<< context.outer_error_jump_restored;
-		conout << failure.str() << std::endl;
-		config::log(failure.str());
+		config::error(failure.str());
 		return false;
 	}
 	std::ostringstream result;
@@ -19015,8 +19010,7 @@ bool execute_native_module_refresh(
 		<< (context.loaded ? "PASS" : "FAIL")
 		<< " " << name << " descriptor=" << descriptor
 		<< " bytes=" << bytes.size();
-	conout << result.str() << std::endl;
-	config::log(result.str());
+	config::info(result.str());
 	return context.loaded;
 }
 
@@ -19028,22 +19022,19 @@ InitialiseResult initialise()
 		: config::diagnostics_enabled()
 			? "RENOVICE native null-fault diagnostics armed"
 			: "RENOVICE native null-fault diagnostics absent while diagnostics are off";
-	conout << diagnostics_state << std::endl;
-	config::log(diagnostics_state);
+	config::error(diagnostics_state);
 	const bool safe_tick_registered = safe_runtime_tick.load(
 		std::memory_order_acquire) != nullptr;
 	const std::string safe_tick_state = safe_tick_registered
 		? "RENOVICE pending-only transaction drain registered: outer VM return; legacy Pluto scheduler excluded"
 		: "RENOVICE transaction drain unavailable: callback not registered";
-	conout << safe_tick_state << std::endl;
-	config::log(safe_tick_state);
+	config::info(safe_tick_state);
 	const bool control_poll_registered = safe_runtime_control_poll.load(
 		std::memory_order_acquire) != nullptr;
 	const std::string control_poll_state = control_poll_registered
 		? "RENOVICE F9 latch registered: Lua-free owner-thread VM returns"
 		: "RENOVICE F9 latch unavailable: control callback not registered";
-	conout << control_poll_state << std::endl;
-	config::log(control_poll_state);
+	config::info(control_poll_state);
 	std::vector<Chunk> snapshot;
 	std::vector<std::uint64_t> target_keys;
 	std::vector<Chunk> startup_optional_bridges;
@@ -19071,14 +19062,12 @@ InitialiseResult initialise()
 	{
 		const std::string architecture = "RENOVICE Scripts UI architecture="
 			+ std::string(pause_menu_architecture_marker);
-		conout << architecture << std::endl;
-		config::log(architecture);
+		config::info(architecture);
 		const std::string ui_state = scripts_ui_enabled.load(
 			std::memory_order_acquire)
 			? "RENOVICE Scripts UI enabled: required NAMECALL bridge configured"
 			: "RENOVICE Scripts UI disabled: required NAMECALL bridge absent; stock TopMenu preserved";
-		conout << ui_state << std::endl;
-		config::log(ui_state);
+		config::info(ui_state);
 	}
 	const auto addons = std::count_if(active_chunks.begin(), active_chunks.end(), [](const Chunk& chunk)
 	{
@@ -19089,7 +19078,7 @@ InitialiseResult initialise()
 		{
 			return chunk.kind == ScriptKind::TargetManagedAddon;
 		});
-	conout << "RENOVICE additive injection enabled: staged_chunks=" << active_chunks.size()
+	if (config::logging_enabled()) conout << "RENOVICE additive injection enabled: staged_chunks=" << active_chunks.size()
 		<< " managed_addons=" << addons
 		<< " target_managed_addons=" << target_addons
 		<< " observed_target_keys=" << target_keys.size()
@@ -19149,8 +19138,7 @@ void poll_f9(bool allow_reload) noexcept
 		if (!already_pending)
 		{
 			reload_request_sequence.fetch_add(1, std::memory_order_acq_rel);
-			conout << "RENOVICE F9 QUEUED source=GetAsyncKeyState" << std::endl;
-			config::log("RENOVICE F9 QUEUED source=GetAsyncKeyState");
+			config::info("RENOVICE F9 QUEUED source=GetAsyncKeyState");
 		}
 	}
 }
@@ -19164,8 +19152,7 @@ void request_reload(const char* source) noexcept
 		reload_request_sequence.fetch_add(1, std::memory_order_acq_rel);
 		std::string message = "RENOVICE reload QUEUED source=";
 		message += source != nullptr ? source : "internal";
-		conout << message << std::endl;
-		config::log(message);
+		config::info(message);
 	}
 }
 
@@ -19308,8 +19295,7 @@ void drain(luau_State* state)
 	}
 	if (reload)
 	{
-		conout << "RENOVICE F9 DRAIN entered same-VM script boundary" << std::endl;
-		config::log("RENOVICE F9 DRAIN entered same-VM script boundary");
+		config::info("RENOVICE F9 DRAIN entered same-VM script boundary");
 	}
 
 	auto discard_prepared = []
@@ -19326,8 +19312,7 @@ void drain(luau_State* state)
 		config::commit_prepared_reload();
 		if (!reconcile_process_fault_diagnostics())
 		{
-			conout << "RENOVICE diagnostics lifecycle reconcile FAIL" << std::endl;
-			config::log("RENOVICE diagnostics lifecycle reconcile FAIL");
+			config::error("RENOVICE diagnostics lifecycle reconcile FAIL");
 		}
 		engine_damage::reset_budget();
 		caster_stats_budget_used.store(0, std::memory_order_relaxed);
@@ -19414,8 +19399,7 @@ void drain(luau_State* state)
 	// 2026-09-29 logged only "F9 ROLLBACK before addon staging".
 	const auto reject_prepared_member = [](const char* message)
 	{
-		conout << message << std::endl;
-		config::log(message);
+		config::error(message);
 	};
 	bool transaction_valid = true;
 	std::vector<Chunk> candidate;
@@ -19483,7 +19467,7 @@ void drain(luau_State* state)
 				const bool module_refresh_complete = replacements::reexecute_changed_loaded(state);
 				if (!module_refresh_complete)
 				{
-					conout << "RENOVICE F9 module refresh incomplete; replacement map remains committed for the next natural load" << std::endl;
+					if (config::logging_enabled()) conout << "RENOVICE F9 module refresh incomplete; replacement map remains committed for the next natural load" << std::endl;
 				}
 				config::log(module_refresh_complete
 					? "RENOVICE F9 COMMITTED module_refresh=PASS"
@@ -19493,7 +19477,7 @@ void drain(luau_State* state)
 		else
 		{
 			if (reload) discard_prepared();
-			conout << "RENOVICE RELOAD ROLLBACK: previous managed generation retained when possible" << std::endl;
+			if (config::logging_enabled()) conout << "RENOVICE RELOAD ROLLBACK: previous managed generation retained when possible" << std::endl;
 			if (reload)
 			{
 				config::log("RENOVICE F9 ROLLBACK during managed generation apply");

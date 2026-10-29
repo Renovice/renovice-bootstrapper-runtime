@@ -338,7 +338,7 @@ bool initialise()
 		// Riven lock off: no hook is installed (unchanged behaviour); the stock
 		// Riven UI is untouched. Creating the file needs a game restart.
 		gate_enabled.store(false, std::memory_order_release);
-		conout << "RENOVICE Riven lock off: riven_lock.cfg absent; hooks not installed" << std::endl;
+		if (config::logging_enabled()) conout << "RENOVICE Riven lock off: riven_lock.cfg absent; hooks not installed" << std::endl;
 		return true;
 	}
 	gate_enabled.store(true, std::memory_order_release);
@@ -357,7 +357,7 @@ bool initialise()
 		return false;
 	}
 	hooks_installed.store(true, std::memory_order_release);
-	conout << "RENOVICE Riven lock enabled: gate=" << gate()
+	if (config::logging_enabled()) conout << "RENOVICE Riven lock enabled: gate=" << gate()
 		<< " endpoint=" << server_host << ':' << (secure_connections ? https_port : http_port) << std::endl;
 	return true;
 }
@@ -374,8 +374,7 @@ void prepare_gate_reload()
 		prepared_gate.reset();
 		const std::string line = "RENOVICE Riven gate read FAIL reason=" + error.message()
 			+ " scope=capability-local gate=retained";
-		conout << line << std::endl;
-		config::log(line);
+		config::error(line);
 		return;
 	}
 	prepared_gate = gate_file == GateFile::Present;
@@ -396,8 +395,7 @@ void commit_prepared_gate()
 		&& !restart_note_logged.exchange(true, std::memory_order_acq_rel))
 	{
 		const char* line = "RENOVICE Riven gate on but hooks not installed (riven_lock.cfg was absent at startup); restart the game to enable the Riven lock";
-		conout << line << std::endl;
-		config::log(line);
+		config::info(line);
 	}
 }
 

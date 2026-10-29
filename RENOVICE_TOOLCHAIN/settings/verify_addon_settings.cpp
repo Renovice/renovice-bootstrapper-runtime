@@ -998,7 +998,7 @@ void ui_page_model()
 			{
 				return row.kind == RowKind::Title || (row.kind == RowKind::Button && row.action.rfind("open:val:", 0) == 0);
 			}),
-		"flat layout (SettingsMenuNested=false): TITLE per script and page, one value BUTTON per value, nothing else");
+		"flat dump (offline render harness): TITLE per script and page, one value BUTTON per value, nothing else");
 
 	// Value pages.
 	const auto reward = select_page(views, "val:Missions/survival.reward_interval", found);
