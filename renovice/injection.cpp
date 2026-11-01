@@ -25,6 +25,7 @@
 #include "script_control.hpp"
 #include "settings_ui_core.hpp"
 #include "swf.hpp"
+#include "object_reflection.hpp"
 
 #include <algorithm>
 #include <array>
@@ -525,6 +526,9 @@ struct GuardState
 		__asm__ volatile("movq %%rbp, %0" : "=r"(frame_register_value)); \
 		(jump_buffer)[0] = frame_register_value; \
 	} while (false)
+
+// OBJECT_REFLECTION_V1 registry root of the RENOVICE API table (also handed to addons as context.renovice).
+constexpr const char* object_api_registry_key = "RENOVICE.object-api.v1";
 
 soup::DetourHook loader_hook;
 soup::DetourHook vm_execute_hook;
@@ -1896,6 +1900,7 @@ int ability_card_wrapper(luau_State* state);
 int set_damage_callback_adapter(luau_State* state);
 int set_source_object_adapter(luau_State* state);
 TargetCallsite target_callsite_for_active_call_stack(luau_State* state);
+TargetCallsite target_callsite_for_immediate_lua_caller(luau_State* state);
 int push_float_arg_adapter(luau_State* state);
 int addon_damage_callback_wrapper(luau_State* state);
 int run_script_observer_adapter(luau_State* state);
@@ -2089,7 +2094,8 @@ bool scan_snapshot(
 			// Reserved infrastructure never enters the ordinary lanes. Optional
 			// bridges are staged after the managed transaction commits, so a
 			// missing or broken one removes only its own menu row.
-			if (optional_internal_bridge_admitted(internal_kind, settings_probe_build))
+			if (optional_internal_bridge_admitted(internal_kind, settings_probe_build,
+				config::population_diagnostics_enabled()))
 			{
 				Chunk bridge;
 				bridge.name = name;
@@ -7612,6 +7618,87 @@ TargetCallsite target_callsite_for_active_call_stack(luau_State* state)
 	return selected;
 }
 
+// 2026-11-01 IMMEDIATE_LUA_CALLER_V1. The exact callsite of a native call: the
+// innermost Lua frame on the active stack (C frames above it are skipped), matched
+// by prototype address against the current generation's published identities of
+// this VM. Only that frame decides; outer frames are never inspected, so a target
+// library called from another target module still has one owner. A prototype
+// published under two target keys is ambiguous and fails closed, as does a saved
+// PC that does not resolve to an instruction of that prototype.
+TargetCallsite target_callsite_for_immediate_lua_caller(luau_State* state)
+{
+	constexpr std::size_t maximum_total_frames = 4096;
+	constexpr std::size_t maximum_c_frames = 8;
+	auto execution = acquire_target_execution_snapshot();
+	const auto* snapshot = execution.snapshot.get();
+	if (snapshot == nullptr || state == nullptr || state->global_state == nullptr
+		|| state->ci == nullptr || state->base_ci == nullptr)
+	{
+		return {};
+	}
+	const auto current_call = reinterpret_cast<std::uintptr_t>(state->ci);
+	const auto base_call = reinterpret_cast<std::uintptr_t>(state->base_ci);
+	if (!valid_target_call_stack_bounds(
+			current_call, base_call, sizeof(luau_CallInfo), maximum_total_frames))
+	{
+		return {};
+	}
+
+	auto call_info_address = current_call;
+	for (std::size_t frame = 0;
+		frame <= maximum_c_frames && call_info_address >= base_call;
+		++frame)
+	{
+		auto* const call_info = reinterpret_cast<luau_CallInfo*>(call_info_address);
+		if (diagnostics::bad_read_ptr(call_info, sizeof(*call_info))
+			|| call_info->func == nullptr
+			|| diagnostics::bad_read_ptr(call_info->func, sizeof(luau_TValue)))
+		{
+			return {};
+		}
+		luau_Closure* closure = nullptr;
+		if (!readable_lua_closure(*call_info->func, closure)) return {};
+		if (!closure->isC)
+		{
+			TargetCallsite selected;
+			const auto proto_address = reinterpret_cast<std::uintptr_t>(closure->l.p);
+			for (const auto& identity : snapshot->identities)
+			{
+				if (identity.global_state != state->global_state) continue;
+				const auto proto = std::lower_bound(
+					identity.prototypes.begin(), identity.prototypes.end(), proto_address,
+					[](const TargetProtoRecord& candidate, std::uintptr_t value)
+					{
+						return candidate.address < value;
+					});
+				if (proto == identity.prototypes.end() || proto->address != proto_address)
+					continue;
+				if (selected.target_key != 0 && selected.target_key != identity.target_key)
+					return {};
+				if (selected.exact) continue;
+				std::uint32_t instruction = 0;
+				const auto byte_count = static_cast<std::size_t>(proto->instructions)
+					* sizeof(std::uint32_t);
+				if (diagnostics::bad_read_ptr(reinterpret_cast<const void*>(proto->code), byte_count)
+					|| !native_callsite_instruction_from_saved_pc(
+						reinterpret_cast<const std::uint32_t*>(proto->code),
+						proto->instructions, call_info->savedpc, instruction, game_version >= GV(44, 0, 0)))
+				{
+					return {};
+				}
+				selected.target_key = identity.target_key;
+				selected.prototype = proto->bytecode_id;
+				selected.instruction = instruction;
+				selected.exact = true;
+			}
+			return selected.exact ? selected : TargetCallsite{};
+		}
+		if (call_info_address == base_call || call_info_address < sizeof(luau_CallInfo)) break;
+		call_info_address -= sizeof(luau_CallInfo);
+	}
+	return {};
+}
+
 void trace_native_call_ingress(
 	luau_State* state,
 	std::size_t slot,
@@ -11417,8 +11504,13 @@ int native_call_adapter(luau_State* state, std::size_t slot)
 						DiagnosticDamageCallsite diagnostic_source;
 						const auto buff_probe = begin_native_buff_probe(
 							flags, record.name, slot, state);
+						// nativeCalls providers belong to the Lua frame that made this
+						// native call (its exact prototype and saved PC), not to every
+						// target on the stack: a target library called from another
+						// target module (EndlessSpawnLib under SurvivalMission) is the
+						// caller, so the outer target is not an ambiguity here.
 						if (observe_target_addons.load(std::memory_order_acquire))
-							callsite = target_callsite_for_active_call_stack(state);
+							callsite = target_callsite_for_immediate_lua_caller(state);
 						if (universal_observer_requested(flags))
 							diagnostic_source = diagnostic_damage_callsite_for_active_stack(state);
 						trace_native_call_ingress(
@@ -13869,7 +13961,7 @@ void lifecycle_operation_protected_leaf(
 				return;
 			}
 			guard.stage = 21;
-			luau_createtable(state, 0, 3);
+			luau_createtable(state, 0, 4);
 			luau_createtable(state, 0, static_cast<int>(context->settings_count));
 			for (std::size_t index = 0; index != context->settings_count; ++index)
 			{
@@ -13899,6 +13991,14 @@ void lifecycle_operation_protected_leaf(
 				context->returned = true;
 				return;
 			}
+			// OBJECT_REFLECTION_V1 (2026-10-31): context.renovice = the published RENOVICE API table (registry
+			// root). Target addons run in their target module's environment, whose _T is that script's own table,
+			// so _T.RENOVICE is not visible there; the activate context is the shared, generation-owned channel.
+			getfield(state, -10000, object_api_registry_key);
+			if (is_table((state->outtop - 1)->type))
+				setfield(state, -2, "renovice");
+			else
+				state->outtop -= 1;
 			state->outtop = guard_base() + 3;
 			lifecycle_arguments = 1;
 		}
@@ -15438,6 +15538,173 @@ void maybe_sample_vm_memory(luau_State* state) noexcept
     if (gate.admit(true, true, now)) capture_vm_memory_evidence(state, gate.sequence, now);
 }
 
+// BEGIN POPULATION_DIAGNOSTICS
+// Population channel (2026-10-30). Diagnostics=true + DiagnosticsPopulation=true
+// only; otherwise one atomic load and return. It runs at the same accepted
+// outer owning-VM return as the memory sampler, on the captured owner thread
+// and VM, rate-limited by DiagnosticsPopulationIntervalMs. The probe is the
+// committed optional internal chunk PopulationProbeV1 (VM- and
+// generation-owned registry root); the native side keeps only a copied
+// TValue for the duration of one protected call. Any failure is logged once
+// (bounded) and the channel backs off; it never touches another lane.
+struct PopulationProbeCallContext
+{
+	luau_TValue function{};
+	bool completed = false;
+	bool returned_string = false;
+	int callback_status = -1;
+	char text[lua_error_text_capacity]{};
+};
+static_assert(std::is_trivially_copyable_v<PopulationProbeCallContext>);
+
+void population_probe_call_leaf(luau_State* state, void* raw_context)
+{
+	auto* const context = static_cast<PopulationProbeCallContext*>(raw_context);
+	if (context == nullptr || state == nullptr || state->outtop == nullptr
+		|| check_stack == nullptr || protected_call == nullptr
+		|| !is_function(context->function.type) || !check_stack(state, 4)) return;
+	const auto base_offset = luau_savestack(state, state->outtop);
+	if (!append_game_vm_stack_value(state, context->function)) return;
+	context->callback_status = protected_call(state, 0, 1, 0);
+	auto* const base = luau_restorestack(state, base_offset);
+	context->completed = true;
+	if (state->outtop > base)
+	{
+		const auto& value = *(state->outtop - 1);
+		context->returned_string = context->callback_status == 0
+			&& (value.type == LUAU_STRING || value.type == deployed_string_tag);
+		capture_lua_error_text(value, context->text, sizeof(context->text));
+	}
+	state->outtop = base;
+}
+
+struct PopulationChannelState
+{
+	population::Tracker tracker{ config::default_diagnostics_max_events };
+	bool tracker_ready = false;
+	bool sampled = false;
+	std::uint64_t last_ms = 0;
+	std::uint64_t backoff_until_ms = 0;
+	std::uint32_t failures_logged = 0;
+};
+// Leaked on purpose: the shutdown hook may run after this TU's statics die.
+PopulationChannelState* const population_channel = new PopulationChannelState();
+std::atomic_bool population_channel_busy = false;
+std::atomic_bool population_shutdown_hook_registered = false;
+constexpr std::uint32_t population_failure_log_limit = 8;
+
+void emit_population_lines(const std::vector<std::string>& lines) noexcept
+{
+	for (const auto& line : lines)
+		config::diagnostic_log(line, config::DiagnosticsMode::errors);
+}
+
+void flush_population_channel_at_shutdown() noexcept
+{
+	bool expected = false;
+	if (!population_channel_busy.compare_exchange_strong(expected, true,
+		std::memory_order_acq_rel)) return;
+	try
+	{
+		if (population_channel->tracker_ready)
+			emit_population_lines(population_channel->tracker.flush(GetTickCount64()));
+	}
+	catch (...)
+	{
+	}
+	population_channel_busy.store(false, std::memory_order_release);
+}
+
+void report_population_failure(const char* reason, const PopulationProbeCallContext* context,
+	std::uint64_t now) noexcept
+{
+	auto& channel = *population_channel;
+	channel.backoff_until_ms = now + population::failure_backoff_ms;
+	if (channel.failures_logged >= population_failure_log_limit) return;
+	++channel.failures_logged;
+	try
+	{
+		std::string line = std::string("RENOVICE POPULATION FAIL reason=") + reason
+			+ " backoff_ms=" + std::to_string(population::failure_backoff_ms)
+			+ " scope=capability-local";
+		if (context != nullptr)
+		{
+			line += " completed=" + std::to_string(context->completed ? 1 : 0)
+				+ " status=" + std::to_string(context->callback_status);
+			if (context->text[0] != '\0') line += std::string(" error=\"") + context->text + '"';
+		}
+		if (channel.failures_logged == population_failure_log_limit)
+			line += " (further failures suppressed)";
+		config::error(line);
+	}
+	catch (...)
+	{
+	}
+}
+
+void maybe_sample_population(luau_State* state) noexcept
+{
+	if (!config::population_diagnostics_enabled()) return;
+	if (state == nullptr || lua_execution_depth != 0
+		|| GetCurrentThreadId() != captured_owner_thread.load(std::memory_order_acquire)
+		|| state->global_state == nullptr
+		|| state->global_state != captured_global_state.load(std::memory_order_acquire)) return;
+	const auto now = GetTickCount64();
+	auto& channel = *population_channel;
+	if (channel.sampled && !population::sample_due(true, now, channel.last_ms,
+		population::clamp_interval(config::population_interval_ms()))) return;
+	if (now < channel.backoff_until_ms) return;
+	bool expected = false;
+	if (!population_channel_busy.compare_exchange_strong(expected, true,
+		std::memory_order_acq_rel)) return;
+	try
+	{
+		channel.sampled = true;
+		channel.last_ms = now;
+		if (!channel.tracker_ready)
+		{
+			channel.tracker = population::Tracker(config::flags().diagnostics_max_events);
+			channel.tracker_ready = true;
+			if (!population_shutdown_hook_registered.exchange(true, std::memory_order_acq_rel))
+				config::set_shutdown_flush_hook(&flush_population_channel_at_shutdown);
+		}
+		PopulationProbeCallContext context;
+		if (!optional_bridge_hook_value(
+				state, InternalChunk::PopulationProbeV1, "samplePopulation", context.function))
+		{
+			report_population_failure("probe-chunk-not-committed", nullptr, now);
+		}
+		else
+		{
+			bool admitted = false;
+			bool restored = false;
+			int status = -1;
+			{
+				ScopedExecutionDepth depth;
+				const auto result = de_vm_authority::run_current_vm_protected(
+					state, &population_probe_call_leaf, &context);
+				admitted = result.admitted;
+				restored = result.restored;
+				status = result.status;
+			}
+			if (!admitted) report_population_failure("vm-not-admitted", &context, now);
+			else if (!restored) report_population_failure("vm-frame-not-restored", &context, now);
+			else if (status != 0 || !context.completed || context.callback_status != 0)
+				report_population_failure("probe-call-failed", &context, now);
+			else if (!context.returned_string)
+				report_population_failure("probe-returned-non-string", &context, now);
+			else
+				emit_population_lines(channel.tracker.sample(context.text, now));
+		}
+	}
+	catch (...)
+	{
+		report_population_failure("native-exception", nullptr, now);
+	}
+	population_channel_busy.store(false, std::memory_order_release);
+}
+// END POPULATION_DIAGNOSTICS
+
 bool exact_current_lua_instruction(
 	luau_State* state,
 	std::uint32_t& raw_instruction
@@ -16184,6 +16451,7 @@ void vm_execute_detour(luau_State* state)
 		drain_pending_target_addons_for_vm(state);
 	}
 	maybe_sample_vm_memory(state);
+	maybe_sample_population(state);
 	maybe_poll_runtime_controls();
 	maybe_run_safe_runtime_tick(state);
 }
@@ -18307,6 +18575,428 @@ bool optional_bridge_hook_value(
 }
 // END OPTIONAL_INTERNAL_BRIDGES
 
+// BEGIN OBJECT_REFLECTION_LUA_API
+// OBJECT_REFLECTION_V1 (2026-10-31): _T.RENOVICE.object in the DE VM (never
+// Pluto). Same publication class as _T.RENOVICE_TRACE: a collision-checked
+// shared-table field whose table is rooted under a reserved registry key, so a
+// script that keeps `local R = _T.RENOVICE` keeps a live table. The C closures
+// have no upvalues and retain nothing; every call re-validates the provider,
+// the owner thread and the engine object. Native work happens in one C++
+// scope that ends before anything is pushed; the push phase has no live
+// destructors, so a DE Lua error (longjmp) while pushing skips none.
+constexpr const char* object_api_shared_field = "RENOVICE";
+
+enum class ObjectApiOperation : std::uint8_t { fields, get, apply, set, dump };
+enum class ObjectApiResultKind : std::uint8_t { failure, text, scalar, names, fields };
+
+struct ObjectApiResult
+{
+	ObjectApiResultKind kind = ObjectApiResultKind::failure;
+	std::string reason;
+	std::string text;
+	object_reflection::LuaScalar scalar;
+	std::vector<std::string> names;
+	std::vector<object_reflection::FieldInfo> fields;
+};
+// Owner-thread only (checked before use); reused between calls.
+ObjectApiResult object_api_result;
+
+bool object_api_string_argument(const luau_TValue& value, std::size_t limit, std::string& out)
+{
+	out.clear();
+	if ((value.type != LUAU_STRING && value.type != deployed_string_tag)
+		|| value.value.as_uintptr == 0
+		|| value.value.as_uintptr > (std::numeric_limits<std::uintptr_t>::max)() - 0x18
+		|| diagnostics::bad_read_ptr(reinterpret_cast<void*>(value.value.as_uintptr), 0x19))
+	{
+		return false;
+	}
+	// TString: length at +0x14, characters at +0x18 (NUL-terminated). When the
+	// recorded length is not consistent with the terminator, fall back to the
+	// bounded NUL scan the error-text readers use (an embedded NUL then ends
+	// the text, which RENOVICE.object never needs).
+	std::uint32_t length = 0;
+	std::memcpy(&length, reinterpret_cast<const void*>(value.value.as_uintptr + 0x14), 4);
+	const char* const text = reinterpret_cast<const char*>(value.value.as_uintptr + 0x18);
+	if (length <= limit && !diagnostics::bad_read_ptr(text, std::size_t{length} + 1)
+		&& text[length] == '\0')
+	{
+		out.assign(text, length);
+		return true;
+	}
+	std::size_t scanned = 0;
+	while (scanned <= limit)
+	{
+		const std::size_t page_left = 4096 - ((reinterpret_cast<std::uintptr_t>(text) + scanned) & 4095);
+		if (diagnostics::bad_read_ptr(text + scanned, 1)) return false;
+		const std::size_t chunk = (std::min)(page_left, limit + 1 - scanned);
+		const void* terminator = std::memchr(text + scanned, '\0', chunk);
+		if (terminator != nullptr)
+		{
+			out.assign(text, static_cast<const char*>(terminator) - text);
+			return true;
+		}
+		scanned += chunk;
+	}
+	out.clear();
+	return false;
+}
+
+void object_api_fail(const char* reason, std::string_view detail = {})
+{
+	object_api_result.kind = ObjectApiResultKind::failure;
+	object_api_result.reason = reason;
+	if (!detail.empty())
+	{
+		object_api_result.reason.push_back(' ');
+		object_api_result.reason.append(detail);
+	}
+}
+
+void object_api_compute(luau_State* state, ObjectApiOperation operation)
+{
+	object_api_result.text.clear();
+	object_api_result.names.clear();
+	object_api_result.fields.clear();
+	object_api_result.scalar = {};
+	if (!object_reflection::available())
+	{
+		object_api_fail("capability-unavailable", object_reflection::unavailable_reason());
+		return;
+	}
+	if (state == nullptr || state->intop == nullptr || state->outtop == nullptr
+		|| state->outtop < state->intop)
+	{
+		object_api_fail("vm-state-invalid");
+		return;
+	}
+	const auto owner = captured_owner_thread.load(std::memory_order_acquire);
+	if (owner == 0 || GetCurrentThreadId() != owner)
+	{
+		object_api_fail("wrong-thread");
+		return;
+	}
+	const int arguments = luau_gettop(state);
+	Object* const object = arguments >= 1 ? readable_engine_object(state->intop[0]) : nullptr;
+	if (object == nullptr)
+	{
+		object_api_fail("argument-1-not-engine-object");
+		return;
+	}
+	object_reflection::Outcome outcome;
+	switch (operation)
+	{
+	case ObjectApiOperation::fields:
+		outcome = object_reflection::fields(object, object_api_result.fields);
+		object_api_result.kind = ObjectApiResultKind::fields;
+		break;
+	case ObjectApiOperation::dump:
+		outcome = object_reflection::dump(object, object_api_result.text);
+		object_api_result.kind = ObjectApiResultKind::text;
+		break;
+	case ObjectApiOperation::get:
+	{
+		std::string key;
+		if (arguments < 2 || !object_api_string_argument(state->intop[1], 128, key))
+		{
+			object_api_fail("argument-2-not-field-name");
+			return;
+		}
+		outcome = object_reflection::get(object, key, object_api_result.scalar);
+		object_api_result.kind = ObjectApiResultKind::scalar;
+		break;
+	}
+	case ObjectApiOperation::apply:
+	{
+		std::string text;
+		if (arguments < 2 || !object_api_string_argument(state->intop[1],
+			object_reflection::apply_text_limit + 1, text))
+		{
+			object_api_fail("argument-2-not-text");
+			return;
+		}
+		outcome = object_reflection::apply(object, text, object_api_result.names);
+		object_api_result.kind = ObjectApiResultKind::names;
+		break;
+	}
+	case ObjectApiOperation::set:
+	{
+		std::string key;
+		if (arguments < 3 || !object_api_string_argument(state->intop[1], 128, key))
+		{
+			object_api_fail("argument-2-not-field-name");
+			return;
+		}
+		object_reflection::LuaScalar value;
+		const auto& argument = state->intop[2];
+		if (argument.type == LUAU_NUMBER)
+		{
+			value.kind = object_reflection::LuaScalar::Kind::number;
+			value.number = argument.value.as_float;
+		}
+		else if (argument.type == LUAU_BOOL)
+		{
+			value.kind = object_reflection::LuaScalar::Kind::boolean;
+			value.boolean = argument.value.as_bool != 0;
+		}
+		else if (object_api_string_argument(argument, 256, value.text))
+		{
+			value.kind = object_reflection::LuaScalar::Kind::string;
+		}
+		else
+		{
+			object_api_fail("argument-3-not-number-boolean-or-string");
+			return;
+		}
+		outcome = object_reflection::set(object, key, value, object_api_result.names);
+		object_api_result.kind = ObjectApiResultKind::names;
+		break;
+	}
+	}
+	if (outcome.reason != nullptr) object_api_fail(outcome.reason, outcome.detail);
+}
+
+// Destructor-free: reads only the owner-thread result object.
+int object_api_push(luau_State* state) noexcept
+{
+	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
+		|| luau_pushstring == nullptr || luau_createtable == nullptr
+		|| luau_settable == nullptr || setfield == nullptr || check_stack(state, 8) == 0)
+	{
+		return 0;
+	}
+	const auto& result = object_api_result;
+	switch (result.kind)
+	{
+	case ObjectApiResultKind::failure:
+	{
+		luau_TValue nil{};
+		nil.type = LUAU_NIL;
+		if (!append_game_vm_stack_value(state, nil)) return 0;
+		luau_pushstring(state, result.reason.c_str());
+		return 2;
+	}
+	case ObjectApiResultKind::text:
+		luau_pushstring(state, result.text.c_str());
+		return 1;
+	case ObjectApiResultKind::scalar:
+		if (result.scalar.kind == object_reflection::LuaScalar::Kind::number)
+		{
+			return luau_push_number(state, static_cast<float>(result.scalar.number)) ? 1 : 0;
+		}
+		if (result.scalar.kind == object_reflection::LuaScalar::Kind::boolean)
+		{
+			luau_TValue boolean{};
+			boolean.value.as_bool = result.scalar.boolean ? 1 : 0;
+			boolean.type = LUAU_BOOL;
+			return append_game_vm_stack_value(state, boolean) ? 1 : 0;
+		}
+		luau_pushstring(state, result.scalar.text.c_str());
+		return 1;
+	case ObjectApiResultKind::names:
+		luau_createtable(state, static_cast<int>(result.names.size()), 0);
+		for (std::size_t i = 0; i != result.names.size(); ++i)
+		{
+			if (!luau_push_number(state, static_cast<float>(i + 1))) return 1;
+			luau_pushstring(state, result.names[i].c_str());
+			luau_settable(state, -3);
+		}
+		return 1;
+	case ObjectApiResultKind::fields:
+		luau_createtable(state, static_cast<int>(result.fields.size()), 0);
+		for (std::size_t i = 0; i != result.fields.size(); ++i)
+		{
+			const auto& field = result.fields[i];
+			if (!luau_push_number(state, static_cast<float>(i + 1))) return 1;
+			luau_createtable(state, 0, 3);
+			if (!raw_table_set_string(state, -1, "name", field.name.c_str())
+				|| !raw_table_set_string(state, -1, "type", object_reflection::field_type_label(field.type))
+				|| !raw_table_set_bool(state, -1, "writable", field.writable))
+			{
+				return 0;
+			}
+			luau_settable(state, -3);
+		}
+		return 1;
+	}
+	return 0;
+}
+
+int object_api_dispatch(luau_State* state, ObjectApiOperation operation) noexcept
+{
+	try
+	{
+		object_api_compute(state, operation);
+	}
+	catch (...)
+	{
+		try { object_api_fail("native-exception"); }
+		catch (...) { return 0; }
+	}
+	return object_api_push(state);
+}
+
+int object_api_fields(luau_State* state) { return object_api_dispatch(state, ObjectApiOperation::fields); }
+int object_api_get(luau_State* state) { return object_api_dispatch(state, ObjectApiOperation::get); }
+int object_api_apply(luau_State* state) { return object_api_dispatch(state, ObjectApiOperation::apply); }
+int object_api_set(luau_State* state) { return object_api_dispatch(state, ObjectApiOperation::set); }
+int object_api_dump(luau_State* state) { return object_api_dispatch(state, ObjectApiOperation::dump); }
+
+enum class ObjectApiPublishFailure : std::uint8_t
+{
+	none, prerequisite, stack_capacity, shared_table_missing, shared_field_collision, readback_mismatch,
+};
+
+struct ObjectApiPublishContext
+{
+	bool completed = false;
+	bool kept = false;
+	bool created = false;
+	ObjectApiPublishFailure failure = ObjectApiPublishFailure::none;
+};
+static_assert(std::is_trivially_copyable_v<ObjectApiPublishContext>);
+
+const char* object_api_publish_failure_label(ObjectApiPublishFailure failure) noexcept
+{
+	switch (failure)
+	{
+	case ObjectApiPublishFailure::none: return "none";
+	case ObjectApiPublishFailure::prerequisite: return "prerequisite";
+	case ObjectApiPublishFailure::stack_capacity: return "stack-capacity";
+	case ObjectApiPublishFailure::shared_table_missing: return "shared-table-missing";
+	case ObjectApiPublishFailure::shared_field_collision: return "shared-field-collision";
+	case ObjectApiPublishFailure::readback_mismatch: return "readback-mismatch";
+	}
+	return "unknown";
+}
+
+// BEGIN OBJECT_API_PUBLISH_PROTECTED_LEAF
+void object_api_publish_leaf(luau_State* state, void* raw_context) noexcept
+{
+	auto* const context = static_cast<ObjectApiPublishContext*>(raw_context);
+	if (context == nullptr) return;
+	if (state == nullptr || state->outtop == nullptr || check_stack == nullptr
+		|| getfield == nullptr || setfield == nullptr || luau_pushcclosurek == nullptr
+		|| luau_createtable == nullptr)
+	{
+		context->failure = ObjectApiPublishFailure::prerequisite;
+		context->completed = true;
+		return;
+	}
+	if (check_stack(state, 16) == 0)
+	{
+		context->failure = ObjectApiPublishFailure::stack_capacity;
+		context->completed = true;
+		return;
+	}
+	const auto base_offset = luau_savestack(state, state->outtop);
+	// base[0] = _T, base[1] = _T.RENOVICE, base[2] = registry root.
+	if (!raw_push_vm_global_noexcept(state, "_T")
+		|| !is_table(luau_restorestack(state, base_offset)->type))
+	{
+		state->outtop = luau_restorestack(state, base_offset);
+		context->failure = ObjectApiPublishFailure::shared_table_missing;
+		context->completed = true;
+		return;
+	}
+	getfield(state, -1, object_api_shared_field);
+	getfield(state, -10000, object_api_registry_key);
+	auto* base = luau_restorestack(state, base_offset);
+	const auto existing = base[1];
+	const auto rooted = base[2];
+	if (existing.type != LUAU_NIL)
+	{
+		if (!is_table(rooted.type) || !same_lua_value(existing, rooted))
+			context->failure = ObjectApiPublishFailure::shared_field_collision;
+		else
+			context->kept = true;
+		state->outtop = base;
+		context->completed = true;
+		return;
+	}
+	if (!is_table(rooted.type))
+	{
+		state->outtop = base + 2;
+		luau_createtable(state, 0, 2);                 // base[2] = API table
+		luau_createtable(state, 0, 5);                 // base[3] = object table
+		luau_pushcclosurek(state, &object_api_fields, "RENOVICE.object.fields", 0, nullptr);
+		setfield(state, -2, "fields");
+		luau_pushcclosurek(state, &object_api_get, "RENOVICE.object.get", 0, nullptr);
+		setfield(state, -2, "get");
+		luau_pushcclosurek(state, &object_api_apply, "RENOVICE.object.apply", 0, nullptr);
+		setfield(state, -2, "apply");
+		luau_pushcclosurek(state, &object_api_set, "RENOVICE.object.set", 0, nullptr);
+		setfield(state, -2, "set");
+		luau_pushcclosurek(state, &object_api_dump, "RENOVICE.object.dump", 0, nullptr);
+		setfield(state, -2, "dump");
+		setfield(state, -2, "object");                 // API.object = object table
+		if (!raw_table_set_number(state, -1, "version", 1.0f))
+		{
+			state->outtop = luau_restorestack(state, base_offset);
+			context->failure = ObjectApiPublishFailure::prerequisite;
+			context->completed = true;
+			return;
+		}
+		base = luau_restorestack(state, base_offset);
+		if (!append_game_vm_stack_value(state, base[2]))
+		{
+			state->outtop = base;
+			context->failure = ObjectApiPublishFailure::stack_capacity;
+			context->completed = true;
+			return;
+		}
+		setfield(state, -10000, object_api_registry_key);
+		context->created = true;
+	}
+	base = luau_restorestack(state, base_offset);
+	state->outtop = base + 3;
+	if (!append_game_vm_stack_value(state, base[2]))
+	{
+		state->outtop = base;
+		context->failure = ObjectApiPublishFailure::stack_capacity;
+		context->completed = true;
+		return;
+	}
+	setfield(state, -4, object_api_shared_field);  // _T.RENOVICE = API table
+	getfield(state, -3, object_api_shared_field);
+	base = luau_restorestack(state, base_offset);
+	const bool exact = state->outtop == base + 4 && same_lua_value(base[3], base[2]);
+	state->outtop = base;
+	if (!exact) context->failure = ObjectApiPublishFailure::readback_mismatch;
+	context->completed = true;
+}
+// END OBJECT_API_PUBLISH_PROTECTED_LEAF
+
+// Called at each committed generation in the committing VM. Capability-local:
+// a failure is reported and changes nothing else in the generation.
+void publish_object_api(luau_State* state)
+{
+	ObjectApiPublishContext context;
+	const auto protected_result = de_vm_authority::run_current_vm_protected(
+		state, &object_api_publish_leaf, &context);
+	const bool passed = protected_result.admitted && protected_result.restored
+		&& protected_result.status == 0 && context.completed
+		&& context.failure == ObjectApiPublishFailure::none;
+	if (passed)
+	{
+		std::ostringstream line;
+		line << "RENOVICE OBJECT_API PUBLISH PASS field=_T." << object_api_shared_field
+			<< " root=" << object_api_registry_key
+			<< " action=" << (context.kept ? "kept" : context.created ? "created" : "republished")
+			<< " vm=" << state->global_state
+			<< " provider=" << (object_reflection::available() ? "available" : "unavailable");
+		if (!object_reflection::available()) line << " reason=\"" << object_reflection::unavailable_reason() << '"';
+		config::verbose(line.str());
+		return;
+	}
+	config::error(std::string("RENOVICE OBJECT_API PUBLISH FAIL reason=")
+		+ object_api_publish_failure_label(context.failure)
+		+ " status=" + std::to_string(protected_result.status)
+		+ " admitted=" + (protected_result.admitted ? "1" : "0")
+		+ " scope=capability-local generation=continues");
+}
+// END OBJECT_REFLECTION_LUA_API
+
 bool apply_generation(
 	const std::vector<Chunk>& candidate,
 	const std::vector<std::uint64_t>& candidate_target_keys,
@@ -18339,6 +19029,10 @@ bool apply_generation(
 			<< lua_mutation_boundary_label(lua_blocker) << std::endl;
 		return false;
 	}
+	// OBJECT_REFLECTION_V1: publish _T.RENOVICE before any member of this
+	// generation runs, so Inject scripts and addons see it at load and activate.
+	// Capability-local: its failure never rolls the generation back.
+	publish_object_api(state);
 	const bool managed_generation_reused =
 		unchanged_managed_generation_can_reuse_roots(
 			active_chunks, candidate, active_addons);

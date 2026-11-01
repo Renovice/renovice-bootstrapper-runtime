@@ -9,6 +9,7 @@
 #include "renovice/replacement_settings.hpp"
 #include "renovice/replacements.hpp"
 #include "renovice/riven.hpp"
+#include "renovice/object_reflection.hpp"
 #include "renovice/script_control.hpp"
 #include "renovice/swf.hpp"
 
@@ -4638,6 +4639,14 @@ static SOUP_FORCEINLINE void create_all_hooks()
 			log_optional_scan_failure(false);
 		}
 	}
+
+#if SOUP_BITS == 64
+	// OBJECT_REFLECTION_V1 (RENOVICE.object): resolve the engine archive functions
+	// from the same metadata text-apply site BEFORE the Metadata Patches callsite
+	// hook below rewrites its text-load call. Capability-local: a failure leaves
+	// only RENOVICE.object unavailable.
+	renovice::object_reflection::initialise();
+#endif
 
 #if METADATA_PATCHES && SOUP_BITS == 64
 	if (game_version >= GV(35, 5, 0))

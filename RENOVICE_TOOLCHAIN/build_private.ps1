@@ -62,6 +62,7 @@ foreach ($tool in @('git', 'pluto', 'vswhere')) {
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_de_vm_authority.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_protected_game_vm_operations.ps1")
 & (Join-Path $repo "RENOVICE_TOOLCHAIN\runtime\verify_openwf_bridge_bounds.ps1")
+& (Join-Path $repo "RENOVICE_TOOLCHAIN\object_reflection\verify_object_reflection.ps1")
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (-not (Test-Path -LiteralPath $vswhere)) {

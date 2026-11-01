@@ -18,6 +18,8 @@ $workspaceRepos = Split-Path -Parent (Split-Path -Parent $repo)
 $toolchain = Join-Path $workspaceRepos "toolchains\de-luau-toolchain"
 $derecomp = Join-Path $toolchain "bin\derecomp.exe"
 $apiChecker = Join-Path $toolchain "check_ability_api.bat"
+$wfApiCheck = Join-Path $toolchain "bin\wf_api_check.exe"
+$wfApiContracts = Join-Path $toolchain "api\warframe\contracts.tsv"
 $internal = Join-Path $repo "RENOVICE_SCRIPTING\INTERNAL"
 
 function Require([bool]$Condition, [string]$Message) {
@@ -63,10 +65,33 @@ $bridges = @(
             'row = { mLabel = "", mType = types.SPACER, mHeight = UNIFORM_ROW_HEIGHT }'
         )
         Forbidden = @('io.', 'os.', 'loadstring', 'SLIDER')
+    },
+    @{
+        # Population diagnostics probe (2026-10-30): admitted only while
+        # Diagnostics=true + DiagnosticsPopulation=true. Read-only stock calls.
+        Source = 'PopulationProbeV1.luau'
+        Output = '_RENOVICE_INTERNAL_PopulationProbeV1.lua_B'
+        Required = $true
+        # Raw-hash U44 source (Name__fec81f3e is the exact stock method hash).
+        # check_ability_api.bat step 1 is a U43-profile compile that rejects the
+        # U44 seed directive; the U44 compile + byte-exact roundtrip above is
+        # that check here, so only the contract checker (step 2) runs.
+        RawHashU44 = $true
+        Pins = @(
+            '-- RENOVICE_NAME_HASH_SEED: 768e5ed0',
+            'samplePopulation = samplePopulation',
+            'local function alive(d) return d:Name__fec81f3e() end',
+            'local function aliveCapped(d) return d:Name__fec81f3e(true) end',
+            'local npcMgr = region:GetNpcMgr()',
+            'return npcMgr:GetAiDirector()',
+            'return "director=nil"',
+            'local ok, value = pcall(getter, director)'
+        )
+        Forbidden = @('io.', 'os.', 'loadstring', 'Execute(', ':Set', ':Spawn', ':Kill', ':Destroy')
     }
 )
 
-foreach ($required in @($derecomp, $apiChecker)) {
+foreach ($required in @($derecomp, $apiChecker, $wfApiCheck, $wfApiContracts)) {
     Require (Test-Path -LiteralPath $required -PathType Leaf) "toolchain present: $required"
 }
 # derecomp.exe reads short copies and writes into the gate scratch folder (the
@@ -99,7 +124,11 @@ foreach ($bridge in $bridges) {
     if ($LASTEXITCODE -ne 0) { throw "SCRIPT SETTINGS BRIDGE GATE FAIL: U44 compile failed: $($bridge.Source)" }
     & $derecomp de-roundtrip $shortOutput
     if ($LASTEXITCODE -ne 0) { throw "SCRIPT SETTINGS BRIDGE GATE FAIL: byte-exact roundtrip failed: $($bridge.Output)" }
-    $apiOutput = @(& $apiChecker $shortSource --show-unknown 2>&1 | ForEach-Object { $_.ToString() })
+    if ($bridge.ContainsKey('RawHashU44') -and $bridge.RawHashU44) {
+        $apiOutput = @(& $wfApiCheck $wfApiContracts $shortSource --show-unknown 2>&1 | ForEach-Object { $_.ToString() })
+    } else {
+        $apiOutput = @(& $apiChecker $shortSource --show-unknown 2>&1 | ForEach-Object { $_.ToString() })
+    }
     $apiExit = $LASTEXITCODE
     $apiOutput | Write-Output
     Require ($apiExit -eq 0) "$($bridge.Source) passes the Warframe API contract check (0 violations)"
@@ -147,5 +176,24 @@ foreach ($forbidden in @('std::string', 'std::vector', 'std::lock_guard', 'std::
 }
 Require ($injection.Contains('static_assert(std::is_trivially_copyable_v<SettingsPageLeafContext>);') -and $injection.Contains('static_assert(std::is_trivially_copyable_v<SettingsRowView>);')) 'page leaf contexts are POD'
 Require (-not $injection.Contains('Pluto') -or $hostBlock.IndexOf('pluto', [StringComparison]::OrdinalIgnoreCase) -lt 0) 'no Pluto involvement in the editor host'
+
+# Population channel runtime pins: one atomic load when off, owning VM/thread
+# only, existing protected-run primitive (no new setjmp site), capability-local.
+$popStart = $injection.IndexOf('// BEGIN POPULATION_DIAGNOSTICS', [StringComparison]::Ordinal)
+$popEnd = $injection.IndexOf('// END POPULATION_DIAGNOSTICS', [StringComparison]::Ordinal)
+Require ($popStart -ge 0 -and $popEnd -gt $popStart) 'population channel block present'
+$pop = $injection.Substring($popStart, $popEnd - $popStart)
+Require ($pop.Contains("void maybe_sample_population(luau_State* state) noexcept`n{`n`tif (!config::population_diagnostics_enabled()) return;")) 'population sampler returns after one atomic load when disabled'
+Require ($pop.Contains('GetCurrentThreadId() != captured_owner_thread.load(') -and $pop.Contains('state->global_state != captured_global_state.load(')) 'population sampler runs only on the owning VM and thread'
+Require ($pop.Contains('de_vm_authority::run_current_vm_protected(') -and -not $pop.Contains('setjmp')) 'population probe reuses the protected-run primitive (no new setjmp site)'
+Require ($pop.Contains('population::failure_backoff_ms') -and $pop.Contains('scope=capability-local')) 'population failures back off and stay capability-local'
+Require ($injection.Contains("maybe_sample_vm_memory(state);`n`tmaybe_sample_population(state);")) 'population sampler sits at the accepted outer VM return next to the memory sampler'
+Require ($core.Contains('|| (kind == InternalChunk::PopulationProbeV1 && population_enabled)')) 'population probe chunk is admitted only while the channel is enabled'
+$popLeafStart = $pop.IndexOf('void population_probe_call_leaf(', [StringComparison]::Ordinal)
+$popLeafEnd = $pop.IndexOf('struct PopulationChannelState', [StringComparison]::Ordinal)
+$popLeaf = $pop.Substring($popLeafStart, $popLeafEnd - $popLeafStart)
+foreach ($forbidden in @('std::string', 'std::vector', 'std::lock_guard', 'config::', 'catch (', ' new ')) {
+    Require (-not $popLeaf.Contains($forbidden)) "population leaf is destructor-free: no $forbidden"
+}
 
 Write-Output "SCRIPT SETTINGS BRIDGES PASS built=$built"

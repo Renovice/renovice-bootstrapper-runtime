@@ -7,6 +7,8 @@
 #include <string>
 #include <string_view>
 
+#include "population_core.hpp"
+
 namespace renovice::config
 {
 enum class DiagnosticsMode : std::uint8_t
@@ -52,6 +54,9 @@ struct Flags
 	bool diagnostics_caster_stats = false;
 	bool diagnostics_buffs = false;
 	bool diagnostics_memory = false;
+	// Population channel (2026-10-30): opt-in, effective only with Diagnostics=true.
+	bool diagnostics_population = false;
+	std::uint64_t diagnostics_population_interval_ms = population::default_interval_ms;
 	std::string diagnostics_damage_source;
 	std::string diagnostics_damage_target_type;
 	bool diagnostics_damage_type_filter_set = false;
@@ -144,6 +149,10 @@ inline void apply_diagnostics_master(Flags& flags) noexcept
 			flags.diagnostics_memory = false;
 		}
 	}
+	// The population channel is never forced on by the master and is masked
+	// unless Diagnostics=true is explicitly set.
+	flags.diagnostics_population = flags.diagnostics_population
+		&& flags.diagnostics_master_set && flags.diagnostics_master_enabled;
 	flags.diagnostics = flags.diagnostics_mode == DiagnosticsMode::trace;
 }
 
@@ -249,6 +258,11 @@ inline Flags parse(std::string_view text)
 				else if (key == "diagnosticscasterstats") result.diagnostics_caster_stats = enabled_value(value);
 				else if (key == "diagnosticsbuffs") result.diagnostics_buffs = enabled_value(value);
 				else if (key == "diagnosticsmemory") result.diagnostics_memory = enabled_value(value);
+				else if (key == "diagnosticspopulation") result.diagnostics_population = enabled_value(value);
+				else if (key == "diagnosticspopulationintervalms")
+				{
+					result.diagnostics_population_interval_ms = population::interval_value(value);
+				}
 				else if (key == "diagnosticsdamagetargettype")
 				{
 					result.diagnostics_damage_target_type = value;

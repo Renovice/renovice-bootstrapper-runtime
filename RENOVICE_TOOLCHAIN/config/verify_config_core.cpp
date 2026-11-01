@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #include <string_view>
 
 #include "../../renovice/config_core.hpp"
@@ -177,6 +178,76 @@ int main()
 		&& source_log_rotation_required(1001, 0, 0, 1000)
 		&& !source_log_rotation_required(990, 0, 10, 1000),
 		"rotation uses the in-memory size plus buffered and incoming bytes");
+
+
+	// Population channel (2026-10-30).
+	{
+		using namespace renovice::population;
+		const auto pop_none = parse("");
+		check(!pop_none.diagnostics_population && pop_none.diagnostics_population_interval_ms == 5000,
+			"population channel defaults off with a 5000 ms interval");
+		check(parse("Diagnostics=true\nDiagnosticsPopulation=true\n").diagnostics_population,
+			"DiagnosticsPopulation=true with Diagnostics=true enables the channel");
+		check(!parse("Diagnostics=false\nDiagnosticsPopulation=true\n").diagnostics_population,
+			"Diagnostics=false masks the population channel");
+		check(!parse("DiagnosticsMode=trace\nDiagnosticsPopulation=true\n").diagnostics_population,
+			"population needs the explicit Diagnostics=true master");
+		check(!parse("Diagnostics=true\n").diagnostics_population,
+			"Diagnostics=true alone never forces the population channel on");
+		check(parse("DiagnosticsPopulationIntervalMs=250\n").diagnostics_population_interval_ms == 1000
+			&& parse("DiagnosticsPopulationIntervalMs=999999\n").diagnostics_population_interval_ms == 60000
+			&& parse("DiagnosticsPopulationIntervalMs=2500\n").diagnostics_population_interval_ms == 2500
+			&& parse("DiagnosticsPopulationIntervalMs=abc\n").diagnostics_population_interval_ms == 5000
+			&& parse("DiagnosticsPopulationIntervalMs=-5\n").diagnostics_population_interval_ms == 5000,
+			"population interval parses and clamps to 1000..60000 (invalid -> default)");
+		check(sample_due(false, 0, 0, 5000) && !sample_due(true, 4999, 0, 5000)
+			&& sample_due(true, 5000, 0, 5000) && sample_due(true, 10, 1000, 5000),
+			"population cadence: first sample, interval, backwards tick admits");
+
+		Tracker pop_tracker(100);
+		const char* pop_a = "alive=10 alive_capped=10 hardcap=40 room=30 budget=200 tier=1 lvl=5-10";
+		const char* pop_b = "alive=20 alive_capped=18 hardcap=50 room=30 budget=150 tier=2 lvl=5-10";
+		auto pop_lines = pop_tracker.sample("director=nil", 0);
+		check(pop_lines.size() == 1 && pop_lines[0] == "RENOVICE POPULATION t=0 director=nil",
+			"first probe line is emitted with t relative to the first sample");
+		check(pop_tracker.sample("director=nil", 5000).empty(), "an identical probe is collapsed");
+		pop_lines = pop_tracker.sample(pop_a, 10000);
+		check(pop_lines.size() == 2 && pop_lines[0] == "RENOVICE POPULATION t=10 repeat=1"
+			&& pop_lines[1] == std::string("RENOVICE POPULATION t=10 ") + pop_a,
+			"a change emits the pending repeat counter, then the new probe");
+		check(pop_tracker.mission_active(), "a director starts a mission");
+		check(pop_tracker.sample(pop_a, 15000).empty(), "repeat within a mission is collapsed");
+		pop_lines = pop_tracker.sample(pop_b, 20000);
+		check(pop_lines.size() == 2 && pop_lines[0] == "RENOVICE POPULATION t=20 repeat=1",
+			"mission change flushes its repeat counter");
+		pop_lines = pop_tracker.sample("director=nil", 30000);
+		check(pop_lines.size() == 2 && pop_lines[0] == "RENOVICE POPULATION t=30 director=nil"
+			&& pop_lines[1] == "RENOVICE POPULATION SUMMARY samples=3 peak_alive=20 avg_alive=13 peak_hardcap=50 duration_s=10"
+			&& !pop_tracker.mission_active(),
+			"director non-nil -> nil emits one mission summary");
+		pop_lines = pop_tracker.sample("alive=err alive_capped=err hardcap=7 room=1 budget=1 tier=0 lvl=1-1", 40000);
+		check(pop_tracker.mission_active() && pop_lines.size() == 1, "a new director resets the mission");
+		pop_tracker.sample("alive=err alive_capped=err hardcap=7 room=1 budget=1 tier=0 lvl=1-1", 45000);
+		pop_lines = pop_tracker.flush(50000);
+		check(pop_lines.size() == 2 && pop_lines[0] == "RENOVICE POPULATION t=50 repeat=1"
+			&& pop_lines[1] == "RENOVICE POPULATION SUMMARY samples=2 peak_alive=0 avg_alive=0 peak_hardcap=7 duration_s=5",
+			"flush emits the pending repeat and the open mission summary; err fields are skipped");
+		check(pop_tracker.flush(60000).empty(), "a second flush has nothing pending");
+
+		Tracker pop_bounded(2);
+		std::size_t pop_total = 0;
+		for (int i = 0; i != 10; ++i)
+			pop_total += pop_bounded.sample("alive=" + std::to_string(i), i * 1000ull).size();
+		check(pop_total == 3, "population output is pop_bounded by DiagnosticsMaxEvents plus one limit notice");
+		check(Tracker(10).sample(std::string(2000, 'x'), 0)[0].size()
+			== std::string("RENOVICE POPULATION t=0 ").size() + maximum_probe_text,
+			"an oversized probe string is truncated");
+		std::int64_t pop_v = 0;
+		check(field_value("alive=5 alive_capped=3", "alive_capped", pop_v) && pop_v == 3
+			&& field_value("alive_capped=3 alive=5", "alive", pop_v) && pop_v == 5
+			&& !field_value("alive=err", "alive", pop_v),
+			"probe field parsing matches whole keys only");
+	}
 
 
 	std::cout << "CONFIG CORE RESULT failures=" << failures << '\n';

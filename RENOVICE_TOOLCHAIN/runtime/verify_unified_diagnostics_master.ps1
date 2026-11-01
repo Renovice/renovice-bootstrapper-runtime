@@ -17,7 +17,9 @@ $coreMarkers = @(
     'flags.diagnostics_damage_capture = DamageCaptureMode::off',
     'flags.diagnostics_caster_stats = false',
     'flags.diagnostics_buffs = false',
-    'flags.diagnostics_memory = false'
+    'flags.diagnostics_memory = false',
+    # Population channel: opt-in, masked unless Diagnostics=true is explicit.
+    '&& flags.diagnostics_master_set && flags.diagnostics_master_enabled;'
 )
 foreach ($marker in $coreMarkers) {
     if (-not $core.Contains($marker)) { throw "Unified diagnostics config marker missing: $marker" }
@@ -26,6 +28,7 @@ foreach ($marker in $coreMarkers) {
 $configMarkers = @(
     'active_diagnostics.store(diagnostics_capture_enabled(active_flags)',
     'active_memory_diagnostics.store(active_flags.diagnostics_memory',
+    'active_population_diagnostics.store(active_flags.diagnostics_population',
     'bool diagnostics_enabled() noexcept',
     'if (!active_flags.diagnostics_memory || memory_log_path.empty()) return;'
 )

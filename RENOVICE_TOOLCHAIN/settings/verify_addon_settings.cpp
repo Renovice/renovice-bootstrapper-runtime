@@ -692,7 +692,11 @@ void end_to_end(const std::filesystem::path& work)
 		&& injection::optional_internal_bridge_admitted(injection::InternalChunk::ScriptSettingsBridgeV1, false)
 		&& !injection::optional_internal_bridge_admitted(injection::InternalChunk::SettingsProbeP0, false)
 		&& injection::optional_internal_bridge_admitted(injection::InternalChunk::SettingsProbeP0, true)
-		&& !injection::optional_internal_bridge_admitted(injection::InternalChunk::Reserved, true),
+		&& !injection::optional_internal_bridge_admitted(injection::InternalChunk::Reserved, true)
+		&& injection::classify_internal_chunk("_RENOVICE_INTERNAL_PopulationProbeV1.lua_B") == injection::InternalChunk::PopulationProbeV1
+		&& !injection::optional_internal_bridge_admitted(injection::InternalChunk::PopulationProbeV1, true)
+		&& injection::optional_internal_bridge_admitted(injection::InternalChunk::PopulationProbeV1, false, true)
+		&& std::string_view(injection::optional_internal_bridge_hook(injection::InternalChunk::PopulationProbeV1)) == "samplePopulation",
 		"internal chunk classification: only named bridges load; the probe only in a probe build");
 	check(script_control::stable_id(script_control::Kind::TargetAddon, "Missions.targets.addon.lua_B")
 			== "target-addon:missions.targets.addon.lua_b"

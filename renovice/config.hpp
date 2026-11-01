@@ -29,6 +29,12 @@ Flags flags();
 DiagnosticsMode diagnostics_mode() noexcept;
 bool diagnostics_enabled() noexcept;
 bool memory_diagnostics_enabled() noexcept;
+// Population channel (Diagnostics=true + DiagnosticsPopulation=true); one atomic load.
+bool population_diagnostics_enabled() noexcept;
+// Called once at normal process exit, before the final source-log flush.
+using ShutdownFlushHook = void (*)() noexcept;
+void set_shutdown_flush_hook(ShutdownFlushHook hook) noexcept;
+std::uint64_t population_interval_ms() noexcept;
 void memory_log(std::string_view message) noexcept;
 
 void log(std::string_view message) noexcept;

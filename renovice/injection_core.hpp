@@ -445,6 +445,10 @@ inline constexpr std::string_view script_settings_bridge_filename =
 	"_RENOVICE_INTERNAL_ScriptSettingsBridgeV1.lua_B";
 inline constexpr std::string_view settings_probe_bridge_filename =
 	"_RENOVICE_INTERNAL_ScriptSettingsProbeP0.lua_B";
+// Population diagnostics probe (2026-10-30): admitted only while the
+// Diagnostics=true + DiagnosticsPopulation=true channel is enabled.
+inline constexpr std::string_view population_probe_filename =
+	"_RENOVICE_INTERNAL_PopulationProbeV1.lua_B";
 
 enum class InternalChunk
 {
@@ -452,6 +456,7 @@ enum class InternalChunk
 	ScriptsBridgeV10,
 	ScriptSettingsBridgeV1,
 	SettingsProbeP0,
+	PopulationProbeV1,
 	Reserved,
 };
 
@@ -474,6 +479,7 @@ inline InternalChunk classify_internal_chunk(std::string_view filename) noexcept
 	if (is_internal_scripts_ui_bridge(filename)) return InternalChunk::ScriptsBridgeV10;
 	if (filename == script_settings_bridge_filename) return InternalChunk::ScriptSettingsBridgeV1;
 	if (filename == settings_probe_bridge_filename) return InternalChunk::SettingsProbeP0;
+	if (filename == population_probe_filename) return InternalChunk::PopulationProbeV1;
 	if (has_internal_infrastructure_prefix(filename)) return InternalChunk::Reserved;
 	return InternalChunk::None;
 }
@@ -487,9 +493,10 @@ inline bool is_internal_infrastructure(std::string_view filename) noexcept
 // a build that was compiled for it. Everything else in the reserved namespace
 // is inventoried and ignored.
 inline bool optional_internal_bridge_admitted(
-	InternalChunk kind, bool settings_probe_build) noexcept
+	InternalChunk kind, bool settings_probe_build, bool population_enabled = false) noexcept
 {
 	return kind == InternalChunk::ScriptSettingsBridgeV1
+		|| (kind == InternalChunk::PopulationProbeV1 && population_enabled)
 		|| (kind == InternalChunk::SettingsProbeP0 && settings_probe_build);
 }
 
@@ -499,6 +506,7 @@ inline const char* optional_internal_bridge_hook(InternalChunk kind) noexcept
 	{
 	case InternalChunk::ScriptSettingsBridgeV1: return "openScriptSettings";
 	case InternalChunk::SettingsProbeP0: return "openProbe";
+	case InternalChunk::PopulationProbeV1: return "samplePopulation";
 	case InternalChunk::None:
 	case InternalChunk::ScriptsBridgeV10:
 	case InternalChunk::Reserved:

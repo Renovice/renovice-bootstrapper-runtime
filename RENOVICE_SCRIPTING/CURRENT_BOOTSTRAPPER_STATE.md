@@ -1,5 +1,22 @@
 # Current RENOVICE bootstrapper state
 
+## 2026-10-31 OBJECT_REFLECTION_V1 (`_T.RENOVICE.object`) — built and gated, not deployed
+
+- **What.** Universal engine-object field API for DE VM scripts/addons: `fields`, `get`, `apply`, `set`, `dump`
+  (`renovice/object_reflection{_core.hpp,.hpp,.cpp}`, Lua block `OBJECT_REFLECTION_LUA_API` in `injection.cpp`).
+  Reads go through the engine text writer (+ a recording copy of its vtable on our writer only); writes go through
+  the metadata text reader + `ApplyArchive(obj, reader, 1)`. Evidence: `RESEARCH/OBJECT_REFLECTION_V1_2026-10-31.md`.
+- **Per build, no RVAs.** Resolved at startup from the Metadata Patches signature and the engine writer call sites,
+  before that hook is installed; resolves on the installed 44.1.3 and all 7 reference images. Failure =
+  `RENOVICE OBJECT_REFLECTION FAIL reason=...`, only RENOVICE.object unavailable.
+- **Publication.** `_T.RENOVICE` (collision-checked, rooted at registry `RENOVICE.object-api.v1`) at each generation
+  commit, before members run; failure is capability-local. Pluto untouched. No new setjmp guard site.
+- **Build.** PRIVATE BUILD PASS warnings=0 errors=0, DLL `1b564ef007b1da6759fc46b46db532e888a8e468e0d7692a1462a61142d06b85`
+  (6,219,776 B), all gates PASS incl. new `object_reflection/verify_object_reflection.ps1`. Fault-guard check: 3 sites,
+  each stores the real `rbp`. Uncommitted population-channel work kept.
+- **Pending live.** `RENOVICE_LIVE_TESTS/OBJECT_REFLECTION_V1_2026-10-31/` (director test). A second unrelated
+  target is still required before calling it universal.
+
 ## 2026-10-29 Fault-guard frame fix, LOG_LEVELS_V1, SettingsMenuNested removed — installed
 
 - **Crash (live 2026-10-29 16:49).** Windows Application log: `0xc0000005` in `WTSAPI32.dll` (`42c70a05…`) at

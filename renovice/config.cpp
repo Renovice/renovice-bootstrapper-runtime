@@ -45,6 +45,8 @@ std::mutex state_mutex;
 std::atomic<DiagnosticsMode> active_diagnostics_mode = DiagnosticsMode::off;
 std::atomic_bool active_diagnostics = false;
 std::atomic_bool active_memory_diagnostics = false;
+std::atomic_bool active_population_diagnostics = false;
+std::atomic<std::uint64_t> active_population_interval_ms = population::default_interval_ms;
 
 void rotate_source_log_unlocked(std::size_t incoming_bytes) noexcept
 {
@@ -204,11 +206,16 @@ void write_log_unlocked(std::string_view message, bool buffered = false) noexcep
 	}
 }
 
+// Optional channel hook run once before the final flush (population summary).
+std::atomic<ShutdownFlushHook> shutdown_flush_hook = nullptr;
+
 // Flushes buffered diagnostics when the DLL detaches (normal process exit).
 struct SourceLogShutdown
 {
 	~SourceLogShutdown() noexcept
 	{
+		if (const auto hook = shutdown_flush_hook.exchange(nullptr, std::memory_order_acq_rel))
+			hook();
 		flush_log_unlocked();
 		close_log_handle_unlocked();
 	}
@@ -397,6 +404,8 @@ bool initialise()
 		<< " DiagnosticsCasterStats=" << active_flags.diagnostics_caster_stats
 		<< " DiagnosticsBuffs=" << active_flags.diagnostics_buffs
 		<< " DiagnosticsMemory=" << active_flags.diagnostics_memory
+		<< " DiagnosticsPopulation=" << active_flags.diagnostics_population
+		<< " DiagnosticsPopulationIntervalMs=" << active_flags.diagnostics_population_interval_ms
 		<< " DiagnosticsDamageSource="
 		<< (active_flags.diagnostics_damage_source.empty()
 			? "all" : active_flags.diagnostics_damage_source)
@@ -446,6 +455,10 @@ void commit_prepared_reload()
 		active_diagnostics.store(diagnostics_capture_enabled(active_flags),
 			std::memory_order_release);
 		active_memory_diagnostics.store(active_flags.diagnostics_memory,
+			std::memory_order_release);
+		active_population_interval_ms.store(
+			active_flags.diagnostics_population_interval_ms, std::memory_order_release);
+		active_population_diagnostics.store(active_flags.diagnostics_population,
 			std::memory_order_release);
 		prepared_flags.reset();
 	}
@@ -528,6 +541,21 @@ bool diagnostics_enabled() noexcept
 bool memory_diagnostics_enabled() noexcept
 {
 	return active_memory_diagnostics.load(std::memory_order_acquire);
+}
+
+void set_shutdown_flush_hook(ShutdownFlushHook hook) noexcept
+{
+	shutdown_flush_hook.store(hook, std::memory_order_release);
+}
+
+bool population_diagnostics_enabled() noexcept
+{
+	return active_population_diagnostics.load(std::memory_order_acquire);
+}
+
+std::uint64_t population_interval_ms() noexcept
+{
+	return active_population_interval_ms.load(std::memory_order_acquire);
 }
 
 void memory_log(std::string_view message) noexcept
