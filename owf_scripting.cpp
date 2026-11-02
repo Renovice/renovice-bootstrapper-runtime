@@ -1,6 +1,7 @@
 #include "owf_scripting.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -56,8 +57,19 @@ struct DeferredGameRegistryRelease
 std::mutex deferred_game_registry_releases_mutex;
 std::deque<DeferredGameRegistryRelease> deferred_game_registry_releases;
 constexpr std::size_t maximum_deferred_registry_key_bytes = 256;
-constexpr std::size_t maximum_registry_releases_per_drain = 256;
-constexpr std::size_t maximum_deferred_registry_release_count = 32768;
+// 2026-11-02 REGISTRY_RELEASE_QUEUE_V2: a deferred registry release is never
+// refused for queue size. Dropping one kept its DE registry root (and the game
+// object behind it) alive for the rest of the process; under sustained wrapper
+// churn (mod browsing, search) that was an unbounded leak. The queue now grows,
+// each owned drain catches up proportionally to its backlog (bounded per frame
+// so one tick cannot stall), and crossing the warning size and every doubling
+// after it is reported once.
+constexpr std::size_t minimum_registry_releases_per_drain = 256;
+constexpr std::size_t maximum_registry_releases_per_drain = 4096;
+constexpr std::size_t registry_release_backlog_divisor = 8;
+constexpr std::size_t deferred_registry_release_warning_count = 32768;
+std::size_t deferred_registry_release_next_warning = deferred_registry_release_warning_count;
+std::atomic<std::size_t> deferred_registry_release_warning_pending{0};
 
 enum class ProtectedGameVmOperationKind : std::uint8_t
 {
@@ -782,13 +794,15 @@ bool queue_deferred_game_registry_release(
 	try
 	{
 		std::lock_guard lock(deferred_game_registry_releases_mutex);
-		if (deferred_game_registry_releases.size()
-			>= maximum_deferred_registry_release_count)
-		{
-			return false;
-		}
 		deferred_game_registry_releases.push_back({
 			global_state, std::string(key, key_size)});
+		const auto queued = deferred_game_registry_releases.size();
+		if (queued >= deferred_registry_release_next_warning)
+		{
+			// Reported by the next owned drain, outside this finalizer.
+			deferred_registry_release_warning_pending.store(queued, std::memory_order_relaxed);
+			deferred_registry_release_next_warning *= 2;
+		}
 		return true;
 	}
 	catch (...)
@@ -1061,8 +1075,32 @@ std::size_t drain_deferred_game_registry_releases(luau_State* state) noexcept
 		return 0;
 	}
 
+	if (const auto warned = deferred_registry_release_warning_pending.exchange(
+			0, std::memory_order_relaxed); warned != 0)
+	{
+		try
+		{
+			owfScript::logNl("RENOVICE registry release backlog=" + std::to_string(warned)
+				+ " (Pluto wrappers released slower than created; draining, nothing dropped)");
+		}
+		catch (...)
+		{
+		}
+	}
+
+	std::size_t limit = minimum_registry_releases_per_drain;
+	try
+	{
+		std::lock_guard lock(deferred_game_registry_releases_mutex);
+		limit = std::clamp(deferred_game_registry_releases.size() / registry_release_backlog_divisor,
+			minimum_registry_releases_per_drain, maximum_registry_releases_per_drain);
+	}
+	catch (...)
+	{
+	}
+
 	std::size_t released = 0;
-	while (released != maximum_registry_releases_per_drain)
+	while (released != limit)
 	{
 		DeferredGameRegistryRelease pending;
 		try

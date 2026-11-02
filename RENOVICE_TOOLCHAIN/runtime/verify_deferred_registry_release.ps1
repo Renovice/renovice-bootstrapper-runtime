@@ -46,8 +46,14 @@ foreach ($forbidden in @('luau_pushstring', 'luau_settable', 'reserve_game_vm_st
         throw "DEFERRED REGISTRY RELEASE FAIL: queue path touches the DE VM through $forbidden"
     }
 }
+# 2026-11-02 REGISTRY_RELEASE_QUEUE_V2: a release is never refused for queue
+# size (a refused release kept its registry root alive for the whole process);
+# growth past the warning size is reported instead.
+if ($queue -match 'size\(\)\s*\r?\n?\s*>=\s*maximum_deferred_registry_release_count' -or $queue.Contains('maximum_deferred_registry_release_count')) {
+    throw 'DEFERRED REGISTRY RELEASE FAIL: queue refuses releases at a size cap (registry roots would leak)'
+}
 foreach ($required in @(
-    'maximum_deferred_registry_release_count',
+    'deferred_registry_release_next_warning',
     'key_size > maximum_deferred_registry_key_bytes',
     'global_state == nullptr',
     'std::lock_guard lock(deferred_game_registry_releases_mutex)'
@@ -61,6 +67,7 @@ $drain = Get-Region $bridge 'std::size_t drain_deferred_game_registry_releases('
 foreach ($required in @(
     'iterator->global_state == state->global_state',
     'maximum_registry_releases_per_drain',
+    'std::clamp(deferred_game_registry_releases.size() / registry_release_backlog_divisor',
     'operation.kind = ProtectedGameVmOperationKind::release_registry',
     'operation.text = pending.key.c_str()',
     'run_protected_game_vm_operation(',
@@ -128,4 +135,4 @@ foreach ($required in @(
     }
 }
 
-Write-Host 'DEFERRED REGISTRY RELEASE PASS finalizer=queue-only owner=construction-global-state drain=owner-transaction local-pcall=yes bounded=yes'
+Write-Host 'DEFERRED REGISTRY RELEASE PASS finalizer=queue-only owner=construction-global-state drain=owner-transaction local-pcall=yes queue=no-drop drain=backlog-scaled-bounded'
