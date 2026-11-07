@@ -1,3 +1,4 @@
+warning: in the working copy of 'RENOVICE_TOOLCHAIN/replacements/verify_live_literals.ps1', LF will be replaced by CRLF the next time Git touches it
 OpenWF/bgscript.pluto -> OpenWF/bgscript.pluto
 OpenWF/bootstrapper-manual.html -> OpenWF/Reference Manual.html
 OpenWF/Download Latest DLL.ps1 -> OpenWF/Download Latest DLL.ps1 [unchanged]

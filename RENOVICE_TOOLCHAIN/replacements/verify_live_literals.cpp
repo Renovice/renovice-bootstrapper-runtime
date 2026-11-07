@@ -145,7 +145,9 @@ void part1_core()
 		"core: LOADN encode {08, reg, imm16 LE}");
 	check(patch::encode(site, 32767.0, out) == patch::Error::None && out[2] == 0xFF && out[3] == 0x7F, "core: LOADN 32767 encodes");
 	check(patch::encode(site, 32768.0, out) == patch::Error::OperandOutOfDomain, "core: LOADN 32768 rejected (domain)");
-	check(patch::encode(site, 0.0, out) == patch::Error::OperandOutOfDomain, "core: LOADN 0 rejected (domain 1..32767)");
+	check(patch::encode(site, 0.0, out) == patch::Error::None && out[2] == 0 && out[3] == 0, "core: LOADN 0 encodes");
+	check(patch::encode(site, -32768.0, out) == patch::Error::None && out[2] == 0x00 && out[3] == 0x80, "core: LOADN -32768 encodes");
+	check(patch::encode(site, -32769.0, out) == patch::Error::OperandOutOfDomain, "core: LOADN -32769 rejected (domain)");
 	check(patch::encode(site, 2.5, out) == patch::Error::OperandOutOfDomain, "core: LOADN fraction rejected");
 	patch::Site constant;
 	constant.kind = patch::SiteKind::NumberConstant;
@@ -168,8 +170,8 @@ void part1_core()
 		&& patch::stock_error(coupled, 27.0) == patch::Error::StockDisagrees, "core: coupled site operand = value + value_offset (stock 30 -> 27)");
 	check(patch::encode(coupled, 45.0, out) == patch::Error::None && out[1] == 4 && out[2] == 42 && out[3] == 0,
 		"core: coupled site encodes value + value_offset (45 -> LOADN 42)");
-	check(patch::encode(coupled, 3.0, out) == patch::Error::OperandOutOfDomain && patch::encode(coupled, 4.0, out) == patch::Error::None,
-		"core: coupled site keeps the LOADN domain (3 - 3 = 0 rejected, 4 - 3 = 1 accepted)");
+	check(patch::encode(coupled, 3.0, out) == patch::Error::None && out[2] == 0 && patch::encode(coupled, -32766.0, out) == patch::Error::OperandOutOfDomain,
+		"core: coupled site keeps the LOADN domain (3 - 3 = 0 accepted, -32766 - 3 rejected)");
 	check(patch::row_value(20.0, 3.0, true) == 60.0 && patch::row_value(50.0, 1.4, true) == 70.0
 		&& patch::row_value(0.5, 3.0, false) == 1.5, "core: master row value (llround for integer rows)");
 	check(patch::stock_error(site, 240.0) == patch::Error::None && patch::stock_error(site, 180.0) == patch::Error::StockDisagrees,

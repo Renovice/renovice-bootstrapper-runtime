@@ -13,8 +13,8 @@
 // A site is one exact place in the stock DE Luau (U44) container that encodes a
 // literal the game reads:
 //   - Loadn: a 4-byte U44 LOADN instruction {0x08, register, imm16 LE}. The
-//     value must encode as a whole number in 1..32767 (the positive range the
-//     registrar proved safe for these sites). A site flagged
+//     value must encode as a whole number in -32768..32767 (the signed imm16 the
+//     game decodes; row limits narrow it per tunable). A site flagged
 //     `rewrites_instruction` has another stock instruction (a carried-over,
 //     separately verified linked-result site) that is rewritten into LOADN.
 //   - NumberConstant: the 8-byte little-endian IEEE-754 double of a native
@@ -48,7 +48,7 @@ namespace renovice::live_literal_patch
 {
 inline constexpr unsigned char u44_loadn_opcode = 0x08u;
 inline constexpr unsigned char native_number_tag = 0x02u;
-inline constexpr double loadn_minimum = 1.0;
+inline constexpr double loadn_minimum = -32768.0;
 inline constexpr double loadn_maximum = 32767.0;
 inline constexpr const char* constant_exclusivity_gate = "K_CONSTANT_EXCLUSIVE_V1";
 
@@ -80,7 +80,7 @@ enum class Error : std::uint8_t
 	PreimageChanged,     // the stock bytes differ from the recorded preimage
 	NotLoadnOfRegister,  // a Loadn preimage is not LOADN of the recorded register
 	OperandNotFinite,    // the operand of a constant site is not finite
-	OperandOutOfDomain,  // the operand of a Loadn site is not a whole 1..32767
+	OperandOutOfDomain,  // the operand of a Loadn site is not a whole -32768..32767
 	StockDisagrees,      // the recorded stock value does not encode the preimage
 	Overlap,             // two sites of one module share a byte
 	UnexpectedChange,    // the patched body differs outside the permitted bytes
